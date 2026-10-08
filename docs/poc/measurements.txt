@@ -1,0 +1,103 @@
+=== a idle panel (-style panel -showSeconds NO -animatedBG NO -htmlWidget YES): 60s, app pid 81784, related pids: 81784,81801,81807,81809,81813,81820,81835
+group            avgCPU%  peakCPU%   avgRSS_MB  peakRSS_MB
+app                 0.32      2.60        69.1        74.6
+media-control       0.01      0.80        19.6        20.4
+webkit              0.05      0.90        41.0        50.7
+other               0.00      0.00        11.3        12.5
+TOTAL               0.38      2.60       141.0       158.0
+-- per process (avg CPU%, last RSS MB):
+   81813   SetStoreUpdateService              0.00%     3.9 MB
+   81784   SidePanel                          0.32%    66.5 MB
+   81835   com.apple.audio.SandboxHelper      0.00%     6.3 MB
+   81801   perl                               0.01%    19.8 MB
+   81807   com.apple.WebKit.GPU               0.00%     9.2 MB
+   81809   com.apple.WebKit.WebContent        0.04%    17.8 MB
+   81820   com.apple.WebKit.Networking        0.01%     7.6 MB
+top: avg POWER(sum)=0.31  avg IDLEW(sum)=0.0  avg footprint(sum)=76.6 MB (peak 77.2) over 60 samples
+2026-10-08T12:59:51.038Z launch_to_panel_visible_ms=936 glassAvailable=true style=panel seconds=false anim=false html=true
+
+=== b seconds on (-style panel -showSeconds YES -animatedBG NO -htmlWidget YES): 60s, app pid 85101, related pids: 85101,85107,85108,85109,85110,85111,85126
+group            avgCPU%  peakCPU%   avgRSS_MB  peakRSS_MB
+app                 0.60      0.93        68.1        81.0
+media-control       0.00      0.00        18.8        20.0
+webkit              0.01      0.73        34.9        52.2
+other               0.00      0.00        10.5        12.7
+TOTAL               0.61      0.93       132.3       165.8
+-- per process (avg CPU%, last RSS MB):
+   85110   SetStoreUpdateService              0.00%     3.9 MB
+   85111   com.apple.WebKit.Networking        0.00%     8.1 MB
+   85101   SidePanel                          0.60%    67.5 MB
+   85107   perl                               0.00%    19.3 MB
+   85108   com.apple.WebKit.GPU               0.00%     8.4 MB
+   85109   com.apple.WebKit.WebContent        0.01%    17.8 MB
+   85126   com.apple.audio.SandboxHelper      0.00%     6.3 MB
+top: avg POWER(sum)=0.54  avg IDLEW(sum)=0.7  avg footprint(sum)=76.0 MB (peak 76.8) over 60 samples
+2026-10-08T13:01:21.448Z launch_to_panel_visible_ms=655 glassAvailable=true style=panel seconds=true anim=false html=true
+
+=== c animated bg (-style panel -showSeconds NO -animatedBG YES -htmlWidget YES): 60s, app pid 88037, related pids: 88037,88040,88047,88049,88051,88073,88074
+group            avgCPU%  peakCPU%   avgRSS_MB  peakRSS_MB
+app                 9.00     11.74        69.3        73.3
+media-control       0.00      0.00        19.6        20.5
+webkit              0.06      1.68        37.2        46.3
+other               0.00      0.00        10.8        12.2
+TOTAL               9.05     12.47       136.9       151.1
+-- per process (avg CPU%, last RSS MB):
+   88073   com.apple.WebKit.Networking        0.01%     7.4 MB
+   88074   com.apple.audio.SandboxHelper      0.00%     6.3 MB
+   88040   perl                               0.00%    18.5 MB
+   88047   com.apple.WebKit.GPU               0.01%     9.4 MB
+   88049   com.apple.WebKit.WebContent        0.03%    17.3 MB
+   88037   SidePanel                          9.00%    71.5 MB
+   88051   SetStoreUpdateService              0.00%     4.4 MB
+top: avg POWER(sum)=8.95  avg IDLEW(sum)=5.3  avg footprint(sum)=101.3 MB (peak 110.3) over 60 samples
+2026-10-08T13:02:49.085Z launch_to_panel_visible_ms=615 glassAvailable=true style=panel seconds=false anim=true html=true
+
+=== d cards style (-style cards -showSeconds NO -animatedBG NO -htmlWidget YES): 60s, app pid 90948, related pids: 90948,90964,90965,90966,90969,90983,90992
+group            avgCPU%  peakCPU%   avgRSS_MB  peakRSS_MB
+app                 0.32      1.85        71.0        73.7
+media-control       0.01      0.87        20.1        20.5
+webkit              0.01      0.87        50.1        52.7
+other               0.00      0.00        12.0        12.5
+TOTAL               0.35      1.85       153.2       158.9
+-- per process (avg CPU%, last RSS MB):
+   90992   com.apple.audio.SandboxHelper      0.00%     7.0 MB
+   90948   SidePanel                          0.32%    67.2 MB
+   90964   perl                               0.01%    20.2 MB
+   90965   com.apple.WebKit.GPU               0.00%    13.4 MB
+   90966   com.apple.WebKit.WebContent        0.01%    20.4 MB
+   90969   SetStoreUpdateService              0.00%     4.2 MB
+   90983   com.apple.WebKit.Networking        0.00%    12.5 MB
+top: avg POWER(sum)=0.29  avg IDLEW(sum)=2.0  avg footprint(sum)=77.2 MB (peak 77.5) over 60 samples
+2026-10-08T13:04:17.046Z launch_to_panel_visible_ms=649 glassAvailable=true style=cards seconds=false anim=false html=true
+
+=== e html widget off (-style panel -showSeconds NO -animatedBG NO -htmlWidget NO): 60s, app pid 93649, related pids: 93649,93651,93653
+group            avgCPU%  peakCPU%   avgRSS_MB  peakRSS_MB
+app                 0.24      1.56        57.6        64.8
+media-control       0.02      0.93        20.4        24.5
+other               0.00      0.00         5.7         9.7
+TOTAL               0.25      1.56        83.8        99.0
+-- per process (avg CPU%, last RSS MB):
+   93649   SidePanel                          0.24%    52.9 MB
+   93651   perl                               0.02%    18.2 MB
+   93653   SetStoreUpdateService              0.00%     4.0 MB
+top: avg POWER(sum)=0.21  avg IDLEW(sum)=0.0  avg footprint(sum)=30.8 MB (peak 31.4) over 60 samples
+2026-10-08T13:05:42.645Z launch_to_panel_visible_ms=556 glassAvailable=true style=panel seconds=false anim=false html=false
+
+=== f glass off (NSVisualEffectView) (-style panel -useGlass NO -showSeconds NO -animatedBG NO -htmlWidget YES): 60s, app pid 96678, related pids: 96678,96699,96711,96713,96717,96720,96721
+group            avgCPU%  peakCPU%   avgRSS_MB  peakRSS_MB
+app                 0.26      0.94        65.1        77.1
+media-control       0.02      0.93        19.1        21.2
+webkit              0.06      0.93        38.6        54.6
+other               0.00      0.00        10.8        12.9
+TOTAL               0.34      1.86       133.6       165.8
+-- per process (avg CPU%, last RSS MB):
+   96720   com.apple.WebKit.Networking        0.01%     8.2 MB
+   96721   com.apple.audio.SandboxHelper      0.00%     6.3 MB
+   96678   SidePanel                          0.26%    60.6 MB
+   96699   perl                               0.02%    18.0 MB
+   96711   com.apple.WebKit.GPU               0.02%     9.2 MB
+   96713   com.apple.WebKit.WebContent        0.03%    14.9 MB
+   96717   SetStoreUpdateService              0.00%     3.9 MB
+top: avg POWER(sum)=0.23  avg IDLEW(sum)=0.0  avg footprint(sum)=72.0 MB (peak 72.7) over 60 samples
+2026-10-08T13:07:09.908Z launch_to_panel_visible_ms=815 glassAvailable=true style=panel seconds=false anim=false html=true
+
