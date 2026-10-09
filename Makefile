@@ -6,7 +6,7 @@ export DEVELOPER_DIR := /Applications/Xcode.app/Contents/Developer
 endif
 endif
 
-SWIFT_SOURCES := Sources Tests Package.swift
+SWIFT_SOURCES := Sources Tests Package.swift scripts/verify-update.swift
 
 .PHONY: build test app run dev release format lint check clean
 

@@ -2,7 +2,6 @@
 """Validate the generated Sparkle feed against the app and its final DMG."""
 
 import base64
-import os
 from pathlib import Path
 import plistlib
 import subprocess
@@ -53,14 +52,9 @@ def main():
         plist = plistlib.load(source)
     archive = Path(archive_path)
     signature = verify_metadata(plist, archive, Path(feed_path), version, repo_url)
-    command = [".build/artifacts/sparkle/Sparkle/bin/sign_update", "--verify"]
-    private_key = os.environ.get("SPARKLE_PRIVATE_KEY")
-    if private_key:
-        command += ["--ed-key-file", "-"]
-    else:
-        command += ["--account", "sidelight"]
-    command += [str(archive), signature]
-    subprocess.run(command, input=private_key, text=True, check=True)
+    command = ["xcrun", "swift", "-warnings-as-errors", "scripts/verify-update.swift",
+               plist["SUPublicEDKey"], signature, str(archive)]
+    subprocess.run(command, check=True)
     print("Verified appcast metadata and DMG update signature.")
 
 
