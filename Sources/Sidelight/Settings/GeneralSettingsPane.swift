@@ -13,7 +13,7 @@ struct GeneralSettingsPane: View {
 
         Form {
             Section("Startup") {
-                Toggle(isOn: Binding(get: { loginItem.isEnabled }, set: loginItem.setEnabled)) {
+                Toggle(isOn: Binding(get: { loginItem.isEnabled }, set: { loginItem.setEnabled($0) })) {
                     Text("Launch at login")
                     if !loginItem.isEnabled {
                         Text(loginItem.statusDescription)
