@@ -19,6 +19,7 @@ struct ConfigurationCodingTests {
         configuration.appearance.cards.style = .glass
         configuration.appearance.text = .dark
         configuration.hotkey = Hotkey(keyCode: 49, modifiers: [.control, .option], key: "Space")
+        configuration.updates = UpdateSettings(checksAutomatically: false, installsAutomatically: true)
         configuration.sections = [
             PanelSection(
                 name: "Top",

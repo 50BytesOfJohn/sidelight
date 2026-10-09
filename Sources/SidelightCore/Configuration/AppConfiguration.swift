@@ -16,6 +16,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public var appearance = Appearance()
     public var windowAvoidance: WindowAvoidanceMode = .smart
     public var hotkey: Hotkey = .defaultToggle
+    public var updates = UpdateSettings()
     /// The panel's sections along its edge, each with its own widgets. Every panel shows at least one.
     public var sections: [PanelSection] = [PanelSection(widgets: AppConfiguration.defaultWidgets)]
     /// Per-display overrides of ``panel``.

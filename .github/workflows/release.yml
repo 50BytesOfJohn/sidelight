@@ -1,18 +1,68 @@
-# Push a version tag (git tag v0.2.0 && git push origin v0.2.0) to build Sidelight.app and attach it to a
-# draft GitHub release. Review the draft, then publish it by hand.
+# Push an annotated version tag to build a signed, notarized Sidelight.dmg and attach it to a draft GitHub release:
+#
+#   git tag -a v0.2.0 --cleanup=whitespace -F notes.md   # Markdown notes, shown in the app's update window
+#   git push origin v0.2.0
+#
+# Review the draft, then publish it by hand. Publishing is what ships the update: installed copies read the
+# appcast.xml of the latest published release. docs/RELEASING.md has the details and the one-time setup.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch: # retry with gh workflow run release.yml --ref v0.1.0
 
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  release:
+  check:
     runs-on: xcode-27
     timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$GITHUB_REF" == refs/tags/v* ]] || { echo 'Release must run from a version tag'; exit 1; }
+          VERSION=${GITHUB_REF_NAME#v}
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 1
+          git merge-base --is-ancestor HEAD origin/main || { echo 'Release commit must be on main'; exit 1; }
+          PREVIOUS_TAG=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            gh release download "$PREVIOUS_TAG" --pattern appcast.xml --dir "$RUNNER_TEMP/previous"
+            export VERSION
+            python3 - <<'PY'
+          import os, pathlib, subprocess, xml.etree.ElementTree as ET
+          ns = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
+          feed = pathlib.Path(os.environ['RUNNER_TEMP']) / 'previous/appcast.xml'
+          item = ET.parse(feed).getroot().find('./channel/item')
+          build = int(subprocess.check_output(['git', 'rev-list', '--first-parent', '--count', 'HEAD']))
+          assert build > int(item.findtext(ns + 'version')), 'Build number must increase'
+          version = tuple(map(int, os.environ['VERSION'].split('.')))
+          previous = tuple(map(int, item.findtext(ns + 'shortVersionString').split('.')))
+          assert version > previous, 'Release version must increase'
+          PY
+          fi
+      - name: Select Xcode
+        run: sudo xcode-select --switch /Applications/Xcode.app
+      - name: Check
+        run: make check
+
+  release:
+    needs: check
+    runs-on: xcode-27
+    timeout-minutes: 60
+    # Holds the signing secrets, and only deploys from v* tags.
+    environment: release
     permissions:
       contents: write # create the release and upload assets
     steps:
@@ -22,29 +72,103 @@ jobs:
           persist-credentials: false
       - name: Select Xcode
         run: sudo xcode-select --switch /Applications/Xcode.app
-      - name: Check
-        run: make check
-      - name: Build app bundle
+      - name: Check release credentials
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          VERSION="$VERSION" make app
-      - name: Package
+          for name in DEVELOPER_ID_P12 DEVELOPER_ID_P12_PASSWORD NOTARY_API_KEY NOTARY_KEY_ID NOTARY_ISSUER SPARKLE_PRIVATE_KEY; do
+            [[ -n "${!name}" ]] || { echo "Missing release environment secret: $name"; exit 1; }
+          done
+      - name: Release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          ZIP="Sidelight-$VERSION.zip"
-          ditto -c -k --keepParent build/Sidelight.app "$ZIP"
-          shasum -a 256 "$ZIP" > "$ZIP.sha256"
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          # actions/checkout can turn an annotated tag into a lightweight one; fetch it again to get its message.
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
+            git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | sed '/^-----BEGIN [A-Z ]*SIGNATURE-----$/,$d' \
+              > "$RUNNER_TEMP/notes.md"
+          else
+            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" \
+              --jq .body > "$RUNNER_TEMP/notes.md"
+          fi
+          cat "$RUNNER_TEMP/notes.md"
+      - name: Import signing certificate
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          umask 077
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          printf '%s' "$DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" -f pkcs12 -P "$DEVELOPER_ID_P12_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          rm "$RUNNER_TEMP/developer-id.p12"
+      - name: Build, sign and notarize
+        env:
+          NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          umask 077
+          export NOTARY_KEY_PATH="$RUNNER_TEMP/notary.p8"
+          printf '%s\n' "$NOTARY_API_KEY" > "$NOTARY_KEY_PATH"
+          scripts/release.sh "$VERSION" "$RUNNER_TEMP/notes.md"
+      - name: Preserve release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Sidelight-${{ env.VERSION }}
+          path: |
+            build/release/*.dmg
+            build/release/*.sha256
+            build/release/appcast.xml
+            build/release/Sidelight.dSYM
+          if-no-files-found: error
+          retention-days: 30
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cat > notes.md <<'NOTES'
-          > [!NOTE]
-          > This build isn't notarized by Apple yet. After unzipping, move `Sidelight.app` to `/Applications` and
-          > run `xattr -dr com.apple.quarantine /Applications/Sidelight.app` once before opening it.
-          > Requires an Apple Silicon Mac with macOS 26.
-
-          NOTES
-          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes --notes-file notes.md \
-            --title "Sidelight $VERSION" \
-            "Sidelight-$VERSION.zip" "Sidelight-$VERSION.zip.sha256"
+          {
+            cat "$RUNNER_TEMP/notes.md"
+            echo
+            echo "---"
+            echo
+            echo "**Install:** download \`Sidelight-$VERSION.dmg\`, open it and drag Sidelight to Applications."
+            echo "Sidelight then keeps itself up to date (Settings → General → Updates)."
+            echo "Requires an Apple Silicon Mac with macOS 26."
+          } > "$RUNNER_TEMP/release-body.md"
+          EXISTING=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq \
+            ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .draft")
+          if [[ "$EXISTING" == false ]]; then
+            echo 'This release is already published; its assets must not be replaced.'
+            exit 1
+          elif [[ "$EXISTING" == true ]]; then
+            gh release upload "$GITHUB_REF_NAME" --clobber \
+              "build/release/Sidelight-$VERSION.dmg" "build/release/Sidelight-$VERSION.dmg.sha256" build/release/appcast.xml
+            gh release edit "$GITHUB_REF_NAME" --title "Sidelight $VERSION" --notes-file "$RUNNER_TEMP/release-body.md"
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Sidelight $VERSION" \
+              --notes-file "$RUNNER_TEMP/release-body.md" \
+              "build/release/Sidelight-$VERSION.dmg" "build/release/Sidelight-$VERSION.dmg.sha256" build/release/appcast.xml
+          fi
+          echo "Draft release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove signing material
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2> /dev/null || true
+          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/developer-id.p12"

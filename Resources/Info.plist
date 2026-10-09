@@ -6,11 +6,14 @@
   <key>CFBundleDisplayName</key><string>Sidelight</string>
   <key>CFBundleExecutable</key><string>Sidelight</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>SUFeedURL</key><string>https://github.com/50BytesOfJohn/sidelight/releases/latest/download/appcast.xml</string>
+  <key>SUPublicEDKey</key><string>VRS4SZkmoSz+y/NOMenffjbNDf2QO3gaGRZUPdmtuCI=</string>
+  <key>SUEnableAutomaticChecks</key><true/>
   <key>NSCalendarsFullAccessUsageDescription</key><string>Sidelight shows your next calendar events for today and tomorrow.</string>
 </dict></plist>

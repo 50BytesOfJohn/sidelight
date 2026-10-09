@@ -8,9 +8,9 @@ A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Code
 now playing, coding-agent activity and system stats. Other apps' windows are moved or shrunk so they never sit
 under the panel. Why it exists and where it's going: [docs/VISION.md](docs/VISION.md).
 
-Requires an Apple Silicon Mac with macOS 26. Building needs Xcode 26.4+ (Swift 6.2+ toolchain). There's no
-release yet, so build from source for now; ready-made builds will appear on the
-[Releases](https://github.com/50BytesOfJohn/sidelight/releases) page.
+Requires an Apple Silicon Mac with macOS 26. Download the latest DMG from
+[GitHub Releases](https://github.com/50BytesOfJohn/sidelight/releases/latest), open it and drag Sidelight to
+Applications. Building from source needs Xcode 26.4+ (Swift 6.2+ toolchain).
 
 ## Getting started
 
@@ -28,6 +28,10 @@ On first launch macOS asks for **Accessibility** access (needed to move other ap
 | Now playing | `brew install ungive/media-control/media-control`                      |
 | Calendar    | Calendar access, requested from the widget                             |
 | Agents      | Events POSTed to `127.0.0.1:47821/event` — see `scripts/send-event.sh` |
+
+Packaged releases use Developer ID signing and Apple notarization. Installed copies check for updates through
+Sparkle; update settings and a manual check are in **Settings → General → Updates**. The menu bar also has
+**Check for Updates…**. Maintainers: see [docs/RELEASING.md](docs/RELEASING.md) for the release workflow and credentials.
 
 To get Claude Code notifications in the Agents widget, merge `scripts/claude-code-hooks.json` into
 `~/.claude/settings.json`.
@@ -69,6 +73,7 @@ Sources/
     Hotkey/               Global shortcut (Carbon)
     Manager/              Widgets window: active list, gallery, inspector
     Settings/             Settings window
+    Updates/              Sparkle updater, automatic checks and gentle reminders
     Widgets/
       Framework/          WidgetLayout, metadata, WidgetCard chrome, content/settings dispatch
       <Feature>/          One folder per widget: its data service and its views

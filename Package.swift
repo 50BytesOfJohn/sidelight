@@ -16,11 +16,15 @@ let package = Package(
     products: [
         .executable(name: "Sidelight", targets: ["Sidelight"])
     ],
+    dependencies: [
+        // Software updates. A binary framework that scripts/build-app.sh embeds in the app bundle.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
+    ],
     targets: [
         // The app: AppKit/SwiftUI, isolated to the main actor by default.
         .executableTarget(
             name: "Sidelight",
-            dependencies: ["SidelightCore"],
+            dependencies: ["SidelightCore", .product(name: "Sparkle", package: "Sparkle")],
             swiftSettings: approachableConcurrency + [.defaultIsolation(MainActor.self)]
         ),
         // UI-free domain logic: configuration schema, protocols, parsers, geometry. Nonisolated and Sendable.

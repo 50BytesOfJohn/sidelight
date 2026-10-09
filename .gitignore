@@ -5,3 +5,8 @@ build/
 .swiftpm/
 xcuserdata/
 DerivedData/
+__pycache__/
+# Release credentials belong in Keychain / GitHub secrets, never in Git.
+*.p12
+*.p8
+*-private-key.txt

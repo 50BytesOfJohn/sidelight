@@ -5,6 +5,7 @@ Native macOS (Apple Silicon only) side panel / bar of always-on widgets, general
 - Build with `make`, not raw `swift build`: it points `DEVELOPER_DIR` at Xcode, and SwiftUI macros need that.
 - Done = `make check` passes: lint, zero warnings, tests.
 - Commits, PRs and the contributor workflow: `CONTRIBUTING.md`.
+- Signing, notarization, Sparkle updates and cutting a release: `docs/RELEASING.md`.
 - Try changes in the real app with `make dev` (Ctrl-C quits).
 - No backward compatibility until the first release: the app is unpublished and has no users to protect. Change `config.json`, names and APIs freely. No migrations, version fields, legacy decoders or defaults for old data. An old config that no longer decodes is moved aside automatically.
 - Same for UI: when something new doesn't fit the current design (e.g. the settings layout), rethink and redesign it rather than force-fitting or patching around it.
