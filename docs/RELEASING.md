@@ -60,7 +60,8 @@ anything. It's useful for checking signing and notarization.
 ## One-time setup
 
 The repository's secrets live in a GitHub environment named `release`, which only `v*` tags can deploy to. A
-workflow change pushed to any branch can't read them.
+workflow change pushed to any branch can't read them. A repository ruleset also restricts creation, updates and
+deletion of version tags to admins, so contributors cannot make a tag unlock the signing environment.
 
 ### 1. Sparkle signing key
 
