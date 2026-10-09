@@ -18,7 +18,7 @@ final class Avoider {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
         if AXIsProcessTrustedWithOptions(opts) { registerAll() }
         else {
-            print("Accessibility not trusted yet; polling every 3s")
+            Log.avoidance.info("Accessibility not trusted yet; polling every 3s")
             trustTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] t in
                 if AXIsProcessTrusted() { t.invalidate(); self?.registerAll() }
             }
@@ -42,7 +42,7 @@ final class Avoider {
 
     func registerAll() {
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular { register(app) }
-        print("AX observers registered: \(observers.count)")
+        Log.avoidance.info("AX observers registered: \(self.observers.count)")
     }
 
     func register(_ app: NSRunningApplication) {
@@ -105,7 +105,7 @@ final class Avoider {
             guard AXUIElementCopyAttributeValue(appEl, kAXWindowsAttribute as CFString, &v) == .success, let wins = v as? [AXUIElement] else { continue }
             for w in wins { if fix(w, eventDate: Date(), reason: "fixAll") { n += 1 } }
         }
-        print("fixAll: fixed \(n) windows")
+        Log.avoidance.info("fixAll: fixed \(n) windows")
     }
 
     private func attr<T>(_ el: AXUIElement, _ name: String) -> T? {
@@ -188,8 +188,7 @@ final class Avoider {
         let ms = Date().timeIntervalSince(eventDate) * 1000
         let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "\(pid)"
         let title: String = attr(win, kAXTitleAttribute) ?? ""
-        appendLog("avoidance.log", String(format: "fix edge=%@ mode=%@ action=%@ app=%@ title=\"%@\" event=%@ delay_ms=%.1f from=%@ to=%@",
-                                          e.rawValue, mode.rawValue, action, appName, String(title.prefix(40)), reason, ms, NSStringFromRect(f), NSStringFromRect(after)))
+        Log.avoidance.debug("fix edge=\(e.rawValue) mode=\(self.mode.rawValue) action=\(action) app=\(appName, privacy: .public) title=\"\(String(title.prefix(40)))\" event=\(reason) delay_ms=\(ms, format: .fixed(precision: 1)) from=\(NSStringFromRect(f)) to=\(NSStringFromRect(after))")
         return true
     }
 }

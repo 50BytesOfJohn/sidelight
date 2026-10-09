@@ -2,7 +2,8 @@ import Cocoa
 import SwiftUI
 import Combine
 
-final class SidePanel: NSPanel {
+/// Borderless, non-activating panel that never takes key/main status.
+final class PanelWindow: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
@@ -10,14 +11,14 @@ final class SidePanel: NSPanel {
 /// Owns the NSPanel; maps config (position × size) to a frame and animates changes.
 final class PanelController {
     static let barThickness: CGFloat = 44
-    let panel: SidePanel
+    let panel: PanelWindow
     private var current: AppConfig
     private var sub: AnyCancellable?
     private var generation = 0
 
     init() {
         current = ConfigStore.shared.config
-        panel = SidePanel(contentRect: Self.frame(for: current), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel = PanelWindow(contentRect: Self.frame(for: current), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
@@ -34,7 +35,7 @@ final class PanelController {
         Avoider.shared.edge = current.position
         sub = ConfigStore.shared.$config.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] in self?.apply($0) }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }; self.panel.setFrame(Self.frame(for: self.current), display: true); self.logFrame("screen-change")
+            guard let self else { return }; self.panel.setFrame(Self.frame(for: self.current), display: true)
         }
     }
 
@@ -81,7 +82,7 @@ final class PanelController {
                     ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
                     self.panel.animator().alphaValue = 1
                     self.panel.animator().setFrame(target, display: true)
-                }, completionHandler: { [weak self] in self?.logFrame("position") })
+                })
             })
         } else if target != panel.frame {
             // size: animate the window frame; SwiftUI animates the content layout with the same spring-ish timing
@@ -90,12 +91,7 @@ final class PanelController {
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 ctx.allowsImplicitAnimation = true
                 panel.animator().setFrame(target, display: true)
-            }, completionHandler: { [weak self] in self?.logFrame("size") })
+            })
         }
-    }
-
-    func logFrame(_ reason: String) {
-        let vf = NSScreen.screens[0].visibleFrame
-        appendLog("frames.log", "layout reason=\(reason) position=\(current.position.rawValue) size=\(current.effectiveSize.rawValue) frame=\(NSStringFromRect(panel.frame)) visibleFrame=\(NSStringFromRect(vf)) alpha=\(panel.alphaValue) visible=\(panel.isVisible)")
     }
 }

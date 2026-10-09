@@ -7,7 +7,6 @@ final class StatsModel: ObservableObject {
     @Published var cpu: Double = 0
     @Published var memUsedGB: Double = 0
     @Published var memTotalGB: Double = Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824
-    @Published var selfRSSMB: Double = 0
     private var prev: host_cpu_load_info?
     private var timer: Timer?
     init() {
@@ -32,9 +31,6 @@ final class StatsModel: ObservableObject {
             let page = Double(vm_kernel_page_size)
             memUsedGB = (Double(vm.active_count) + Double(vm.wire_count) + Double(vm.compressor_page_count)) * page / 1_073_741_824
         }
-        var ti = mach_task_basic_info(); var c3 = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
-        let r3 = withUnsafeMutablePointer(to: &ti) { $0.withMemoryRebound(to: integer_t.self, capacity: Int(c3)) { task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &c3) } }
-        if r3 == KERN_SUCCESS { selfRSSMB = Double(ti.resident_size) / 1_048_576 }
     }
 }
 

@@ -22,13 +22,11 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     func showSettings() {
         if settings == nil {
-            settings = make(title: "SidePanel Settings", size: NSSize(width: 620, height: 760), min: NSSize(width: 560, height: 520),
+            settings = make(title: "Sidelight Settings", size: NSSize(width: 620, height: 760), min: NSSize(width: 560, height: 520),
                             autosave: "SettingsWindow", root: SettingsView())
         }
         present(settings!)
     }
-
-    func closeManager() { manager?.performClose(nil); manager?.close() }
 
     private func make<V: View>(title: String, size: NSSize, min: NSSize, autosave: String, root: V) -> NSWindow {
         let w = NSWindow(contentRect: NSRect(origin: .zero, size: size),
@@ -50,12 +48,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
         // macOS 14+ cooperative activation: plain activate() is refused when nobody yields (e.g. launched in the
         // background). The deprecated ignoringOtherApps: variant still forces it (tested on macOS 27).
-        if UserDefaults.standard.bool(forKey: "cooperativeActivateOnly") { NSApp.activate() } else { NSApp.activate(ignoringOtherApps: true) }
+        NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
         w.orderFrontRegardless()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            appendLog("launch.log", "window '\(w.title)': appActive=\(NSApp.isActive) isKey=\(w.isKeyWindow) isMain=\(w.isMainWindow) policy=\(NSApp.activationPolicy().rawValue) firstResponder=\(String(describing: w.firstResponder.map { type(of: $0) }))")
-        }
     }
 
     func windowWillClose(_ n: Notification) {
@@ -64,10 +59,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             w.contentView = nil            // release the SwiftUI tree (and any previews)
             if w === self.manager { self.manager = nil }
             if w === self.settings { self.settings = nil }
-            if self.manager == nil && self.settings == nil {
-                NSApp.setActivationPolicy(.accessory)
-                appendLog("launch.log", "all windows closed: policy=\(NSApp.activationPolicy().rawValue) (1 = accessory)")
-            }
+            if self.manager == nil && self.settings == nil { NSApp.setActivationPolicy(.accessory) }
         }
     }
 }

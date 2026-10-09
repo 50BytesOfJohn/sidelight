@@ -5,7 +5,6 @@ import ImageIO
 struct PanelRoot: View {
     @ObservedObject var store = ConfigStore.shared
     var models: AppModels = .shared
-    var scroll = true   // ImageRenderer can't render ScrollView content, so renders use a plain stack
 
     var body: some View {
         let c = store.config
@@ -47,10 +46,7 @@ struct PanelRoot: View {
             .padding(size == .minimal ? 5 : (c.mode == .glass ? 12 : 8))
             .animation(Theme.layout, value: widgets.map(\.id))
             .animation(Theme.layout, value: size)
-            container(c) {
-                if scroll { ScrollView(showsIndicators: false) { stack } }
-                else { VStack { stack; Spacer(minLength: 0) } }
-            }
+            container(c) { ScrollView(showsIndicators: false) { stack } }
         }
     }
 

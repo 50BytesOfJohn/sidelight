@@ -7,7 +7,6 @@ final class CalendarModel: ObservableObject {
     let store = EKEventStore()
     @Published var authorized = false
     @Published var events: [EKEvent] = []
-    @Published var statusText = ""
     private var timer: Timer?
     init() {
         refresh()
@@ -18,7 +17,6 @@ final class CalendarModel: ObservableObject {
     func refresh() {
         let st = EKEventStore.authorizationStatus(for: .event)
         authorized = (st == .fullAccess)
-        statusText = "\(st.rawValue)"
         guard authorized else { events = []; return }
         let start = Date()
         let end = Calendar.current.date(byAdding: .day, value: 2, to: Calendar.current.startOfDay(for: start))!

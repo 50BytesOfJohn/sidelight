@@ -16,7 +16,7 @@ enum SystemWidget: PanelWidget {
 }
 
 // NOTE: periodic data → no transitions. Animating a 2 s ticker kept SwiftUI permanently mid-animation
-// (12–16 % CPU idle, see RESULTS round 2).
+// (measured 12–16 % CPU at idle).
 private struct SystemView: View {
     @ObservedObject var m: StatsModel
     let ctx: WidgetContext
@@ -33,12 +33,9 @@ private struct SystemView: View {
         } else {
             switch ctx.size {
             case .regular:
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .top, spacing: 18) {
-                        if cpu { metric("CPU", String(format: "%.0f", m.cpu), "%", frac: m.cpu / 100) }
-                        if mem { metric("Memory", String(format: "%.1f", m.memUsedGB), "/ \(Int(m.memTotalGB)) GB", frac: m.memUsedGB / m.memTotalGB) }
-                    }
-                    Text(String(format: "panel RSS %.0f MB", m.selfRSSMB)).font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+                HStack(alignment: .top, spacing: 18) {
+                    if cpu { metric("CPU", String(format: "%.0f", m.cpu), "%", frac: m.cpu / 100) }
+                    if mem { metric("Memory", String(format: "%.1f", m.memUsedGB), "/ \(Int(m.memTotalGB)) GB", frac: m.memUsedGB / m.memTotalGB) }
                 }
             case .compact:
                 VStack(alignment: .leading, spacing: 5) {

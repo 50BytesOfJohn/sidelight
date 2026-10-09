@@ -28,8 +28,6 @@ struct WidgetContext {
     var bar: Bool = false
     var settings: WidgetSettings
     var models: AppModels = .shared
-    /// rendered inside the widget manager (avoid spawning heavy things like WKWebView there)
-    var preview: Bool = false
 }
 
 /// A widget = metadata + a view for a context (all three sizes + bar) + an inline settings editor.
@@ -57,7 +55,7 @@ extension PanelWidget {
 enum WidgetRegistry {
     static let all: [WidgetDescriptor] = [
         ClockWidget.descriptor, CodexWidget.descriptor, CalendarWidget.descriptor, NowPlayingWidget.descriptor,
-        AgentWidget.descriptor, SystemWidget.descriptor, WebWidget.descriptor,
+        AgentWidget.descriptor, SystemWidget.descriptor,
     ]
     static func descriptor(_ kind: String) -> WidgetDescriptor? { all.first { $0.meta.kind == kind } }
 }

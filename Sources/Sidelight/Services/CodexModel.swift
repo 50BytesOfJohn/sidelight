@@ -20,16 +20,9 @@ final class CodexModel: ObservableObject {
     private var nextId = 10
     private var pending: [Int: String] = [:]
     private var timer: Timer?
-    private var demoTimer: Timer?
     private var watchdog: DispatchWorkItem?
     private var fsStream: FSEventStreamRef?
     var enabled = false
-    /// debug: randomize numbers every second to measure transition-animation cost
-    @Published var demo = UserDefaults.standard.bool(forKey: "codexDemo") { didSet { setDemo(demo) } }
-
-    init() {
-        if demo { DispatchQueue.main.async { self.setDemo(true) } }
-    }
 
     static func findCodex() -> String? {
         for p in ["/opt/homebrew/bin/codex", "/usr/local/bin/codex", NSHomeDirectory() + "/.local/bin/codex"]
@@ -41,14 +34,13 @@ final class CodexModel: ObservableObject {
         enabled = true
         guard child == nil else { return }
         source = "starting…"
-        if UserDefaults.standard.bool(forKey: "codexForceFallback") { startFallback(); return }  // test the rollout path
         guard let path = Self.findCodex(),
               let c = ChildProcess.spawn(path, ["app-server"],
                                          onLine: { [weak self] l in self?.handle(l) },
                                          onExit: { [weak self] in DispatchQueue.main.async { self?.appServerDied() } })
         else { startFallback(); return }
         child = c
-        c.send(["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["clientInfo": ["name": "sidepanel", "version": "0.1"]]])
+        c.send(["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["clientInfo": ["name": "sidelight", "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"]]])
         c.send(["jsonrpc": "2.0", "method": "initialized"])
         readAll()
         // if app-server doesn't deliver rate limits in 15 s, use the rollout file
@@ -122,9 +114,7 @@ final class CodexModel: ObservableObject {
             let mins = (d[camel ? "windowDurationMins" : "window_minutes"] as? NSNumber)?.intValue ?? 0
             return Window(usedPercent: used, resetsAt: reset, windowMins: mins)
         }
-        if !demo {
-            fiveHour = win(rl["primary"]); weekly = win(rl["secondary"])
-        }
+        fiveHour = win(rl["primary"]); weekly = win(rl["secondary"])
         if let p = rl[camel ? "planType" : "plan_type"] as? String { plan = p }
     }
 
@@ -187,18 +177,5 @@ final class CodexModel: ObservableObject {
             source = "rollout file"; lastUpdate = Date(); return
         }
         source = "unavailable"
-    }
-
-    // MARK: demo mode (measures animation cost)
-    private func setDemo(_ on: Bool) {
-        demoTimer?.invalidate(); demoTimer = nil
-        guard on else { readAll(); return }
-        demoTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            let now = Date()
-            self.fiveHour = Window(usedPercent: Double(Int.random(in: 0...100)), resetsAt: now.addingTimeInterval(Double.random(in: 60...18000)), windowMins: 300)
-            self.weekly = Window(usedPercent: Double(Int.random(in: 0...100)), resetsAt: now.addingTimeInterval(Double.random(in: 3600...600000)), windowMins: 10080)
-            self.resetCredits = Int.random(in: 0...3)
-        }
     }
 }

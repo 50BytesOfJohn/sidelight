@@ -14,8 +14,8 @@ enum PreviewSize: String, CaseIterable, Identifiable {
 
 struct ManagerView: View {
     @ObservedObject var store = ConfigStore.shared
-    @State private var previewSize: PreviewSize = PreviewSize(rawValue: UserDefaults.standard.string(forKey: "managerPreviewSize") ?? "") ?? .regular
-    @State private var selection: UUID? = UserDefaults.standard.bool(forKey: "managerSelectFirst") ? ConfigStore.shared.config.widgets.first?.id : nil
+    @State private var previewSize: PreviewSize = .regular
+    @State private var selection: UUID?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -68,7 +68,7 @@ private struct ActiveColumn: View {
                         _ = p.loadObject(ofClass: NSString.self) { obj, _ in
                             guard let kind = obj as? String, WidgetRegistry.descriptor(kind) != nil else { return }
                             DispatchQueue.main.async {
-                                let inst = WidgetInstance(kind: kind, inBar: kind != "web")
+                                let inst = WidgetInstance(kind: kind)
                                 withAnimation(Theme.layout) { store.config.widgets.insert(inst, at: min(index, store.config.widgets.count)) }
                                 selection = inst.id
                             }
@@ -223,7 +223,7 @@ private struct GalleryColumn: View {
     }
 
     func add(_ d: WidgetDescriptor) {
-        let inst = WidgetInstance(kind: d.meta.kind, inBar: d.meta.kind != "web")
+        let inst = WidgetInstance(kind: d.meta.kind)
         withAnimation(Theme.layout) { store.config.widgets.append(inst) }
         selection = inst.id
     }
@@ -306,7 +306,7 @@ struct WidgetPreview: View {
         let c = store.config
         // image mode previews use the black chrome (no image behind the preview)
         let chrome = Chrome(mode: c.mode == .image ? .black : c.mode, imageCards: c.imageCards, useGlass: c.useGlass)
-        let ctx = WidgetContext(size: size.panelSize, bar: size == .bar, settings: settings, preview: true)
+        let ctx = WidgetContext(size: size.panelSize, bar: size == .bar, settings: settings)
         return Group {
             if size == .bar {
                 WidgetCard(instance: inst, ctx: ctx, chrome: chrome).frame(height: 36).fixedSize(horizontal: true, vertical: false)

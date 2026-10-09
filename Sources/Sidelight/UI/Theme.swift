@@ -52,7 +52,6 @@ struct VisualEffect: NSViewRepresentable {
 
 /// Usage ring. `inner` draws an optional thin concentric second ring (e.g. weekly).
 struct UsageRing: View {
-    static let cheap = UserDefaults.standard.bool(forKey: "cheapRing")
     let pct: Double
     var inner: Double? = nil
     var diameter: CGFloat = 86
@@ -91,17 +90,12 @@ struct UsageRing: View {
     }
 
     @ViewBuilder func arc(_ pct: Double, color: Color, width: CGFloat, hot: Bool) -> some View {
-        let trim = Circle().trim(from: 0, to: max(0.001, pct / 100))
-        if Self.cheap {
-            if hot { trim.stroke(color.opacity(0.28), style: StrokeStyle(lineWidth: width * 1.8, lineCap: .round)).rotationEffect(.degrees(-90)) }
-            trim.stroke(color, style: StrokeStyle(lineWidth: width, lineCap: .round)).rotationEffect(.degrees(-90))
-        } else {
-            trim.stroke(AngularGradient(colors: [color.opacity(0.55), color], center: .center,
-                                        startAngle: .degrees(0), endAngle: .degrees(max(1, 360 * pct / 100))),
-                        style: StrokeStyle(lineWidth: width, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .shadow(color: hot ? color.opacity(0.75) : .clear, radius: hot ? width * 0.75 : 0)
-        }
+        Circle().trim(from: 0, to: max(0.001, pct / 100))
+            .stroke(AngularGradient(colors: [color.opacity(0.55), color], center: .center,
+                                    startAngle: .degrees(0), endAngle: .degrees(max(1, 360 * pct / 100))),
+                    style: StrokeStyle(lineWidth: width, lineCap: .round))
+            .rotationEffect(.degrees(-90))
+            .shadow(color: hot ? color.opacity(0.75) : .clear, radius: hot ? width * 0.75 : 0)
     }
 }
 

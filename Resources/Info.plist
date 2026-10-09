@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>CFBundleIdentifier</key><string>io.mynth.sidepanel.native</string>
-  <key>CFBundleName</key><string>SidePanel</string>
-  <key>CFBundleDisplayName</key><string>SidePanel (native)</string>
-  <key>CFBundleExecutable</key><string>SidePanel</string>
+  <key>CFBundleIdentifier</key><string>app.getsidelight.Sidelight</string>
+  <key>CFBundleName</key><string>Sidelight</string>
+  <key>CFBundleDisplayName</key><string>Sidelight</string>
+  <key>CFBundleExecutable</key><string>Sidelight</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSCalendarsFullAccessUsageDescription</key><string>SidePanel shows your next calendar events for today and tomorrow.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Sidelight shows your next calendar events for today and tomorrow.</string>
 </dict></plist>

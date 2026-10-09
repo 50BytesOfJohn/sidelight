@@ -5,5 +5,3 @@ build/
 .swiftpm/
 xcuserdata/
 DerivedData/
-tools/respid
-tools/testwin

@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-// MARK: - Config model (Codable; persisted to ~/Library/Application Support/SidePanelNative/config.json)
+// MARK: - Config model (Codable; persisted to ~/Library/Application Support/Sidelight/config.json)
 
 enum PanelPosition: String, Codable, CaseIterable, Identifiable {
     case left, right, top, bottom
@@ -94,7 +94,7 @@ struct HotkeySpec: Codable, Hashable {
 }
 
 struct AppConfig: Codable, Equatable {
-    var version = 3
+    var version = 1
     var position: PanelPosition = .left
     var size: PanelSize = .regular
     var mode: DisplayMode = .glass
@@ -110,7 +110,7 @@ struct AppConfig: Codable, Equatable {
 
     static let defaultWidgets: [WidgetInstance] = [
         .init(kind: "clock"), .init(kind: "codex"), .init(kind: "calendar"), .init(kind: "nowPlaying"),
-        .init(kind: "agents"), .init(kind: "system"), .init(kind: "web", inBar: false),
+        .init(kind: "agents"), .init(kind: "system"),
     ]
 
     /// Effective size: bars always use the minimal widget layouts.
@@ -150,31 +150,18 @@ final class ConfigStore: ObservableObject {
     private var reloadWork: DispatchWorkItem?
 
     private init() {
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/SidePanelNative")
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Sidelight")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         url = dir.appendingPathComponent("config.json")
         var cfg = AppConfig()
         if let data = try? Data(contentsOf: url) {
             do { cfg = try JSONDecoder().decode(AppConfig.self, from: data); lastData = data }
-            catch { appendLog("config.log", "config.json invalid, using defaults: \(error)") }
+            catch { Log.config.error("config.json invalid, using defaults: \(error)") }
         }
-        if lastData == nil, let data = Self.encode(cfg) { try? data.write(to: url, options: .atomic); lastData = data }   // first run: persist defaults, not overrides
-        // Launch-arg overrides (UserDefaults argument domain) for automated tests/measurements; not saved
-        // unless something else changes later.
-        let a = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
-        if let v = a["position"] as? String, let p = PanelPosition(rawValue: v) { cfg.position = p }
-        if let v = a["size"] as? String, let p = PanelSize(rawValue: v) { cfg.size = p }
-        if let v = a["mode"] as? String, let p = DisplayMode(rawValue: v) { cfg.mode = p }
-        if let v = a["imageCards"] as? String, let p = ImageCardStyle(rawValue: v) { cfg.imageCards = p }
-        if let v = a["avoidMode"] as? String, let p = AvoidMode(rawValue: v) { cfg.avoidMode = p }
-        if let v = a["animatedBG"] as? String { cfg.animatedBG = (v == "YES" || v == "1" || v == "true") }
-        if let v = a["useGlass"] as? String { cfg.useGlass = (v == "YES" || v == "1" || v == "true") }
+        if lastData == nil, let data = Self.encode(cfg) { try? data.write(to: url, options: .atomic); lastData = data }   // first run: persist defaults
         config = cfg
         watch()
     }
-
-    /// Apply without persisting (debug cycling / measurements).
-    func setTransient(_ c: AppConfig) { applyingExternal = true; config = c; applyingExternal = false }
 
     private static func encode(_ c: AppConfig) -> Data? {
         let e = JSONEncoder(); e.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -221,9 +208,9 @@ final class ConfigStore: ObservableObject {
             applyingExternal = true
             config = c
             applyingExternal = false
-            appendLog("config.log", "hot-reloaded config.json (position=\(c.position.rawValue) size=\(c.size.rawValue) mode=\(c.mode.rawValue) widgets=\(c.widgets.count))")
+            Log.config.info("hot-reloaded config.json (position=\(c.position.rawValue) size=\(c.size.rawValue) mode=\(c.mode.rawValue) widgets=\(c.widgets.count))")
         } catch {
-            appendLog("config.log", "config.json edit ignored (invalid JSON): \(error.localizedDescription)")
+            Log.config.error("config.json edit ignored (invalid JSON): \(error.localizedDescription)")
         }
     }
 }

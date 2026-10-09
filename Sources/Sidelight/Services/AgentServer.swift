@@ -25,7 +25,7 @@ final class AgentServer: ObservableObject {
             l.newConnectionHandler = { [weak self] c in self?.handle(c) }
             l.start(queue: .main)
             listener = l
-        } catch { print("listener failed: \(error)") }
+        } catch { Log.agents.error("listener failed: \(error)") }
     }
     private func handle(_ c: NWConnection) {
         c.start(queue: .main)

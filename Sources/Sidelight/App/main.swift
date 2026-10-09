@@ -1,6 +1,5 @@
 import Cocoa
 import SwiftUI
-import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var panelController: PanelController!
@@ -8,19 +7,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let models = AppModels.shared
     var store: ConfigStore { .shared }
     var codexSub: Any?
-    let d = UserDefaults.standard
 
     func applicationDidFinishLaunching(_ n: Notification) {
-        let started = processStartTime()
         panelController = PanelController()
-        if d.object(forKey: "panelVisible") == nil || d.bool(forKey: "panelVisible") { panelController.show() }
-        DispatchQueue.main.async {
-            CATransaction.flush()
-            let c = self.store.config
-            appendLog("launch.log", String(format: "launch_to_panel_visible_ms=%.0f position=%@ size=%@ mode=%@ widgets=%d",
-                                           Date().timeIntervalSince(started) * 1000, c.position.rawValue, c.effectiveSize.rawValue, c.mode.rawValue, c.visibleWidgets.count))
-            self.panelController.logFrame("launch")
-        }
+        panelController.show()
 
         // Codex app-server only runs while a Codex widget is configured
         syncCodex(store.config)
@@ -29,14 +19,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Avoider.shared.panelFrameCocoa = { [weak self] in
             guard let p = self?.panelController.panel, p.isVisible, p.alphaValue > 0.5 else { return nil }; return p.frame
         }
-        Avoider.shared.start(prompt: d.object(forKey: "axPrompt") == nil || d.bool(forKey: "axPrompt"))
+        Avoider.shared.start(prompt: true)
 
         HotkeyManager.shared.action = { [weak self] in self?.panelController.toggle() }
         HotkeyManager.shared.register(store.config.hotkey)
 
         setupMainMenu()
         setupStatusItem()
-        runDebugFlags()
     }
 
     func applicationWillTerminate(_ n: Notification) { models.np.stop(); models.codex.stop() }
@@ -61,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         app.addItem(withTitle: "Widgets…", action: #selector(openManager), keyEquivalent: "1").target = self
         app.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         app.addItem(.separator())
-        app.addItem(withTitle: "Quit SidePanel", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        app.addItem(withTitle: "Quit Sidelight", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = app
         let editItem = NSMenuItem(); main.addItem(editItem)
         let edit = NSMenu(title: "Edit")
@@ -84,7 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "SidePanel")
+        statusItem.button?.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Sidelight")
         let menu = NSMenu(); menu.delegate = self
         statusItem.menu = menu
     }
@@ -114,10 +103,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(item("Fix all windows now", #selector(fixAll)))
         menu.addItem(item(Avoider.shared.trusted ? "Accessibility: granted" : "Grant Accessibility…", #selector(openAXSettings)))
-        menu.addItem(item("Print Rectangle gap command", #selector(printRectangle)))
         menu.addItem(item("Configure Rectangle for panel…", #selector(configureRectangle)))
         menu.addItem(item("Revert Rectangle config…", #selector(revertRectangle)))
-        menu.addItem(item("Codex demo (randomize every 1 s)", #selector(toggleCodexDemo), on: models.codex.demo))
         menu.addItem(.separator())
         menu.addItem(item("Quit", #selector(quit), key: "q"))
     }
@@ -130,7 +117,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func setMode(_ s: NSMenuItem) { if let v = s.representedObject as? String, let p = DisplayMode(rawValue: v) { store.config.mode = p } }
     @objc func setAvoid(_ s: NSMenuItem) { if let v = s.representedObject as? String, let p = AvoidMode(rawValue: v) { store.config.avoidMode = p } }
     @objc func toggleAnim() { store.config.animatedBG.toggle() }
-    @objc func toggleCodexDemo() { models.codex.demo.toggle() }
     @objc func fixAll() { Avoider.shared.fixAll() }
     @objc func openAXSettings() {
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
@@ -142,20 +128,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     static let rectangleIDs = ["com.knollsoft.Rectangle", "com.knollsoft.Hookshot"]
     var rectangleGap: Int { Int(panelController.thickness) + 8 }
-    func rectangleCommands() -> String {
-        let c = store.config
-        return "defaults write com.knollsoft.Rectangle \(c.position.rectangleKey) -int \(rectangleGap)\ndefaults write com.knollsoft.Rectangle screenEdgeGapsOnMainScreenOnly -bool true"
-    }
-    @objc func printRectangle() {
-        let cmd = rectangleCommands()
-        print(cmd)
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(cmd, forType: .string)
-        _ = confirm("Rectangle gap command (copied to clipboard)", cmd + "\n\nRestart Rectangle afterwards.", ok: "OK", cancel: nil)
-    }
     func installedRectangleIDs() -> [String] { Self.rectangleIDs.filter { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil } }
     func runDefaults(_ args: [String]) {
         let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/defaults"); p.arguments = args
-        try? p.run(); p.waitUntilExit(); print("defaults \(args.joined(separator: " ")) -> \(p.terminationStatus)")
+        try? p.run(); p.waitUntilExit(); Log.app.info("defaults \(args.joined(separator: " ")) -> \(p.terminationStatus)")
     }
     func restartRectangle(ids: [String], change: @escaping () -> Void) {
         var relaunch: [URL] = []
@@ -191,72 +167,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         restartRectangle(ids: ids) { [weak self] in
             for id in ids { for k in PanelPosition.allCases.map(\.rectangleKey) + ["screenEdgeGapsOnMainScreenOnly"] { self?.runDefaults(["delete", id, k]) } }
         }
-    }
-
-    // MARK: debug / automation flags
-
-    func runDebugFlags() {
-        if d.bool(forKey: "openManager") { WindowCoordinator.shared.showManager() }
-        if d.bool(forKey: "openSettings") { WindowCoordinator.shared.showSettings() }
-        let closeAfter = d.double(forKey: "closeManagerAfter")
-        if closeAfter > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + closeAfter) {
-                WindowCoordinator.shared.manager?.close(); WindowCoordinator.shared.settings?.close()
-                appendLog("launch.log", "debug: closed manager/settings windows")
-            }
-        }
-        if d.bool(forKey: "cycleSizes") {
-            Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-                guard let self else { return }; var c = self.store.config
-                c.size = PanelSize.allCases[(PanelSize.allCases.firstIndex(of: c.size)! + 1) % 3]; self.store.setTransient(c)
-            }
-        }
-        if d.bool(forKey: "cyclePositions") {
-            Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-                guard let self else { return }; var c = self.store.config
-                c.position = PanelPosition.allCases[(PanelPosition.allCases.firstIndex(of: c.position)! + 1) % 4]; self.store.setTransient(c)
-            }
-        }
-        if d.bool(forKey: "testLoginItem") {
-            let svc = SMAppService.mainApp
-            appendLog("launch.log", "loginItem status before=\(svc.status.rawValue)")
-            do { try svc.register(); appendLog("launch.log", "loginItem register ok, status=\(svc.status.rawValue)") }
-            catch { appendLog("launch.log", "loginItem register error: \(error)") }
-            do { try svc.unregister(); appendLog("launch.log", "loginItem unregister ok, status=\(svc.status.rawValue)") }
-            catch { appendLog("launch.log", "loginItem unregister error: \(error)") }
-        }
-        if let dir = d.string(forKey: "renderScreens") {
-            let delay = (d.bool(forKey: "openManager") || d.bool(forKey: "openSettings")) ? 6.0 : 5.0
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self.renderScreens(to: dir) }
-        }
-    }
-
-    /// Offscreen renders of our own windows (no Screen Recording permission needed).
-    @MainActor func renderScreens(to dir: String) {
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let c = store.config
-        let name = d.string(forKey: "renderName") ?? "panel-\(c.position.rawValue)-\(c.effectiveSize.rawValue)-\(c.mode.rawValue)"
-        func writeView(_ v: NSView, _ file: String, backdrop: NSColor?) {
-            guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return }
-            v.cacheDisplay(in: v.bounds, to: rep)
-            let img = NSImage(size: v.bounds.size)
-            img.lockFocus()
-            if let backdrop { backdrop.setFill(); v.bounds.fill() }
-            rep.draw(in: v.bounds)
-            img.unlockFocus()
-            if let tiff = img.tiffRepresentation, let r = NSBitmapImageRep(data: tiff), let png = r.representation(using: .png, properties: [:]) {
-                try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent(file))
-            }
-        }
-        if let v = panelController.panel.contentView { writeView(v, "\(name).png", backdrop: NSColor(calibratedRed: 0.32, green: 0.36, blue: 0.45, alpha: 1)) }
-        let f = panelController.panel.frame
-        let r = ImageRenderer(content: PanelRoot(scroll: false).frame(width: f.width, height: f.height).background(Color(red: 0.32, green: 0.36, blue: 0.45)))
-        r.scale = 2
-        if let cg = r.cgImage { try? NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name)-imagerenderer.png")) }
-        if let w = WindowCoordinator.shared.manager, let v = w.contentView { writeView(v, d.string(forKey: "renderManagerName") ?? "manager.png", backdrop: .windowBackgroundColor) }
-        if let w = WindowCoordinator.shared.settings, let v = w.contentView { writeView(v, "settings.png", backdrop: .windowBackgroundColor) }
-        appendLog("launch.log", "rendered \(name) into \(dir)")
-        if d.bool(forKey: "quitAfterRender") { NSApp.terminate(nil) }
     }
 }
 

@@ -20,9 +20,9 @@ final class HotkeyManager {
             }
             InstallEventHandler(GetApplicationEventTarget(), cb, 1, &type, Unmanaged.passUnretained(self).toOpaque(), &handler)
         }
-        let id = EventHotKeyID(signature: OSType(0x53506E6C) /* 'SPnl' */, id: 1)
+        let id = EventHotKeyID(signature: OSType(0x53646C74) /* 'Sdlt' */, id: 1)
         lastStatus = RegisterEventHotKey(spec.keyCode, spec.modifiers, id, GetApplicationEventTarget(), 0, &ref)
-        appendLog("launch.log", "hotkey \(spec.display) register status=\(lastStatus)\(lastStatus == noErr ? " (ok)" : " (FAILED, maybe taken)")")
+        if lastStatus != noErr { Log.app.error("hotkey \(spec.display, privacy: .public) registration failed, status=\(self.lastStatus) (maybe taken)") }
     }
 
     func unregister() {
