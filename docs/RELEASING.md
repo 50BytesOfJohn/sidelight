@@ -21,25 +21,31 @@ Installed copies update themselves with [Sparkle](https://sparkle-project.org).
 
 ## Cutting a release
 
-1. Pick the version and write the release notes in Markdown. They become the tag's message, the GitHub release text
-   and the notes in the app's update window.
-2. Tag and push:
+1. Start from up-to-date `main`, pick the next version, then tag and push:
 
    ```sh
-   git tag -a v0.2.0 --cleanup=whitespace -F notes.md
+   git switch main
+   git pull --ff-only
+   git tag v0.2.0
    git push origin v0.2.0
    ```
 
-   `--cleanup=whitespace` keeps Markdown headings, which git otherwise strips as `#` comments.
+2. The [Release workflow](../.github/workflows/release.yml) does the rest automatically:
 
-   A lightweight tag (no message) falls back to GitHub's generated list of merged pull requests.
-3. The [Release workflow](../.github/workflows/release.yml) validates the tag and runs `make check` before the signing
-   job can access the `release` environment. Then `scripts/release.sh` builds,
-   signs and notarizes the app, packs it into a notarized DMG, generates the signed appcast and attaches everything
-   to a **draft** release. It checks Gatekeeper, both stapled tickets, the feed metadata and the DMG's EdDSA signature.
-   CI also retains the installer, feed and debug symbols as an Actions artifact for 30 days. This usually takes
-   5–15 minutes, mostly waiting for Apple's notary service; first submissions can take longer.
-4. Download the DMG from the draft and try it. Then publish the draft (the web UI, or `gh release edit v0.2.0 --draft=false --latest`).
+   - Validates the tag and runs `make check` before the signing job can access the `release` environment.
+   - Generates a changelog from merged pull requests since the previous published release, using the categories in
+     [`.github/release.yml`](../.github/release.yml). Both lightweight and annotated tags use generated notes;
+     tag messages don't override them. These notes also appear in the app's update window.
+   - Builds, signs and notarizes the app, packs it into a notarized DMG, and generates the signed appcast.
+     It checks Gatekeeper, both stapled tickets, the feed metadata and the DMG's EdDSA signature.
+   - Uploads the DMG, checksum and appcast to a staging draft, verifies every uploaded file's size and SHA-256
+     digest, then **publishes it as the latest release**. Installed copies can immediately find the update.
+     No manual publish step is needed.
+
+CI also retains the installer, feed and debug symbols as an Actions artifact for 30 days. Follow progress in
+[GitHub Actions](https://github.com/50BytesOfJohn/sidelight/actions/workflows/release.yml); the final job summary
+links to the published release. This usually takes 5–15 minutes, mostly waiting for Apple's notary service;
+first submissions can take longer.
 
 Use numeric tags such as `v0.1.0`. Prerelease suffixes are deliberately unsupported by this stable update feed.
 Release runs are serialized. If a run fails, use GitHub's **Re-run failed jobs**, or:
@@ -48,11 +54,13 @@ Release runs are serialized. If a run fails, use GitHub's **Re-run failed jobs**
 gh workflow run release.yml --ref v0.2.0 --repo 50BytesOfJohn/sidelight
 ```
 
-Retries can replace assets on an existing draft, but refuse to modify a published release. If Apple's service
-times out, check the submission in `notarytool history` before retrying rather than repeatedly uploading it.
+Failed uploads leave an unpublished draft. Retries can replace its assets and automatically publish it once all
+checks pass, but refuse to modify a published release. If Apple's service times out, check the submission in
+`notarytool history` before retrying rather than repeatedly uploading it.
 
-To fix the notes after tagging, delete the draft and the tag (`git push --delete origin v0.2.0`) and tag again. The
-appcast is generated from the tag, so editing only the draft's text doesn't change what the app shows.
+Write clear PR titles and apply labels before merging to keep the generated changelog useful. Editing only the
+GitHub release text after publication doesn't change the notes embedded in the appcast. Fix a shipped build by
+merging the correction and pushing a new, higher version tag; never move a published tag or replace its assets.
 
 `make release VERSION=0.2.0` runs the same pipeline locally and writes to `build/release/` without publishing
 anything. It's useful for checking signing and notarization.
