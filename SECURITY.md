@@ -2,7 +2,8 @@
 
 ## Supported versions
 
-Sidelight hasn't had its first release yet. Security fixes go to `main` and to the next release only.
+The latest published release is supported. Security fixes go to `main` and ship in the next release through
+GitHub Releases and the app's Sparkle updater. Older releases are not patched separately.
 
 ## Reporting a vulnerability
 
@@ -25,6 +26,8 @@ Sidelight runs with privileges worth protecting, so these areas matter most:
 - **External tools.** Sidelight launches `codex` and `media-control` from your `PATH` and parses their
   output, and reads Codex session files in `~/.codex/sessions`.
 - **Configuration.** It reads and live-reloads `~/Library/Application Support/Sidelight/config.json`.
+- **Updates.** Sparkle downloads the GitHub release feed and validates update archives with an EdDSA signature
+  and the app's Apple code signature. Signing secrets are held in a tag-restricted GitHub environment.
 
 Problems that need an attacker who already has full control of your user account (for example, one who can
 replace binaries on your `PATH`) are generally out of scope.

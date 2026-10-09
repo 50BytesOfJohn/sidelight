@@ -3,8 +3,9 @@
 Thanks for helping out! Bug reports, ideas, new widgets, fixes and docs are all welcome. Please read and
 follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-Sidelight hasn't had its first release yet, so things move fast. The `config.json` format, names and APIs
-change freely, with no migrations or backward compatibility. Don't spend effort preserving old behavior.
+Sidelight ships signed, notarized builds through GitHub Releases and updates through Sparkle. Keep released
+`config.json` files readable when changing settings, with a migration when needed. Internal names and APIs can
+still change freely. The maintainer workflow is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Before you start
 

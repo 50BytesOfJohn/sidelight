@@ -40,8 +40,7 @@ To get Claude Code notifications in the Agents widget, merge `scripts/claude-cod
 
 Everything is stored in `~/Library/Application Support/Sidelight/config.json`. Edits to the file are applied
 live. A file that doesn't decode (including one written by an older build with a different shape) is moved to
-`config.invalid.json` and replaced with defaults. Until the first release the format changes freely, without
-migrations.
+`config.invalid.json` and replaced with defaults. Future updates preserve configurations from published releases.
 
 Logs go to the unified log:
 

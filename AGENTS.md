@@ -7,7 +7,7 @@ Native macOS (Apple Silicon only) side panel / bar of always-on widgets, general
 - Commits, PRs and the contributor workflow: `CONTRIBUTING.md`.
 - Signing, notarization, Sparkle updates and cutting a release: `docs/RELEASING.md`.
 - Try changes in the real app with `make dev` (Ctrl-C quits).
-- No backward compatibility until the first release: the app is unpublished and has no users to protect. Change `config.json`, names and APIs freely. No migrations, version fields, legacy decoders or defaults for old data. An old config that no longer decodes is moved aside automatically.
+- Preserve settings shipped in published releases. Changes to `config.json` must keep released configurations readable or explicitly migrate them, so an automatic app update doesn't reset someone's panel. Unreleased names and APIs can still change freely. Invalid or corrupt configurations are moved aside automatically.
 - Same for UI: when something new doesn't fit the current design (e.g. the settings layout), rethink and redesign it rather than force-fitting or patching around it.
 
 ## Working together
