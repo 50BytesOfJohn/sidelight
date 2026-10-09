@@ -1,0 +1,83 @@
+# Sidelight
+
+A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Codex rate limits, calendar,
+now playing, coding-agent activity and system stats. Other apps' windows are moved or shrunk so they never sit
+under the panel. Why it exists and where it's going: [docs/VISION.md](docs/VISION.md).
+
+Requires macOS 26 and Xcode 26.4+ (Swift 6.2+ toolchain).
+
+## Getting started
+
+```sh
+make run      # build build/Sidelight.app (release, signed) and launch it
+make test     # unit tests
+make check    # lint + build + test, what CI runs
+```
+
+On first launch macOS asks for **Accessibility** access (needed to move other apps' windows). Optional tools:
+
+| Widget      | Needs                                                                  |
+| ----------- | ---------------------------------------------------------------------- |
+| Codex       | `codex` CLI (`brew install codex`); falls back to `~/.codex/sessions`  |
+| Now playing | `brew install ungive/media-control/media-control`                      |
+| Calendar    | Calendar access, requested from the widget                             |
+| Agents      | Events POSTed to `127.0.0.1:47821/event` — see `scripts/send-event.sh` |
+
+To get Claude Code notifications in the Agents widget, merge `scripts/claude-code-hooks.json` into
+`~/.claude/settings.json`.
+
+## Configuration
+
+Everything is stored in `~/Library/Application Support/Sidelight/config.json`. Edits to the file are applied
+live. A file that doesn't decode (including one written by an older build with a different shape) is moved to
+`config.invalid.json` and replaced with defaults. Until the first release the format changes freely, without
+migrations.
+
+Logs go to the unified log:
+
+```sh
+log stream --level debug --predicate 'subsystem == "app.getsidelight.Sidelight"'
+```
+
+## Architecture
+
+```
+Sources/
+  SidelightCore/          UI-free domain logic. Foundation only, nonisolated, Sendable, fully unit-tested.
+    Configuration/        AppConfiguration, PanelSection, WidgetSettings, Appearance, Hotkey; the config.json schema
+    Panel/                Panel geometry and how sections share its length
+    Imaging/              Image-effect patterns (Bayer dither, ASCII ramp), desktop-picture crop geometry
+    Avoidance/            Window-avoidance geometry (pure functions)
+    Agents/               AgentEvent, minimal HTTP request parser/response
+    Codex/                codex app-server JSON-RPC session, rollout-file parser, usage models
+    NowPlaying/           media-control stream state + diff merging
+    System/               CPU/memory sampling
+    Process/              ChildProcess (process groups, line streaming), file watchers, ProcessRunner
+    Support/              Logging, formatting
+  Sidelight/              The app. AppKit + SwiftUI, main-actor isolated by default.
+    App/                  Entry point, AppDelegate, AppController (composition root), menus
+    Configuration/        ConfigurationStore (persistence, hot reload), user-facing names
+    Panel/                The panel window, its frame/animations, root view, backgrounds
+    Windows/              Widgets manager + Settings window lifecycle, links between them
+    WindowAvoidance/      Accessibility observers, Rectangle integration
+    Hotkey/               Global shortcut (Carbon)
+    Manager/              Widgets window: active list, gallery, inspector
+    Settings/             Settings window
+    Widgets/
+      Framework/          WidgetLayout, metadata, WidgetCard chrome, content/settings dispatch
+      <Feature>/          One folder per widget: its data service and its views
+    DesignSystem/         Motion, colors, reusable components (rings, bars, badges, …)
+    Support/              Alerts, System Settings deep links, activation helper
+Tests/
+  SidelightCoreTests/     Swift Testing suites for SidelightCore
+```
+
+**Data flow.** `AppController` builds every service once and hands them to SwiftUI through the environment
+(`AppEnvironment`). `ConfigurationStore` is the single source of truth; views bind to it directly, and
+`AppController` observes it (`Observations`) to drive the parts outside SwiftUI — panel frame, hotkey, window
+avoidance — and to run each data service only while a widget that needs it is visible (or the Widgets window,
+which previews all of them, is open).
+
+**Contributing.** Project conventions and the add-a-widget checklist live in the
+[`sidelight-conventions`](.agents/skills/sidelight-conventions/SKILL.md) agent skill; `AGENTS.md` holds the rules
+that apply to every change.

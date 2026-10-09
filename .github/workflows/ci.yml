@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Select Xcode
+        run: sudo xcode-select --switch /Applications/Xcode.app
+      - name: Lint
+        run: make lint
+      - name: Build
+        run: make build
+      - name: Test
+        run: make test
+      - name: Build app bundle
+        run: make app
