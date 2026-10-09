@@ -8,9 +8,9 @@ A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Code
 now playing, coding-agent activity and system stats. Other apps' windows are moved or shrunk so they never sit
 under the panel. Why it exists and where it's going: [docs/VISION.md](docs/VISION.md).
 
-Requires an Apple Silicon Mac with macOS 26. Building needs Xcode 26.4+ (Swift 6.2+ toolchain). There's no
-release yet, so build from source for now; ready-made builds will appear on the
-[Releases](https://github.com/50BytesOfJohn/sidelight/releases) page.
+Requires an Apple Silicon Mac with macOS 26. Download the latest DMG from
+[GitHub Releases](https://github.com/50BytesOfJohn/sidelight/releases/latest), open it and drag Sidelight to
+Applications. Building from source needs Xcode 26.4+ (Swift 6.2+ toolchain).
 
 ## Getting started
 

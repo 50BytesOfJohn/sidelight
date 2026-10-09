@@ -38,7 +38,7 @@ dev:
 
 ## Signed, notarized DMG and appcast in build/release/: make release VERSION=0.2.0. See docs/RELEASING.md.
 release:
-	scripts/release.sh $(VERSION)
+	scripts/release.sh "$(VERSION)" "$(NOTES)"
 
 ## Format all Swift sources in place.
 format:

@@ -34,6 +34,8 @@ BIN_PATH=$(swift build --configuration "$CONFIGURATION" --show-bin-path)
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN_PATH/Sidelight" "$APP/Contents/MacOS/Sidelight"
+# Xcode's build system may already ad-hoc sign the executable. We replace that signature after packaging.
+codesign --remove-signature "$APP/Contents/MacOS/Sidelight"
 # SwiftPM links frameworks next to the binary (@loader_path); in the bundle they live in Contents/Frameworks.
 install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Sidelight"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
