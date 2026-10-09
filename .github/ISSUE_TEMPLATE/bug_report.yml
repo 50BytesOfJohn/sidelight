@@ -1,0 +1,67 @@
+name: Bug report
+description: Something doesn't work or looks wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please search [existing issues](https://github.com/50BytesOfJohn/sidelight/issues) first.
+        Security problems go through [private reporting](https://github.com/50BytesOfJohn/sidelight/security/advisories/new) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead. Screenshots or a screen recording help a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Add the Clock widget
+        2. Switch to the pixel style
+        3. …
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - A widget
+        - Panel (position, size, background, effects)
+        - Window avoidance (other windows moving or resizing)
+        - Widgets window or Settings
+        - Global shortcut
+        - Build or development setup
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Sidelight version
+      description: The release you downloaded, or the commit you built (`git rev-parse --short HEAD`).
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "26.1"
+    validations:
+      required: true
+  - type: textarea
+    id: displays
+    attributes:
+      label: Display setup
+      description: Number of displays, their arrangement, and which one shows the panel. Mention Stage Manager, Rectangle or other window managers if you use them.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Run `log stream --level debug --predicate 'subsystem == "app.getsidelight.Sidelight"'` while reproducing, or run `make dev`, and paste the relevant lines.
+        If it's config-related, attach `~/Library/Application Support/Sidelight/config.json`.
+      render: text

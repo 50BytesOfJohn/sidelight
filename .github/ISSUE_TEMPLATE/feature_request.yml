@@ -1,0 +1,46 @@
+name: Feature or widget idea
+description: Suggest a new widget, setting or improvement.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are welcome! [docs/VISION.md](https://github.com/50BytesOfJohn/sidelight/blob/main/docs/VISION.md) describes where Sidelight is heading.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What you're trying to see or do, and why it matters to you.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: How it might look or behave. Sketches, mockups or links to similar apps are very welcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - New widget
+        - Existing widget
+        - Panel look and feel (backgrounds, effects, motion)
+        - Window avoidance
+        - Agent and developer tool integrations
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: data-source
+    attributes:
+      label: Data source
+      description: For a widget that shows external data, where would it come from (a CLI, an API, a local file)?
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd like to build this myself.

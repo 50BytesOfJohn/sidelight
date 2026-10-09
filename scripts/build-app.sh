@@ -1,7 +1,9 @@
 #!/bin/bash
 # Builds Sidelight.app from the Swift package and code-signs it.
 #
-# Usage: scripts/build-app.sh [release|debug]
+# Usage: [VERSION=1.2.3] scripts/build-app.sh [release|debug]
+#
+# VERSION overrides CFBundleShortVersionString from Resources/Info.plist (the release workflow sets it from the tag).
 #
 # Signing identity: $SIGN_IDENTITY if set, else the first "Developer ID Application" or "Apple Development"
 # identity in the keychain, else ad-hoc. Signing with the same identity every time keeps the Accessibility and
@@ -30,6 +32,9 @@ find Resources -maxdepth 1 -type f ! -name Info.plist -exec cp {} "$APP/Contents
 # Build number = commit count, so every commit produces a monotonically increasing CFBundleVersion.
 if BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null); then
     /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
+fi
+if [[ -n "${VERSION:-}" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 fi
 
 IDENTITY=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \

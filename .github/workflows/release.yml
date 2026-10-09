@@ -1,0 +1,50 @@
+# Push a version tag (git tag v0.2.0 && git push origin v0.2.0) to build Sidelight.app and attach it to a
+# draft GitHub release. Review the draft, then publish it by hand.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      contents: write # create the release and upload assets
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # build-app.sh derives the build number from the commit count
+          persist-credentials: false
+      - name: Select Xcode
+        run: sudo xcode-select --switch /Applications/Xcode.app
+      - name: Check
+        run: make check
+      - name: Build app bundle
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          VERSION="$VERSION" make app
+      - name: Package
+        run: |
+          ZIP="Sidelight-$VERSION.zip"
+          ditto -c -k --keepParent build/Sidelight.app "$ZIP"
+          shasum -a 256 "$ZIP" > "$ZIP.sha256"
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'NOTES'
+          > [!NOTE]
+          > This build isn't notarized by Apple yet. After unzipping, move `Sidelight.app` to `/Applications` and
+          > run `xattr -dr com.apple.quarantine /Applications/Sidelight.app` once before opening it.
+          > Requires an Apple Silicon Mac with macOS 26.
+
+          NOTES
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes --notes-file notes.md \
+            --title "Sidelight $VERSION" \
+            "Sidelight-$VERSION.zip" "Sidelight-$VERSION.zip.sha256"

@@ -1,10 +1,16 @@
 # Sidelight
 
+[![CI](https://github.com/50BytesOfJohn/sidelight/actions/workflows/ci.yml/badge.svg)](https://github.com/50BytesOfJohn/sidelight/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![macOS 26+, Apple Silicon](https://img.shields.io/badge/macOS-26%2B%20%C2%B7%20Apple%20Silicon-black?logo=apple)
+
 A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Codex rate limits, calendar,
 now playing, coding-agent activity and system stats. Other apps' windows are moved or shrunk so they never sit
 under the panel. Why it exists and where it's going: [docs/VISION.md](docs/VISION.md).
 
-Requires macOS 26 and Xcode 26.4+ (Swift 6.2+ toolchain).
+Requires an Apple Silicon Mac with macOS 26. Building needs Xcode 26.4+ (Swift 6.2+ toolchain). There's no
+release yet, so build from source for now; ready-made builds will appear on the
+[Releases](https://github.com/50BytesOfJohn/sidelight/releases) page.
 
 ## Getting started
 
@@ -78,6 +84,15 @@ Tests/
 avoidance — and to run each data service only while a widget that needs it is visible (or the Widgets window,
 which previews all of them, is open).
 
-**Contributing.** Project conventions and the add-a-widget checklist live in the
-[`sidelight-conventions`](.agents/skills/sidelight-conventions/SKILL.md) agent skill; `AGENTS.md` holds the rules
-that apply to every change.
+## Contributing
+
+Contributions are welcome: bug reports, widget ideas, fixes and new widgets. Start with
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup and the fork-and-pull-request workflow. Project conventions and the
+add-a-widget checklist live in the [`sidelight-conventions`](.agents/skills/sidelight-conventions/SKILL.md) agent
+skill; [AGENTS.md](AGENTS.md) holds the rules that apply to every change. Please follow the
+[Code of Conduct](CODE_OF_CONDUCT.md), and report security issues privately as described in
+[SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE)
