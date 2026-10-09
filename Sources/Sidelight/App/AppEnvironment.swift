@@ -14,6 +14,7 @@ struct AppEnvironment {
     let windowAvoider: WindowAvoider
     let loginItem: LoginItem
     let rectangle: RectangleIntegration
+    let updater: Updater
 }
 
 extension View {
@@ -30,5 +31,6 @@ extension View {
             .environment(app.windowAvoider)
             .environment(app.loginItem)
             .environment(app.rectangle)
+            .environment(app.updater)
     }
 }

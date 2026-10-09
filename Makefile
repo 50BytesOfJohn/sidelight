@@ -8,15 +8,16 @@ endif
 
 SWIFT_SOURCES := Sources Tests Package.swift
 
-.PHONY: build test app run dev format lint check clean
+.PHONY: build test app run dev release format lint check clean
 
 ## Compile all targets (debug).
 build:
-	swift build
+	swift build -Xswiftc -warnings-as-errors
 
 ## Run the unit tests.
 test:
-	swift test
+	swift test -Xswiftc -warnings-as-errors
+	python3 -m unittest discover -s Tests/ReleaseTests
 
 ## Build and sign build/Sidelight.app (release).
 app:
@@ -35,6 +36,10 @@ dev:
 		trap "kill $$! 2>/dev/null" EXIT; \
 		build/Sidelight.app/Contents/MacOS/Sidelight
 
+## Signed, notarized DMG and appcast in build/release/: make release VERSION=0.2.0. See docs/RELEASING.md.
+release:
+	scripts/release.sh $(VERSION)
+
 ## Format all Swift sources in place.
 format:
 	swift format --in-place --recursive $(SWIFT_SOURCES)
@@ -42,6 +47,7 @@ format:
 ## Fail on any formatting or style violation.
 lint:
 	swift format lint --strict --recursive $(SWIFT_SOURCES)
+	bash -n scripts/build-app.sh scripts/release.sh
 
 ## What CI runs.
 check: lint build test

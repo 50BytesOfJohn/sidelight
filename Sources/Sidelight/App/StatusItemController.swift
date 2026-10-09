@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import SidelightCore
 
 /// The menu bar icon and its menu, rebuilt each time it opens so it always reflects the current state.
@@ -7,6 +8,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let environment: AppEnvironment
     private let panels: PanelCoordinator
     private let windows: WindowCoordinator
+    private var observation: Task<Void, Never>?
 
     private var store: ConfigurationStore { environment.configurationStore }
 
@@ -15,15 +17,25 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.panels = panels
         self.windows = windows
         super.init()
-        statusItem.button?.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Sidelight")
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
+        observeAvailableUpdate()
+    }
+
+    deinit {
+        observation?.cancel()
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         let configuration = store.configuration
         menu.removeAllItems()
+
+        let updater = environment.updater
+        if let version = updater.availableVersion {
+            menu.addItem(NSMenuItem("Update to Sidelight \(version)…") { updater.checkForUpdates() })
+            menu.addItem(.separator())
+        }
 
         let toggle = NSMenuItem(panels.isHidden ? "Show Panel" : "Hide Panel") { [panels] in panels.toggle() }
         toggle.toolTip = "Global shortcut: \(configuration.hotkey.displayString)"
@@ -68,7 +80,44 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             })
         menu.addItem(NSMenuItem("Revert Rectangle Configuration…") { rectangle.revert() })
         menu.addItem(.separator())
+        // An item without an action is disabled.
+        menu.addItem(
+            updater.canCheckForUpdates
+                ? NSMenuItem("Check for Updates…") { updater.checkForUpdates() }
+                : NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: ""))
         menu.addItem(withTitle: "Quit Sidelight", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+    }
+
+    /// Badges the icon while a background check has found an update the user hasn't seen.
+    private func observeAvailableUpdate() {
+        let updater = environment.updater
+        observation = Task { [weak self] in
+            for await hasUpdate in Observations({ updater.availableVersion != nil }) {
+                self?.statusItem.button?.image = Self.icon(badged: hasUpdate)
+            }
+        }
+    }
+
+    private static func icon(badged: Bool) -> NSImage? {
+        guard let symbol = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Sidelight") else {
+            return nil
+        }
+        guard badged else { return symbol }
+        let image = NSImage(size: symbol.size, flipped: false) { rect in
+            symbol.draw(in: rect)
+            let diameter = (rect.height * 0.5).rounded()
+            let dot = NSRect(x: rect.maxX - diameter, y: rect.maxY - diameter, width: diameter, height: diameter)
+            // Cut a gap around the dot so it reads as a badge on top of the symbol.
+            NSGraphicsContext.current?.compositingOperation = .clear
+            NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: dot).fill()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Sidelight, update available"
+        return image
     }
 
     /// The display whose menu bar the menu was opened from.

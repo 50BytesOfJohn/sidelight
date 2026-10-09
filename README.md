@@ -29,6 +29,10 @@ On first launch macOS asks for **Accessibility** access (needed to move other ap
 | Calendar    | Calendar access, requested from the widget                             |
 | Agents      | Events POSTed to `127.0.0.1:47821/event` — see `scripts/send-event.sh` |
 
+Packaged releases use Developer ID signing and Apple notarization. Installed copies check for updates through
+Sparkle; update settings and a manual check are in **Settings → General → Updates**. The menu bar also has
+**Check for Updates…**. Maintainers: see [docs/RELEASING.md](docs/RELEASING.md) for the release workflow and credentials.
+
 To get Claude Code notifications in the Agents widget, merge `scripts/claude-code-hooks.json` into
 `~/.claude/settings.json`.
 
@@ -69,6 +73,7 @@ Sources/
     Hotkey/               Global shortcut (Carbon)
     Manager/              Widgets window: active list, gallery, inspector
     Settings/             Settings window
+    Updates/              Sparkle updater, automatic checks and gentle reminders
     Widgets/
       Framework/          WidgetLayout, metadata, WidgetCard chrome, content/settings dispatch
       <Feature>/          One folder per widget: its data service and its views

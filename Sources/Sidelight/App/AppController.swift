@@ -32,7 +32,8 @@ final class AppController {
             hotkeys: HotkeyCenter(),
             windowAvoider: WindowAvoider(),
             loginItem: LoginItem(),
-            rectangle: RectangleIntegration()
+            rectangle: RectangleIntegration(),
+            updater: Updater()
         )
         self.environment = environment
         windows = WindowCoordinator(environment: environment)
@@ -52,6 +53,9 @@ final class AppController {
 
         environment.hotkeys.onPress = { [weak panels] in panels?.toggle() }
         environment.hotkeys.register(configuration.hotkey)
+
+        environment.updater.onSettingsChange = { [store] in store.configuration.updates = $0 }
+        environment.updater.start(with: configuration.updates)
 
         MainMenu.install(windows: windows)
         statusItem = StatusItemController(environment: environment, panels: panels, windows: windows)
@@ -91,6 +95,7 @@ final class AppController {
         panels.apply(configuration, displays: displays)
         environment.windowAvoider.mode = configuration.windowAvoidance
         environment.hotkeys.register(configuration.hotkey)
+        environment.updater.apply(configuration.updates)
         if panels.targetFrames != previousFrames { avoidWindowsAfterPanelChange() }
     }
 
