@@ -1,10 +1,9 @@
-# Push an annotated version tag to build a signed, notarized Sidelight.dmg and attach it to a draft GitHub release:
+# Push a version tag to build, sign, notarize and publish Sidelight with a generated changelog:
 #
-#   git tag -a v0.2.0 --cleanup=whitespace -F notes.md   # Markdown notes, shown in the app's update window
+#   git tag v0.2.0
 #   git push origin v0.2.0
 #
-# Review the draft, then publish it by hand. Publishing is what ships the update: installed copies read the
-# appcast.xml of the latest published release. docs/RELEASING.md has the details and the one-time setup.
+# Installed copies read appcast.xml from the latest published release. docs/RELEASING.md has the details.
 name: Release
 
 on:
@@ -84,20 +83,18 @@ jobs:
           for name in DEVELOPER_ID_P12 DEVELOPER_ID_P12_PASSWORD NOTARY_API_KEY NOTARY_KEY_ID NOTARY_ISSUER SPARKLE_PRIVATE_KEY; do
             [[ -n "${!name}" ]] || { echo "Missing release environment secret: $name"; exit 1; }
           done
-      - name: Release notes
+      - name: Generate changelog
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-          # actions/checkout can turn an annotated tag into a lightweight one; fetch it again to get its message.
-          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
-            git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | sed '/^-----BEGIN [A-Z ]*SIGNATURE-----$/,$d' \
-              > "$RUNNER_TEMP/notes.md"
-          else
-            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" \
-              --jq .body > "$RUNNER_TEMP/notes.md"
+          PREVIOUS_TAG=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')
+          OPTIONS=(-f tag_name="$GITHUB_REF_NAME")
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            OPTIONS+=(-f previous_tag_name="$PREVIOUS_TAG")
           fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${OPTIONS[@]}" \
+            --jq .body > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
       - name: Import signing certificate
         env:
@@ -139,34 +136,10 @@ jobs:
             build/release/Sidelight.dSYM
           if-no-files-found: error
           retention-days: 30
-      - name: Create draft release
+      - name: Upload, verify and publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          {
-            cat "$RUNNER_TEMP/notes.md"
-            echo
-            echo "---"
-            echo
-            echo "**Install:** download \`Sidelight-$VERSION.dmg\`, open it and drag Sidelight to Applications."
-            echo "Sidelight then keeps itself up to date (Settings → General → Updates)."
-            echo "Requires an Apple Silicon Mac with macOS 26."
-          } > "$RUNNER_TEMP/release-body.md"
-          EXISTING=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq \
-            ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .draft")
-          if [[ "$EXISTING" == false ]]; then
-            echo 'This release is already published; its assets must not be replaced.'
-            exit 1
-          elif [[ "$EXISTING" == true ]]; then
-            gh release upload "$GITHUB_REF_NAME" --clobber \
-              "build/release/Sidelight-$VERSION.dmg" "build/release/Sidelight-$VERSION.dmg.sha256" build/release/appcast.xml
-            gh release edit "$GITHUB_REF_NAME" --title "Sidelight $VERSION" --notes-file "$RUNNER_TEMP/release-body.md"
-          else
-            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Sidelight $VERSION" \
-              --notes-file "$RUNNER_TEMP/release-body.md" \
-              "build/release/Sidelight-$VERSION.dmg" "build/release/Sidelight-$VERSION.dmg.sha256" build/release/appcast.xml
-          fi
-          echo "Draft release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
+        run: scripts/publish-release.sh "$VERSION" "$RUNNER_TEMP/notes.md"
       - name: Remove signing material
         if: always()
         run: |

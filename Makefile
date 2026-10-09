@@ -47,7 +47,7 @@ format:
 ## Fail on any formatting or style violation.
 lint:
 	swift format lint --strict --recursive $(SWIFT_SOURCES)
-	bash -n scripts/build-app.sh scripts/release.sh
+	bash -n scripts/build-app.sh scripts/release.sh scripts/publish-release.sh
 
 ## What CI runs.
 check: lint build test
