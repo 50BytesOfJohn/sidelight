@@ -30,9 +30,11 @@ class AppcastTests(unittest.TestCase):
         self.signature = base64.b64encode(bytes(64)).decode()
         self.xml = f'''<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
             <channel><item><sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="{self.repo}/releases/download/v0.1.0/{self.archive.name}"
-            length="12" type="application/octet-stream" sparkle:version="7"
-            sparkle:shortVersionString="0.1.0" sparkle:edSignature="{self.signature}" />
+            length="12" type="application/octet-stream" sparkle:edSignature="{self.signature}" />
             </item></channel></rss>'''
 
     def verify(self, xml=None):
@@ -46,9 +48,10 @@ class AppcastTests(unittest.TestCase):
         for old, new in [
             ("releases/download/v0.1.0", "releases/latest/download"),
             ('length="12"', 'length="13"'),
-            ('sparkle:version="7"', 'sparkle:version="6"'),
-            ('sparkle:shortVersionString="0.1.0"', 'sparkle:shortVersionString="0.2.0"'),
+            ('<sparkle:version>7<', '<sparkle:version>6<'),
+            ('<sparkle:shortVersionString>0.1.0<', '<sparkle:shortVersionString>0.2.0<'),
             (">26.0<", ">27.0<"),
+            (">arm64<", ">x86_64<"),
             (f'sparkle:edSignature="{self.signature}"', ''),
         ]:
             with self.subTest(replacement=new), self.assertRaises(ValueError):

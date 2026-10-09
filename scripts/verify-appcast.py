@@ -25,16 +25,20 @@ def verify_metadata(plist, archive, feed, version, repo_url):
         "url": f"{repo_url}/releases/download/v{version}/{archive.name}",
         "length": str(archive.stat().st_size),
         "type": "application/octet-stream",
-        SPARKLE + "version": plist["CFBundleVersion"],
-        SPARKLE + "shortVersionString": version,
     }
     for name, value in expected.items():
         if enclosure.get(name) != value:
             raise ValueError(f"appcast {name} does not match the release")
+    if item.findtext(SPARKLE + "version") != plist["CFBundleVersion"]:
+        raise ValueError("appcast build number does not match the app")
+    if item.findtext(SPARKLE + "shortVersionString") != version:
+        raise ValueError("appcast version does not match the release")
     if plist["CFBundleShortVersionString"] != version:
         raise ValueError("app version does not match the release")
     if item.findtext(SPARKLE + "minimumSystemVersion") != plist["LSMinimumSystemVersion"]:
         raise ValueError("appcast minimum macOS version does not match the app")
+    if item.findtext(SPARKLE + "hardwareRequirements") != "arm64":
+        raise ValueError("appcast must require Apple Silicon")
     if len(base64.b64decode(plist.get("SUPublicEDKey", ""), validate=True)) != 32:
         raise ValueError("app has no valid Sparkle public key")
     signature = enclosure.get(SPARKLE + "edSignature", "")

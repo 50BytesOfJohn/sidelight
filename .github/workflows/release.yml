@@ -44,11 +44,11 @@ jobs:
           import os, pathlib, subprocess, xml.etree.ElementTree as ET
           ns = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
           feed = pathlib.Path(os.environ['RUNNER_TEMP']) / 'previous/appcast.xml'
-          enclosure = ET.parse(feed).getroot().find('./channel/item/enclosure')
+          item = ET.parse(feed).getroot().find('./channel/item')
           build = int(subprocess.check_output(['git', 'rev-list', '--first-parent', '--count', 'HEAD']))
-          assert build > int(enclosure.attrib[ns + 'version']), 'Build number must increase'
+          assert build > int(item.findtext(ns + 'version')), 'Build number must increase'
           version = tuple(map(int, os.environ['VERSION'].split('.')))
-          previous = tuple(map(int, enclosure.attrib[ns + 'shortVersionString'].split('.')))
+          previous = tuple(map(int, item.findtext(ns + 'shortVersionString').split('.')))
           assert version > previous, 'Release version must increase'
           PY
           fi
