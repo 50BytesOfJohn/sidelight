@@ -93,8 +93,9 @@ jobs:
           if [[ -n "$PREVIOUS_TAG" ]]; then
             OPTIONS+=(-f previous_tag_name="$PREVIOUS_TAG")
           fi
-          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${OPTIONS[@]}" \
-            --jq .body > "$RUNNER_TEMP/notes.md"
+          # Sparkle's Markdown renderer displays HTML comments as text; remove GitHub's internal metadata.
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${OPTIONS[@]}" --jq .body \
+            | sed '/^<!-- Release notes generated using .* -->$/d' > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
       - name: Import signing certificate
         env:
