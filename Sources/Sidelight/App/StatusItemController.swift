@@ -98,10 +98,33 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    private static func icon(badged: Bool) -> NSImage? {
-        guard let symbol = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Sidelight") else {
-            return nil
+    /// Sidelight's mark, like the app icon: a display with light fading in from its left edge, where the panel sits.
+    private static func mark() -> NSImage {
+        let image = NSImage(size: NSSize(width: 20, height: 16), flipped: false) { _ in
+            let outer = NSRect(x: 1.25, y: 1.25, width: 17.5, height: 13.5)
+            let lineWidth: CGFloat = 1.5
+            let frame = NSBezierPath(
+                roundedRect: outer.insetBy(dx: lineWidth / 2, dy: lineWidth / 2), xRadius: 3.2, yRadius: 3.2)
+            frame.lineWidth = lineWidth
+            NSColor.black.setStroke()
+            frame.stroke()
+            let inside = outer.insetBy(dx: lineWidth + 0.75, dy: lineWidth + 0.75)
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(roundedRect: inside, xRadius: 1.8, yRadius: 1.8).addClip()
+            NSGradient(
+                colors: [.black, .black.withAlphaComponent(0.55), .clear], atLocations: [0, 0.3, 0.75],
+                colorSpace: .sRGB)?
+                .draw(in: inside, angle: 0)
+            NSGraphicsContext.restoreGraphicsState()
+            return true
         }
+        image.isTemplate = true
+        image.accessibilityDescription = "Sidelight"
+        return image
+    }
+
+    private static func icon(badged: Bool) -> NSImage {
+        let symbol = mark()
         guard badged else { return symbol }
         let image = NSImage(size: symbol.size, flipped: false) { rect in
             symbol.draw(in: rect)

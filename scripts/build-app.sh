@@ -41,6 +41,13 @@ install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # Bundle everything else in Resources/ (e.g. wallpaper.jpg, the default image-style background).
 find Resources -maxdepth 1 -type f ! -name Info.plist ! -name '*.entitlements' -exec cp {} "$APP/Contents/Resources/" \;
+# The app icon: Icon Composer's AppIcon.icon (from design/logo/generate.py), compiled into Assets.car and
+# AppIcon.icns. Info.plist names it already, so actool's partial plist is discarded.
+ICON_PLIST=$(mktemp)
+xcrun actool Resources/AppIcon.icon --compile "$APP/Contents/Resources" --app-icon AppIcon \
+    --output-partial-info-plist "$ICON_PLIST" --platform macosx --minimum-deployment-target 26.0 \
+    --output-format human-readable-text --warnings --notices
+rm -f "$ICON_PLIST"
 # SwiftPM's compiled asset catalog, kept in the app's Resources directory.
 RESOURCE_BUNDLE="$APP/Contents/Resources/Sidelight_Sidelight.bundle"
 ditto "$BIN_PATH/Sidelight_Sidelight.bundle" "$RESOURCE_BUNDLE"
