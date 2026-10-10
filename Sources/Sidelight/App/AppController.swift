@@ -27,6 +27,7 @@ final class AppController {
             calendar: CalendarService(),
             codex: CodexService(),
             claudeCode: ClaudeCodeService(),
+            cursor: CursorService(),
             nowPlaying: NowPlayingService(),
             agentEvents: AgentEventServer(),
             systemStats: SystemStatsService(),
@@ -72,6 +73,7 @@ final class AppController {
         store.flush()
         environment.codex.stop()
         environment.claudeCode.stop()
+        environment.cursor.stop()
         environment.nowPlaying.stop()
         environment.agentEvents.stop()
         environment.calendar.stop()
@@ -99,6 +101,7 @@ final class AppController {
         environment.hotkeys.register(configuration.hotkey)
         environment.updater.apply(configuration.updates)
         environment.claudeCode.refreshInterval = configuration.claudeCodeRefreshMinutes.map { .seconds($0 * 60) }
+        environment.cursor.refreshInterval = configuration.cursorRefreshMinutes.map { .seconds($0 * 60) }
         if panels.targetFrames != previousFrames { avoidWindowsAfterPanelChange() }
     }
 
@@ -141,6 +144,7 @@ final class AppController {
             case .clock: break
             case .codex: isNeeded ? environment.codex.start() : environment.codex.stop()
             case .claudeCode: isNeeded ? environment.claudeCode.start() : environment.claudeCode.stop()
+            case .cursor: isNeeded ? environment.cursor.start() : environment.cursor.stop()
             case .calendar: isNeeded ? environment.calendar.start() : environment.calendar.stop()
             case .nowPlaying: isNeeded ? environment.nowPlaying.start() : environment.nowPlaying.stop()
             case .agents: isNeeded ? environment.agentEvents.start() : environment.agentEvents.stop()

@@ -11,6 +11,7 @@ struct WidgetContent: View {
         case .clock(let settings): ClockWidgetView(settings: settings, layout: layout)
         case .codex(let settings): CodexWidgetView(settings: settings, layout: layout)
         case .claudeCode(let settings): ClaudeCodeWidgetView(settings: settings, layout: layout)
+        case .cursor(let settings): CursorWidgetView(settings: settings, layout: layout)
         case .calendar(let settings): CalendarWidgetView(settings: settings, layout: layout)
         case .nowPlaying: NowPlayingWidgetView(layout: layout)
         case .agents: AgentsWidgetView(layout: layout)
@@ -29,6 +30,7 @@ struct WidgetSettingsEditor: View {
         case .codex(let settings): CodexSettingsEditor(settings: binding(settings, WidgetSettings.codex))
         case .claudeCode(let settings):
             ClaudeCodeSettingsEditor(settings: binding(settings, WidgetSettings.claudeCode))
+        case .cursor(let settings): CursorSettingsEditor(settings: binding(settings, WidgetSettings.cursor))
         case .calendar(let settings): CalendarSettingsEditor(settings: binding(settings, WidgetSettings.calendar))
         case .system(let settings): SystemSettingsEditor(settings: binding(settings, WidgetSettings.system))
         case .agents: AgentsSettingsHelp()

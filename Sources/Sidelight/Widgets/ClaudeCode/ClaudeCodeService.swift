@@ -193,7 +193,7 @@ final class ClaudeCodeService {
             anthropicProblem = problem
             consecutiveFailures += 1
         }
-        return ClaudeCodeUsageAPI.retryDelay(
+        return UsageRefresh.retryDelay(
             interval: interval, consecutiveFailures: consecutiveFailures, maximum: Self.maximumRetryDelay)
     }
 

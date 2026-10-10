@@ -14,6 +14,7 @@ extension WidgetInstance: Codable {
             case .clock: .clock(try container.decode(ClockSettings.self, forKey: .settings))
             case .codex: .codex(try container.decode(CodexSettings.self, forKey: .settings))
             case .claudeCode: .claudeCode(try container.decode(ClaudeCodeSettings.self, forKey: .settings))
+            case .cursor: .cursor(try container.decodeIfPresent(CursorSettings.self, forKey: .settings) ?? .init())
             case .calendar: .calendar(try container.decode(CalendarSettings.self, forKey: .settings))
             case .nowPlaying: .nowPlaying
             case .agents: .agents
@@ -37,6 +38,7 @@ extension WidgetInstance: Codable {
         case .clock(let settings): try container.encode(settings, forKey: .settings)
         case .codex(let settings): try container.encode(settings, forKey: .settings)
         case .claudeCode(let settings): try container.encode(settings, forKey: .settings)
+        case .cursor(let settings): try container.encode(settings, forKey: .settings)
         case .calendar(let settings): try container.encode(settings, forKey: .settings)
         case .system(let settings): try container.encode(settings, forKey: .settings)
         case .nowPlaying, .agents: break

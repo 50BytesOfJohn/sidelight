@@ -459,13 +459,3 @@ struct ClaudeCodeWidgetView: View {
         }
     }
 }
-
-/// An icon and title closer together than the default label style, for small captions.
-private struct TightLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 3) {
-            configuration.icon.imageScale(.small)
-            configuration.title
-        }
-    }
-}
