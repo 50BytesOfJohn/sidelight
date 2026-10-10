@@ -185,10 +185,38 @@ public struct BinaryClockOptions: Codable, Hashable, Sendable {
 }
 
 public struct CodexSettings: Codable, Hashable, Sendable {
-    public var showsWeeklyLimit = true
+    /// Whether limits read as what's left, the way Codex's own `/status` puts it, or as what's used.
+    public enum LimitReading: String, Codable, CaseIterable, Identifiable, Sendable {
+        case remaining, used
 
-    public init(showsWeeklyLimit: Bool = true) {
+        public var id: Self { self }
+    }
+
+    /// The longer of two limits, normally the week.
+    public var showsWeeklyLimit = true
+    public var limitReading = LimitReading.remaining
+    /// Tokens per day and in total, in the regular layout.
+    public var showsTokenHistory = true
+
+    public init(
+        showsWeeklyLimit: Bool = true, limitReading: LimitReading = .remaining, showsTokenHistory: Bool = true
+    ) {
         self.showsWeeklyLimit = showsWeeklyLimit
+        self.limitReading = limitReading
+        self.showsTokenHistory = showsTokenHistory
+    }
+
+    /// Missing options take their defaults, so settings saved before an option existed still load. So does an
+    /// unknown reading, rather than failing the whole configuration.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = CodexSettings()
+        showsWeeklyLimit =
+            try container.decodeIfPresent(Bool.self, forKey: .showsWeeklyLimit) ?? defaults.showsWeeklyLimit
+        limitReading =
+            (try? container.decodeIfPresent(LimitReading.self, forKey: .limitReading)) ?? defaults.limitReading
+        showsTokenHistory =
+            try container.decodeIfPresent(Bool.self, forKey: .showsTokenHistory) ?? defaults.showsTokenHistory
     }
 }
 

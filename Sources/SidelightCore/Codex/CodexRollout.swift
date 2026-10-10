@@ -8,10 +8,13 @@ public struct CodexRolloutSnapshot: Equatable, Sendable {
     public var rateLimits: CodexRateLimits
     /// Total tokens used by that session.
     public var sessionTokens: Int64?
+    /// When Codex logged it: the event's timestamp, or else when the file was last written.
+    public var capturedAt: Date?
 
-    public init(rateLimits: CodexRateLimits, sessionTokens: Int64? = nil) {
+    public init(rateLimits: CodexRateLimits, sessionTokens: Int64? = nil, capturedAt: Date? = nil) {
         self.rateLimits = rateLimits
         self.sessionTokens = sessionTokens
+        self.capturedAt = capturedAt
     }
 }
 
@@ -25,8 +28,11 @@ public enum CodexRollout {
 
     /// Reads the newest rollout file under `sessionsDirectory` and returns its latest snapshot.
     public static func latestSnapshot(sessionsDirectory: URL = defaultSessionsDirectory) -> CodexRolloutSnapshot? {
-        guard let file = newestRolloutFile(in: sessionsDirectory), let tail = readTail(of: file) else { return nil }
-        return latestSnapshot(inLog: tail)
+        guard let file = newestRolloutFile(in: sessionsDirectory), let tail = readTail(of: file),
+            var snapshot = latestSnapshot(inLog: tail)
+        else { return nil }
+        if snapshot.capturedAt == nil { snapshot.capturedAt = modificationDate(of: file) }
+        return snapshot
     }
 
     /// The last `token_count` event with rate limits in a chunk of rollout JSONL.
@@ -34,10 +40,14 @@ public enum CodexRollout {
         let marker = Data(#""type":"token_count""#.utf8)
         let decoder = JSONDecoder()
         for line in log.split(separator: 0x0A).reversed() where line.firstRange(of: marker) != nil {
-            guard let payload = try? decoder.decode(Line.self, from: Data(line)).payload,
-                let rateLimits = payload.rateLimits
+            guard let decoded = try? decoder.decode(Line.self, from: Data(line)),
+                let rateLimits = decoded.payload.rateLimits
             else { continue }
-            return CodexRolloutSnapshot(rateLimits: rateLimits, sessionTokens: payload.sessionTokens)
+            return CodexRolloutSnapshot(
+                rateLimits: rateLimits,
+                sessionTokens: decoded.payload.sessionTokens,
+                capturedAt: decoded.timestamp
+            )
         }
         return nil
     }
@@ -62,7 +72,7 @@ public enum CodexRollout {
                     let newest =
                         files
                         .filter { $0.lastPathComponent.hasPrefix("rollout-") && $0.pathExtension == "jsonl" }
-                        .max { modificationDate(of: $0) < modificationDate(of: $1) }
+                        .max { sortDate(of: $0) < sortDate(of: $1) }
                     if let newest { return newest }
                 }
             }
@@ -78,14 +88,28 @@ public enum CodexRollout {
         return try? handle.readToEnd()
     }
 
-    private static func modificationDate(of file: URL) -> Date {
-        (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+    private static func modificationDate(of file: URL) -> Date? {
+        try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+    }
+
+    private static func sortDate(of file: URL) -> Date {
+        modificationDate(of: file) ?? .distantPast
     }
 
     // MARK: Wire format
 
     private struct Line: Decodable {
+        var timestamp: Date?
         var payload: Payload
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: AnyCodingKey.self)
+            payload = try container.decode(Payload.self, forKey: AnyCodingKey("payload"))
+            timestamp = container.lenient(String.self, "timestamp").flatMap { text in
+                (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(text))
+                    ?? (try? Date.ISO8601FormatStyle().parse(text))
+            }
+        }
     }
 
     private struct Payload: Decodable {
