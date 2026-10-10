@@ -14,6 +14,7 @@ extension WidgetKind {
         switch self {
         case .clock: .clock
         case .codex: .codex
+        case .claudeCode: .claudeCode
         case .calendar: .calendar
         case .nowPlaying: .nowPlaying
         case .agents: .agents
@@ -28,6 +29,7 @@ extension WidgetSettings {
         switch self {
         case .clock(let settings): settings.summary
         case .codex(let settings): settings.summary
+        case .claudeCode(let settings): settings.summary
         case .calendar(let settings): settings.summary
         case .system(let settings): settings.summary
         case .nowPlaying, .agents: kind.metadata.summary
