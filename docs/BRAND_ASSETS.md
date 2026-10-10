@@ -22,4 +22,5 @@ The widget first looks for the resource bundle in the packaged app's resources d
 `Contents/Resources` directory.
 
 Older SwiftPM build engines copy `.xcassets` without compiling them. The app packaging script compiles the
-catalog with `actool` when `Assets.car` is missing; SwiftBuild's already compiled catalogs are copied as-is.
+catalog with `actool` when `Assets.car` is missing and supplies macOS resource-bundle metadata when needed;
+SwiftBuild's already compiled bundles are copied as-is.

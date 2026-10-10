@@ -44,17 +44,27 @@ find Resources -maxdepth 1 -type f ! -name Info.plist ! -name '*.entitlements' -
 # SwiftPM's compiled asset catalog, kept in the app's Resources directory.
 RESOURCE_BUNDLE="$APP/Contents/Resources/Sidelight_Sidelight.bundle"
 ditto "$BIN_PATH/Sidelight_Sidelight.bundle" "$RESOURCE_BUNDLE"
-# The older SwiftPM build engine copies .xcassets without compiling them. Its bundles are flat; SwiftBuild's
-# bundles use Contents/Resources and already contain Assets.car. Compile only when the catalog is still raw.
-ASSET_OUTPUT="$RESOURCE_BUNDLE"
-if [[ -d "$RESOURCE_BUNDLE/Contents/Resources" ]]; then
-    ASSET_OUTPUT="$RESOURCE_BUNDLE/Contents/Resources"
+# SwiftBuild emits a macOS bundle and compiled catalog. Older SwiftPM engines copy bare resources instead;
+# AppKit needs bundle metadata as well as Assets.car to load named images from those resources.
+ASSET_OUTPUT="$RESOURCE_BUNDLE/Contents/Resources"
+if [[ ! -d "$RESOURCE_BUNDLE/Contents" ]]; then
+    mkdir -p "$ASSET_OUTPUT"
+    cat > "$RESOURCE_BUNDLE/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleIdentifier</key><string>app.getsidelight.Sidelight.ProviderLogos</string>
+    <key>CFBundleName</key><string>Sidelight_Sidelight</string>
+    <key>CFBundlePackageType</key><string>BNDL</string>
+    <key>CFBundleVersion</key><string>1</string>
+</dict></plist>
+PLIST
 fi
 if [[ ! -f "$ASSET_OUTPUT/Assets.car" ]]; then
     xcrun actool Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets \
         --compile "$ASSET_OUTPUT" --platform macosx --minimum-deployment-target 26.0 \
         --output-format human-readable-text --warnings --notices
-    rm -rf "$ASSET_OUTPUT/ProviderLogos.xcassets"
+    rm -rf "$RESOURCE_BUNDLE/ProviderLogos.xcassets" "$ASSET_OUTPUT/ProviderLogos.xcassets"
 fi
 
 # ditto keeps the framework's symlinks. Headers are build-time only; the XPC services only serve sandboxed apps.
