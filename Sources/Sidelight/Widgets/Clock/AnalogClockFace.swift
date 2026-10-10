@@ -7,6 +7,7 @@ struct AnalogClockFace: View {
     let options: AnalogClockOptions
     let showsSeconds: Bool
     let layout: WidgetLayout
+    let alignment: ClockAlignment
 
     var body: some View {
         content
@@ -18,30 +19,20 @@ struct AnalogClockFace: View {
     private var content: some View {
         switch layout {
         case .regular:
-            HStack(spacing: 16) {
-                dial(diameter: 96)
-                if options.showsDate {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(date, format: .dateTime.weekday(.wide))
-                            .font(.system(size: 22, weight: .semibold, design: .rounded))
-                        Text(date, format: .dateTime.day().month(.wide))
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            beside(dial(diameter: 96), spacing: 16) {
+                Text(date, format: .dateTime.weekday(.wide))
+                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                Text(date, format: .dateTime.day().month(.wide))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
         case .compact:
-            HStack(spacing: 10) {
-                dial(diameter: 58)
-                if options.showsDate {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(date, format: .dateTime.weekday(.abbreviated))
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        Text(date, format: .dateTime.day().month(.abbreviated))
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            beside(dial(diameter: 58), spacing: 10) {
+                Text(date, format: .dateTime.weekday(.abbreviated))
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                Text(date, format: .dateTime.day().month(.abbreviated))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
         case .minimal:
             VStack(spacing: 5) {
@@ -61,6 +52,20 @@ struct AnalogClockFace: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    /// The dial with the date on its far side from the card's edge: right-aligned clocks mirror, so the dial
+    /// always sits against the edge it's aligned to and the date lines up toward it.
+    private func beside(
+        _ dial: some View, spacing: CGFloat, @ViewBuilder date: () -> some View
+    ) -> some View {
+        let isMirrored = alignment == .trailing
+        let date = VStack(alignment: isMirrored ? .trailing : .leading, spacing: layout == .regular ? 2 : 1) { date() }
+        return HStack(spacing: spacing) {
+            if options.showsDate && isMirrored { date }
+            dial
+            if options.showsDate && !isMirrored { date }
         }
     }
 

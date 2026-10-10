@@ -8,6 +8,10 @@ struct ConfigurationCodingTests {
         var pixelClock = ClockSettings(style: .pixel)
         pixelClock.pixel = PixelClockOptions(color: .green, showsUnlitPixels: false, glows: false)
         pixelClock.analog = AnalogClockOptions(dial: .numerals, showsDate: false)
+        pixelClock.flip = FlipClockOptions(tiles: .paper, showsDate: false)
+        pixelClock.words = WordClockOptions(typeface: .rounded, roundsToFiveMinutes: true, showsDate: false)
+        pixelClock.binary = BinaryClockOptions(color: .text, showsDigits: false)
+        pixelClock.alignment = .trailing
         var configuration = AppConfiguration()
         configuration.panel = PanelDefaults(
             position: .bottom, width: .points(360), length: .fit, alignment: .end, shownOn: .all)
@@ -79,6 +83,37 @@ struct ConfigurationCodingTests {
         #expect(cards.style == .glass)
         #expect(cards.tint == Tint(color: .black, amount: 0.2))
         #expect(cards.showsTitles)
+    }
+
+    @Test func `clocks saved before alignment and the newer faces keep their look`() throws {
+        // A clock's settings as v0.1.2 wrote them.
+        let json = """
+            {
+              "analog": {"dial": "numerals", "showsDate": false},
+              "pixel": {"color": "green", "glows": false, "showsUnlitPixels": true},
+              "showsSeconds": true,
+              "style": "pixel",
+              "uses24HourTime": false
+            }
+            """
+        let clock = try JSONDecoder().decode(ClockSettings.self, from: Data(json.utf8))
+
+        #expect(clock.style == .pixel)
+        #expect(clock.showsSeconds)
+        #expect(!clock.uses24HourTime)
+        #expect(clock.analog == AnalogClockOptions(dial: .numerals, showsDate: false))
+        #expect(clock.pixel == PixelClockOptions(color: .green, showsUnlitPixels: true, glows: false))
+        #expect(clock.alignment == .leading)
+        #expect(clock.flip == FlipClockOptions())
+        #expect(clock.words == WordClockOptions())
+        #expect(clock.binary == BinaryClockOptions())
+    }
+
+    @Test func `only faces that can show seconds redraw every second`() {
+        var clock = ClockSettings(style: .words, showsSeconds: true)
+        #expect(!clock.showsSecondsOnFace)
+        clock.style = .binary
+        #expect(clock.showsSecondsOnFace)
     }
 
     @Test func `rejects unknown widget kinds`() throws {

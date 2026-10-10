@@ -8,10 +8,11 @@ struct PixelClockFace: View {
     let options: PixelClockOptions
     let showsSeconds: Bool
     let layout: WidgetLayout
+    let alignment: ClockAlignment
 
     var body: some View {
         content
-            .foregroundStyle(options.color.color.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
+            .foregroundStyle(options.color.style)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(date, format: .dateTime.hour().minute().weekday(.wide).day().month(.wide)))
     }
@@ -20,7 +21,7 @@ struct PixelClockFace: View {
     private var content: some View {
         switch layout {
         case .regular:
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: alignment.horizontal, spacing: 10) {
                 HStack(alignment: .bottom, spacing: 6) {
                     pixels("\(reading.hour):\(reading.minute)", size: 6)
                     secondsAndPeriod(size: 3)
@@ -29,7 +30,7 @@ struct PixelClockFace: View {
                     .opacity(0.65)
             }
         case .compact:
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: alignment.horizontal, spacing: 7) {
                 HStack(alignment: .bottom, spacing: 4) {
                     pixels("\(reading.hour):\(reading.minute)", size: 4)
                     secondsAndPeriod(size: 2)

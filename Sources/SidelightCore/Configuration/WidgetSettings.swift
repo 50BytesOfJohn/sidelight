@@ -19,6 +19,22 @@ public enum ClockStyle: String, Codable, CaseIterable, Identifiable, Sendable {
     case analog
     /// Dot-matrix digits, like an old LCD or LED display.
     case pixel
+    /// Digits on split-flap tiles, like a flip clock or a station board.
+    case flip
+    /// The time in English words: "nine past ten".
+    case words
+    /// Binary-coded decimal: a column of dots per digit.
+    case binary
+
+    public var id: Self { self }
+
+    /// Faces that can show seconds; a time in words can't.
+    public var showsSecondsOption: Bool { self != .words }
+}
+
+/// Where a clock sits in its card, and which way its lines of time and date line up.
+public enum ClockAlignment: String, Codable, CaseIterable, Identifiable, Sendable {
+    case leading, center, trailing
 
     public var id: Self { self }
 }
@@ -29,16 +45,53 @@ public struct ClockSettings: Codable, Hashable, Sendable {
     public var style: ClockStyle = .digital
     /// Seconds digits, or an analog second hand. Redraws every second instead of every minute.
     public var showsSeconds = false
-    /// Digital and pixel faces; an analog dial is always 12-hour.
+    /// Faces that show digits; analog dials and words are always 12-hour.
     public var uses24HourTime = true
+    /// Regular and compact cards. Narrow columns always center the clock, and bar chips fit it.
+    public var alignment: ClockAlignment = .leading
     public var analog = AnalogClockOptions()
     public var pixel = PixelClockOptions()
+    public var flip = FlipClockOptions()
+    public var words = WordClockOptions()
+    public var binary = BinaryClockOptions()
 
-    public init(style: ClockStyle = .digital, showsSeconds: Bool = false, uses24HourTime: Bool = true) {
+    public init(
+        style: ClockStyle = .digital, showsSeconds: Bool = false, uses24HourTime: Bool = true,
+        alignment: ClockAlignment = .leading
+    ) {
         self.style = style
         self.showsSeconds = showsSeconds
         self.uses24HourTime = uses24HourTime
+        self.alignment = alignment
     }
+
+    /// Missing options take their defaults, so a clock saved before an option existed still loads, and keeps
+    /// the leading alignment every clock had before it could be chosen.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ClockSettings()
+        style = try container.decodeIfPresent(ClockStyle.self, forKey: .style) ?? defaults.style
+        showsSeconds = try container.decodeIfPresent(Bool.self, forKey: .showsSeconds) ?? defaults.showsSeconds
+        uses24HourTime = try container.decodeIfPresent(Bool.self, forKey: .uses24HourTime) ?? defaults.uses24HourTime
+        alignment = try container.decodeIfPresent(ClockAlignment.self, forKey: .alignment) ?? defaults.alignment
+        analog = try container.decodeIfPresent(AnalogClockOptions.self, forKey: .analog) ?? defaults.analog
+        pixel = try container.decodeIfPresent(PixelClockOptions.self, forKey: .pixel) ?? defaults.pixel
+        flip = try container.decodeIfPresent(FlipClockOptions.self, forKey: .flip) ?? defaults.flip
+        words = try container.decodeIfPresent(WordClockOptions.self, forKey: .words) ?? defaults.words
+        binary = try container.decodeIfPresent(BinaryClockOptions.self, forKey: .binary) ?? defaults.binary
+    }
+
+    /// Whether the face shows seconds, and so redraws every second.
+    public var showsSecondsOnFace: Bool { showsSeconds && style.showsSecondsOption }
+}
+
+/// Colors for faces drawn in light: pixel and binary dots.
+public enum ClockColor: String, Codable, CaseIterable, Identifiable, Sendable {
+    case amber, green, cyan, red
+    /// The panel's text color.
+    case text
+
+    public var id: Self { self }
 }
 
 public struct AnalogClockOptions: Codable, Hashable, Sendable {
@@ -64,24 +117,69 @@ public struct AnalogClockOptions: Codable, Hashable, Sendable {
 }
 
 public struct PixelClockOptions: Codable, Hashable, Sendable {
-    public enum Color: String, Codable, CaseIterable, Identifiable, Sendable {
-        case amber, green, cyan, red
-        /// The panel's text color.
-        case text
-
-        public var id: Self { self }
-    }
-
-    public var color: Color = .amber
+    public var color: ClockColor = .amber
     /// Unlit dots faintly visible, like an LCD.
     public var showsUnlitPixels = true
     /// A soft halo around lit dots, like an LED or CRT.
     public var glows = true
 
-    public init(color: Color = .amber, showsUnlitPixels: Bool = true, glows: Bool = true) {
+    public init(color: ClockColor = .amber, showsUnlitPixels: Bool = true, glows: Bool = true) {
         self.color = color
         self.showsUnlitPixels = showsUnlitPixels
         self.glows = glows
+    }
+}
+
+public struct FlipClockOptions: Codable, Hashable, Sendable {
+    public enum Tiles: String, Codable, CaseIterable, Identifiable, Sendable {
+        /// Light digits on dark tiles, the classic look.
+        case graphite
+        /// Dark digits on cream tiles.
+        case paper
+        /// Translucent tiles in the panel's text color, blending with any background.
+        case smoke
+
+        public var id: Self { self }
+    }
+
+    public var tiles: Tiles = .graphite
+    /// The date under the tiles, or the weekday in narrow columns and bars.
+    public var showsDate = true
+
+    public init(tiles: Tiles = .graphite, showsDate: Bool = true) {
+        self.tiles = tiles
+        self.showsDate = showsDate
+    }
+}
+
+public struct WordClockOptions: Codable, Hashable, Sendable {
+    public enum Typeface: String, Codable, CaseIterable, Identifiable, Sendable {
+        case serif, sans, rounded
+
+        public var id: Self { self }
+    }
+
+    public var typeface: Typeface = .serif
+    /// To the nearest five minutes, like a word clock on the wall: "ten past ten" until 10:12.
+    public var roundsToFiveMinutes = false
+    /// The date under the words, or the weekday in narrow columns and bars.
+    public var showsDate = true
+
+    public init(typeface: Typeface = .serif, roundsToFiveMinutes: Bool = false, showsDate: Bool = true) {
+        self.typeface = typeface
+        self.roundsToFiveMinutes = roundsToFiveMinutes
+        self.showsDate = showsDate
+    }
+}
+
+public struct BinaryClockOptions: Codable, Hashable, Sendable {
+    public var color: ClockColor = .cyan
+    /// The decimal digit under each column, to learn to read it.
+    public var showsDigits = true
+
+    public init(color: ClockColor = .cyan, showsDigits: Bool = true) {
+        self.color = color
+        self.showsDigits = showsDigits
     }
 }
 
