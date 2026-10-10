@@ -7,6 +7,7 @@ struct DigitalClockFace: View {
     let reading: ClockReading
     let showsSeconds: Bool
     let layout: WidgetLayout
+    let alignment: ClockAlignment
 
     var body: some View {
         content
@@ -20,7 +21,7 @@ struct DigitalClockFace: View {
     private var content: some View {
         switch layout {
         case .regular:
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: alignment.horizontal, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 0) {
                     time(size: 46, weight: .thin)
                     if showsSeconds {
@@ -36,7 +37,7 @@ struct DigitalClockFace: View {
                     .foregroundStyle(.secondary)
             }
         case .compact:
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: alignment.horizontal, spacing: 0) {
                 HStack(alignment: .firstTextBaseline, spacing: 0) {
                     time(size: 30, weight: .light)
                     if showsSeconds {

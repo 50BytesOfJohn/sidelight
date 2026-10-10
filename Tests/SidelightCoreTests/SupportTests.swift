@@ -182,6 +182,58 @@ struct ClockHandsTests {
     }
 }
 
+struct ClockPhraseTests {
+    @Test(
+        arguments: [
+            (10, 9, false, "nine past ten"), (10, 15, false, "quarter past ten"), (10, 30, false, "half past ten"),
+            (10, 31, false, "twenty-nine to eleven"), (10, 45, false, "quarter to eleven"),
+            (10, 59, false, "one to eleven"), (10, 0, false, "ten o'clock"), (22, 21, false, "twenty-one past ten"),
+            (12, 0, false, "noon"), (0, 0, false, "midnight"), (23, 45, false, "quarter to twelve"),
+            (0, 20, false, "twenty past twelve"), (13, 5, false, "five past one"),
+            (10, 9, true, "ten past ten"), (10, 12, true, "ten past ten"), (10, 13, true, "quarter past ten"),
+            (10, 2, true, "ten o'clock"), (10, 58, true, "eleven o'clock"), (23, 58, true, "midnight"),
+            (11, 33, true, "twenty-five to twelve"),
+        ] as [(Int, Int, Bool, String)])
+    func `says the time in words`(hour: Int, minute: Int, rounds: Bool, expected: String) {
+        #expect(ClockPhrase(hour: hour, minute: minute, roundsToFiveMinutes: rounds).text == expected)
+    }
+
+    @Test func `splits the minutes from the hour`() {
+        let phrase = ClockPhrase(hour: 10, minute: 20, roundsToFiveMinutes: false)
+        #expect(phrase.lead == "twenty past")
+        #expect(phrase.hour == "ten")
+        #expect(!phrase.isOClock)
+
+        let onTheHour = ClockPhrase(hour: 15, minute: 0, roundsToFiveMinutes: false)
+        #expect(onTheHour.lead == nil)
+        #expect(onTheHour.hour == "three")
+        #expect(onTheHour.isOClock)
+    }
+}
+
+struct BinaryClockReadingTests {
+    @Test func `one column of bits per digit`() throws {
+        let calendar = ClockReadingTests().calendar
+        let date = try #require(
+            calendar.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: 23, minute: 59, second: 47)))
+        let reading = BinaryClockReading(
+            reading: ClockReading(date: date, uses24HourTime: true, calendar: calendar), includesSeconds: true)
+        #expect(reading.groups.map { $0.map(\.digit) } == [[2, 3], [5, 9], [4, 7]])
+        #expect(reading.groups.map { $0.map(\.bits) } == [[2, 4], [3, 4], [3, 4]])
+        // 9 is 1001.
+        #expect((0..<4).map(reading.groups[1][1].isLit) == [true, false, false, true])
+    }
+
+    @Test func `12-hour hours and no seconds`() throws {
+        let calendar = ClockReadingTests().calendar
+        let date = try #require(
+            calendar.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: 21, minute: 5, second: 0)))
+        let reading = BinaryClockReading(
+            reading: ClockReading(date: date, uses24HourTime: false, calendar: calendar), includesSeconds: false)
+        #expect(reading.groups.map { $0.map(\.digit) } == [[0, 9], [0, 5]])
+    }
+}
+
 struct PixelFontTests {
     @Test func `every glyph is seven rows of one width`() {
         for (character, rows) in PixelFont.glyphs {
