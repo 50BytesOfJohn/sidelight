@@ -37,7 +37,7 @@ struct ColumnHeader: View {
 
 extension WidgetMetadata {
     func iconTile(size: CGFloat) -> IconTile {
-        IconTile(systemImage: systemImage, tint: tint, size: size)
+        IconTile(systemImage: systemImage, tint: tint, size: size, logo: logo)
     }
 }
 

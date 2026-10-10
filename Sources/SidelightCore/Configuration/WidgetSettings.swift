@@ -15,6 +15,8 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case system
     /// Computers in Noodle Computer and whether they're running.
     case noodleComputer
+    /// Railway projects: services and their deploys, the bill, Railway's incidents. Built from blocks.
+    case railway
 
     public var id: Self { self }
 
@@ -461,6 +463,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case claudeSessions(ClaudeSessionsSettings)
     case system(SystemStatsSettings)
     case noodleComputer(NoodleComputerSettings)
+    case railway(RailwaySettings)
 
     public var kind: WidgetKind {
         switch self {
@@ -474,6 +477,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .claudeSessions: .claudeSessions
         case .system: .system
         case .noodleComputer: .noodleComputer
+        case .railway: .railway
         }
     }
 
@@ -489,6 +493,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .claudeSessions: .claudeSessions(ClaudeSessionsSettings())
         case .system: .system(SystemStatsSettings())
         case .noodleComputer: .noodleComputer(NoodleComputerSettings())
+        case .railway: .railway(RailwaySettings())
         }
     }
 }
