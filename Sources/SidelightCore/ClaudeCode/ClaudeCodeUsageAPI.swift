@@ -41,6 +41,21 @@ public enum ClaudeCodeFetchProblem: Error, Equatable, Sendable {
     case unreadable
 }
 
+extension ClaudeCodeFetchProblem {
+    public var message: String {
+        switch self {
+        case .notSignedIn: "No Claude Code sign-in found. Run claude and sign in."
+        case .signInExpired: "Claude Code's sign-in has expired. It renews the next time you use Claude Code."
+        case .rejected(let status) where status == 401 || status == 403:
+            "Anthropic didn't accept the sign-in (HTTP \(status)). Using Claude Code renews it."
+        case .rejected(status: 429): "Anthropic asked to slow down. Trying less often."
+        case .rejected(let status): "Anthropic answered HTTP \(status). Trying again later."
+        case .unreachable: "Can't reach Anthropic. Trying again later."
+        case .unreadable: "Anthropic's answer had no limits Sidelight can read."
+        }
+    }
+}
+
 /// Claude Code's sign-in, as it saves it: in the keychain item ``keychainService`` on macOS, or in
 /// `~/.claude/.credentials.json` where there's no keychain. Only the access token is read; refreshing it is left
 /// to Claude Code, since a refresh would replace the sign-in it holds.

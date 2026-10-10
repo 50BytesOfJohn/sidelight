@@ -16,6 +16,7 @@ extension WidgetKind {
         case .codex: .codex
         case .claudeCode: .claudeCode
         case .cursor: .cursor
+        case .aiUsage: .aiUsage
         case .calendar: .calendar
         case .nowPlaying: .nowPlaying
         case .agents: .agents
@@ -32,6 +33,7 @@ extension WidgetSettings {
         case .codex(let settings): settings.summary
         case .claudeCode(let settings): settings.summary
         case .cursor(let settings): settings.summary
+        case .aiUsage(let settings): settings.summary
         case .calendar(let settings): settings.summary
         case .system(let settings): settings.summary
         case .nowPlaying, .agents: kind.metadata.summary

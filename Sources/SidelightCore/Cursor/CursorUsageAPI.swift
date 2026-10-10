@@ -43,6 +43,35 @@ public enum CursorFetchProblem: Error, Equatable, Sendable {
     }
 }
 
+extension CursorFetchProblem {
+    public var title: String {
+        switch self {
+        case .notSignedIn: "Not signed in to Cursor"
+        case .signInExpired: "Cursor's sign-in has expired"
+        case .rejected(let status) where status == 401 || status == 403: "Cursor didn't accept the sign-in"
+        case .rejected(status: 429): "Cursor asked to slow down"
+        case .rejected(let status): "Cursor answered HTTP \(status)"
+        case .unreachable: "Can't reach cursor.com"
+        case .unreadable: "No usage Sidelight can read"
+        }
+    }
+
+    public var advice: String {
+        switch self {
+        case .notSignedIn: "Sign in to the Cursor app, or run cursor-agent login."
+        case .signInExpired: "Open Cursor or run cursor-agent and it renews itself."
+        case .rejected(let status) where status == 401 || status == 403:
+            "Open Cursor to renew it, or sign out and in again."
+        case .rejected(status: 429): "Trying less often."
+        case .rejected, .unreachable: "Trying again later."
+        case .unreadable: "Cursor's dashboard may have changed."
+        }
+    }
+
+    /// Fixed by the user rather than by waiting.
+    public var needsSignIn: Bool { self == .notSignedIn || self == .signInExpired || isSignInRejection }
+}
+
 /// A Cursor sign-in, as the Cursor app or CLI keeps it: a WorkOS access token, a JWT whose subject names the
 /// user. Only read, never refreshed or written: refreshing would replace the sign-in Cursor holds. Its description
 /// leaves the token out, so it can't end up in a log.

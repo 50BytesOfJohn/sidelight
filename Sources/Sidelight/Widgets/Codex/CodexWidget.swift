@@ -17,7 +17,7 @@ extension CodexSettings {
     }
 }
 
-extension CodexSettings.LimitReading {
+extension UsageReading {
     var title: String {
         switch self {
         case .remaining: "What's left"
@@ -38,7 +38,6 @@ extension CodexSettings.LimitReading {
 
 struct CodexSettingsEditor: View {
     @Binding var settings: CodexSettings
-    @Environment(CodexService.self) private var codex
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -63,14 +62,7 @@ struct CodexSettingsEditor: View {
             caption("Tokens per day over two weeks and in total in the regular layout, and today's in compact.")
         }
         Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            status
-            caption(
-                "Reads your plan's usage through the Codex CLI (codex app-server), signed in as Codex is, with "
-                    + "read-only requests. Without it, the limits come from Codex's session logs on this Mac and "
-                    + "update when Codex runs."
-            )
-        }
+        CodexSourceStatus()
     }
 
     private func caption(_ text: String) -> some View {
@@ -78,6 +70,25 @@ struct CodexSettingsEditor: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Where Codex's numbers come from and how that's going, with a throttled refresh.
+struct CodexSourceStatus: View {
+    @Environment(CodexService.self) private var codex
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            status
+            Text(
+                "Reads your plan's usage through the Codex CLI (codex app-server), signed in as Codex is, with "
+                    + "read-only requests. Without it, the limits come from Codex's session logs on this Mac and "
+                    + "update when Codex runs."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var status: some View {
@@ -115,7 +126,7 @@ struct CodexSettingsEditor: View {
         if let problem = state.problem { return "codex app-server: \(problem)" }
         let age = state.limitsCapturedAt.map { " · \(CodexFormat.age(of: $0, now: now))" } ?? ""
         return switch state.source {
-        case .off: "Starts while a Codex widget is showing"
+        case .off: "Starts while a widget showing Codex is visible"
         case .starting where state.rateLimits != nil: "Reconnecting to codex app-server\(age)"
         case .starting: "Starting codex app-server…"
         case .appServer: "Live from codex app-server\(age)"
@@ -476,9 +487,7 @@ struct CodexUsageView: View {
     private var warningColor: Color { .usage(percent: 75) }
 
     /// Codex has stopped ordinary usage, whatever the percentages say.
-    private var isBlocked: Bool {
-        state.ordinaryUsageAllowed == false || state.rateLimits?.reachedType != nil
-    }
+    private var isBlocked: Bool { state.isBlocked }
 
     /// Why Codex stopped, when a used-up limit on screen doesn't already say so.
     private var blockedReason: String? {
@@ -752,13 +761,7 @@ struct CodexUsageView: View {
         return extras
     }
 
-    /// Old numbers: not live, and either an error since or more than half an hour since Codex reported them.
-    private var isStale: Bool {
-        guard !isLive else { return false }
-        if state.problem != nil { return true }
-        guard let capturedAt = state.limitsCapturedAt else { return true }
-        return now.timeIntervalSince(capturedAt) > 30 * 60
-    }
+    private var isStale: Bool { state.isStale(at: now) }
 
     /// `3h ago` when the numbers aren't live.
     private var staleAge: String? {

@@ -4,8 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![macOS 26+, Apple Silicon](https://img.shields.io/badge/macOS-26%2B%20%C2%B7%20Apple%20Silicon-black?logo=apple)
 
-A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Codex, Claude Code and Cursor usage,
-calendar, now playing, coding-agent activity and system stats. Other apps' windows are moved or shrunk so they never sit
+A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Codex, Claude Code and Cursor usage
+(each on its own, or side by side in one AI Usage card), calendar, now playing, coding-agent activity and system stats. Other apps' windows are moved or shrunk so they never sit
 under the panel. Why it exists and where it's going: [docs/VISION.md](docs/VISION.md).
 
 Requires an Apple Silicon Mac with macOS 26. Download the latest DMG from
@@ -27,6 +27,7 @@ On first launch macOS asks for **Accessibility** access (needed to move other ap
 | Codex       | `codex` CLI (`brew install codex`); falls back to `~/.codex/sessions`  |
 | Claude Code | Pro or Max plan; live limits via its status line (widget settings)     |
 | Cursor      | Signed-in Cursor app or `cursor-agent`; turn on fetching (settings)    |
+| AI Usage    | What each agent it shows needs (above), set up in its own settings     |
 | Now playing | `brew install ungive/media-control/media-control`                      |
 | Calendar    | Calendar access, requested from the widget                             |
 | Agents      | Events POSTed to `127.0.0.1:47821/event` — see `scripts/send-event.sh` |
@@ -91,7 +92,8 @@ Tests/
 (`AppEnvironment`). `ConfigurationStore` is the single source of truth; views bind to it directly, and
 `AppController` observes it (`Observations`) to drive the parts outside SwiftUI — panel frame, hotkey, window
 avoidance — and to run each data service only while a widget that needs it is visible (or the Widgets window,
-which previews all of them, is open).
+which previews all of them, is open). The Codex, Claude Code and Cursor services each run once for their own widget and
+any AI Usage widget showing them, and fetch on a timer only for visible widgets that opted in.
 
 ## Contributing
 

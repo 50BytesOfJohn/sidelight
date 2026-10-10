@@ -20,14 +20,6 @@ extension CursorSettings {
 }
 
 extension CursorUsagePool.Kind {
-    var title: String {
-        switch self {
-        case .cursorModels: "Cursor models"
-        case .otherModels: "API models"
-        case .included: "Included usage"
-        }
-    }
-
     /// For minimal and bar layouts.
     var shortTitle: String {
         switch self {
@@ -36,75 +28,55 @@ extension CursorUsagePool.Kind {
         case .included: "Plan"
         }
     }
-
-    var explanation: String {
-        switch self {
-        case .cursorModels: "Auto, Composer and Cursor's own models."
-        case .otherModels: "Third-party models such as Claude, GPT and Gemini, charged at their API price."
-        case .included: "Your plan's included usage."
-        }
-    }
-}
-
-extension CursorFetchProblem {
-    var title: String {
-        switch self {
-        case .notSignedIn: "Not signed in to Cursor"
-        case .signInExpired: "Cursor's sign-in has expired"
-        case .rejected(let status) where status == 401 || status == 403: "Cursor didn't accept the sign-in"
-        case .rejected(status: 429): "Cursor asked to slow down"
-        case .rejected(let status): "Cursor answered HTTP \(status)"
-        case .unreachable: "Can't reach cursor.com"
-        case .unreadable: "No usage Sidelight can read"
-        }
-    }
-
-    var advice: String {
-        switch self {
-        case .notSignedIn: "Sign in to the Cursor app, or run cursor-agent login."
-        case .signInExpired: "Open Cursor or run cursor-agent and it renews itself."
-        case .rejected(let status) where status == 401 || status == 403:
-            "Open Cursor to renew it, or sign out and in again."
-        case .rejected(status: 429): "Trying less often."
-        case .rejected, .unreachable: "Trying again later."
-        case .unreadable: "Cursor's dashboard may have changed."
-        }
-    }
 }
 
 // MARK: - Settings
 
 struct CursorSettingsEditor: View {
     @Binding var settings: CursorSettings
+
+    var body: some View {
+        CursorFetchSettings(isOn: $settings.refreshesFromCursor, minutes: $settings.refreshMinutes)
+        Divider()
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Show on-demand spending", isOn: $settings.showsOnDemand)
+            Text("Pay-as-you-go usage past the included pools, as a share of your spending limit.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// The opt-in to fetch usage from Cursor on a timer, and how the last fetch went. Each widget that shows Cursor
+/// usage has its own; the service fetches as often as the most frequent one that's showing asks.
+struct CursorFetchSettings: View {
+    @Binding var isOn: Bool
+    @Binding var minutes: Int
     @Environment(CursorService.self) private var cursor
 
     /// The offered intervals, plus one set by hand in `config.json`, so the picker always shows the real value.
     private var minuteChoices: [Int] {
-        Set(CursorSettings.refreshMinuteChoices + [settings.refreshMinutes]).sorted()
+        Set(CursorSettings.refreshMinuteChoices + [minutes]).sorted()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Fetch usage from Cursor", isOn: $settings.refreshesFromCursor)
-            Picker("Every", selection: $settings.refreshMinutes) {
+            Toggle("Fetch usage from Cursor", isOn: $isOn)
+            Picker("Every", selection: $minutes) {
                 ForEach(minuteChoices, id: \.self) { Text("\($0) min").tag($0) }
             }
-            .disabled(!settings.refreshesFromCursor)
+            .disabled(!isOn)
             caption(
                 "Asks cursor.com for your plan's usage the way its Spending dashboard does, signed in as the Cursor "
                     + "app is (or the Cursor CLI, if the app isn't). The sign-in is read for each request and never "
                     + "stored or renewed. Cursor has no public usage API for individual plans, so this uses the "
                     + "dashboard's own endpoint and may stop working."
             )
-            if settings.refreshesFromCursor {
+            if isOn {
                 status
             }
             caption("The editor, the CLI and cloud agents share the same pools; Cursor doesn't split usage by tool.")
-        }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Show on-demand spending", isOn: $settings.showsOnDemand)
-            caption("Pay-as-you-go usage past the included pools, as a share of your spending limit.")
         }
     }
 
