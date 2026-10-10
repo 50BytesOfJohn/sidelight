@@ -52,7 +52,8 @@ struct SectionLayoutTests {
 }
 
 struct VisibleSectionsTests {
-    static let sideOnly = WidgetInstance(settings: .agents, showsInSidePanel: true, showsInBar: false)
+    static let sideOnly = WidgetInstance(
+        settings: .system(SystemStatsSettings()), showsInSidePanel: true, showsInBar: false)
     static let barOnly = WidgetInstance(settings: .nowPlaying, showsInSidePanel: false, showsInBar: true)
 
     @Test func `sections whose widgets are all hidden collapse`() {
@@ -174,9 +175,9 @@ struct SectionRowsTests {
         #expect(
             configuration.sections.map { $0.widgets.map(\.id) } == [[clock.id, codex.id, system.id], [calendar.id]])
 
-        let agents = WidgetInstance(kind: .agents)
-        configuration.insertWidgets([agents], atRow: 99)
-        #expect(configuration.sections[1].widgets.last == agents)
+        let nowPlaying = WidgetInstance(kind: .nowPlaying)
+        configuration.insertWidgets([nowPlaying], atRow: 99)
+        #expect(configuration.sections[1].widgets.last == nowPlaying)
     }
 
     @Test func `removing a section hands its widgets to its neighbour`() {

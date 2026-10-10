@@ -31,7 +31,7 @@ struct ConfigurationCodingTests {
                 widgets: [
                     WidgetInstance(settings: .clock(ClockSettings(showsSeconds: true, uses24HourTime: false))),
                     WidgetInstance(settings: .clock(pixelClock)),
-                    WidgetInstance(settings: .agents, showsInSidePanel: false),
+                    WidgetInstance(settings: .nowPlaying, showsInSidePanel: false),
                 ],
                 share: 2, alignment: .end),
             PanelSection(
@@ -50,7 +50,7 @@ struct ConfigurationCodingTests {
     @Test func `widgets store only their own kind's settings`() throws {
         var configuration = AppConfiguration()
         configuration.sections = [
-            PanelSection(widgets: [WidgetInstance(kind: .calendar), WidgetInstance(kind: .agents)])
+            PanelSection(widgets: [WidgetInstance(kind: .calendar), WidgetInstance(kind: .nowPlaying)])
         ]
         let json = try #require(try JSONSerialization.jsonObject(with: configuration.json()) as? [String: Any])
         let sections = try #require(json["sections"] as? [[String: Any]])
@@ -139,6 +139,24 @@ struct ConfigurationCodingTests {
 
         #expect(throws: (any Error).self) { try AppConfiguration(json: data) }
     }
+
+    @Test func `drops widgets of removed kinds and keeps the rest`() throws {
+        var json = try #require(
+            try JSONSerialization.jsonObject(with: AppConfiguration().json()) as? [String: Any]
+        )
+        // The Agent activity widget, as Sidelight 0.1 saved it.
+        let agents: [String: Any] = [
+            "id": UUID().uuidString, "kind": "agents", "showsInSidePanel": true, "showsInBar": false,
+        ]
+        let clock = WidgetInstance(kind: .clock)
+        let clockJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(clock))
+        json["sections"] = [
+            ["id": UUID().uuidString, "widgets": [agents, clockJSON], "share": 1, "alignment": "start"]
+        ]
+        let configuration = try AppConfiguration(json: JSONSerialization.data(withJSONObject: json))
+
+        #expect(configuration.widgets == [clock])
+    }
 }
 
 struct AppConfigurationTests {
@@ -146,11 +164,13 @@ struct AppConfigurationTests {
     func `visible widgets respect placement`(position: PanelPosition) {
         var configuration = AppConfiguration()
         configuration.sections = [
-            PanelSection(widgets: [WidgetInstance(settings: .agents, showsInSidePanel: true, showsInBar: false)]),
+            PanelSection(widgets: [
+                WidgetInstance(settings: .system(SystemStatsSettings()), showsInSidePanel: true, showsInBar: false)
+            ]),
             PanelSection(widgets: [WidgetInstance(settings: .nowPlaying, showsInSidePanel: false, showsInBar: true)]),
         ]
-        #expect(configuration.visibleWidgetKinds(at: [position]) == (position.isBar ? [.nowPlaying] : [.agents]))
-        #expect(configuration.visibleWidgetKinds(at: [.left, .top]) == [.agents, .nowPlaying])
+        #expect(configuration.visibleWidgetKinds(at: [position]) == (position.isBar ? [.nowPlaying] : [.system]))
+        #expect(configuration.visibleWidgetKinds(at: [.left, .top]) == [.system, .nowPlaying])
     }
 
     @Test func `duplicating a widget keeps its settings but not its identity`() {

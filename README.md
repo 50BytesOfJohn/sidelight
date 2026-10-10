@@ -5,7 +5,7 @@
 ![macOS 26+, Apple Silicon](https://img.shields.io/badge/macOS-26%2B%20%C2%B7%20Apple%20Silicon-black?logo=apple)
 
 A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Codex, Claude Code and Cursor usage
-(each on its own, or side by side in one AI Usage card), calendar, now playing, coding-agent activity and system stats. Other apps' windows are moved or shrunk so they never sit
+(each on its own, or side by side in one AI Usage card), calendar, now playing, Claude Code sessions and system stats. Other apps' windows are moved or shrunk so they never sit
 under the panel. Why it exists and where it's going: [docs/VISION.md](docs/VISION.md).
 
 Requires an Apple Silicon Mac with macOS 26. Download the latest DMG from
@@ -22,22 +22,19 @@ make check    # lint + build + test, what CI runs
 
 On first launch macOS asks for **Accessibility** access (needed to move other apps' windows). Optional tools:
 
-| Widget      | Needs                                                                  |
-| ----------- | ---------------------------------------------------------------------- |
-| Codex       | `codex` CLI (`brew install codex`); falls back to `~/.codex/sessions`  |
-| Claude Code | Pro or Max plan; live limits via its status line (widget settings)     |
-| Cursor      | Signed-in Cursor app or `cursor-agent`; turn on fetching (settings)    |
-| AI Usage    | What each agent it shows needs (above), set up in its own settings     |
-| Now playing | `brew install ungive/media-control/media-control`                      |
-| Calendar    | Calendar access, requested from the widget                             |
-| Agents      | Events POSTed to `127.0.0.1:47821/event` — see `scripts/send-event.sh` |
+| Widget               | Needs                                                                 |
+| -------------------- | --------------------------------------------------------------------- |
+| Codex                | `codex` CLI (`brew install codex`); falls back to `~/.codex/sessions` |
+| Claude Code          | Pro or Max plan; live limits via its status line (widget settings)    |
+| Cursor               | Signed-in Cursor app or `cursor-agent`; turn on fetching (settings)   |
+| AI Usage             | What each agent it shows needs (above), set up in its own settings    |
+| Now playing          | `brew install ungive/media-control/media-control`                     |
+| Calendar             | Calendar access, requested from the widget                            |
+| Claude Code sessions | A recent Claude Code; to open terminal tabs, macOS asks once per app  |
 
 Packaged releases use Developer ID signing and Apple notarization. Installed copies check for updates through
 Sparkle; update settings and a manual check are in **Settings → General → Updates**. The menu bar also has
 **Check for Updates…**. Maintainers: see [docs/RELEASING.md](docs/RELEASING.md) for the release workflow and credentials.
-
-To get Claude Code notifications in the Agents widget, merge `scripts/claude-code-hooks.json` into
-`~/.claude/settings.json`.
 
 ## Configuration
 
@@ -60,14 +57,14 @@ Sources/
     Panel/                Panel geometry and how sections share its length
     Imaging/              Image-effect patterns (Bayer dither, ASCII ramp), desktop-picture crop geometry
     Avoidance/            Window-avoidance geometry (pure functions)
-    Agents/               AgentEvent, minimal HTTP request parser/response
     Codex/                codex app-server JSON-RPC session, rollout-file parser, usage models
     ClaudeCode/           Claude plan limits from the status line, ~/.claude.json and the opt-in usage endpoint
+    ClaudeSessions/       Claude Code's live session registry, transcript titles, links back into a session
     Cursor/               Cursor's included-usage pools from its dashboard endpoint (opt-in), sign-in reading
     Usage/                Rate-limit windows: pace forecast, reset rollover; refresh backoff
     NowPlaying/           media-control stream state + diff merging
     System/               CPU/memory sampling
-    Process/              ChildProcess (process groups, line streaming), file watchers, ProcessRunner
+    Process/              ChildProcess (process groups, line streaming), file watchers, ProcessRunner, ProcessTable
     Support/              Logging, formatting
   Sidelight/              The app. AppKit + SwiftUI, main-actor isolated by default.
     App/                  Entry point, AppDelegate, AppController (composition root), menus

@@ -19,7 +19,7 @@ extension WidgetKind {
         case .aiUsage: .aiUsage
         case .calendar: .calendar
         case .nowPlaying: .nowPlaying
-        case .agents: .agents
+        case .claudeSessions: .claudeSessions
         case .system: .system
         }
     }
@@ -35,8 +35,9 @@ extension WidgetSettings {
         case .cursor(let settings): settings.summary
         case .aiUsage(let settings): settings.summary
         case .calendar(let settings): settings.summary
+        case .claudeSessions(let settings): settings.summary
         case .system(let settings): settings.summary
-        case .nowPlaying, .agents: kind.metadata.summary
+        case .nowPlaying: kind.metadata.summary
         }
     }
 }
