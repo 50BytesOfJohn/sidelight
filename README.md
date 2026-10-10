@@ -4,8 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![macOS 26+, Apple Silicon](https://img.shields.io/badge/macOS-26%2B%20%C2%B7%20Apple%20Silicon-black?logo=apple)
 
-A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Codex rate limits, calendar,
-now playing, coding-agent activity and system stats. Other apps' windows are moved or shrunk so they never sit
+A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Codex and Claude Code rate limits,
+calendar, now playing, coding-agent activity and system stats. Other apps' windows are moved or shrunk so they never sit
 under the panel. Why it exists and where it's going: [docs/VISION.md](docs/VISION.md).
 
 Requires an Apple Silicon Mac with macOS 26. Download the latest DMG from
@@ -25,6 +25,7 @@ On first launch macOS asks for **Accessibility** access (needed to move other ap
 | Widget      | Needs                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
 | Codex       | `codex` CLI (`brew install codex`); falls back to `~/.codex/sessions`  |
+| Claude Code | Pro or Max plan; live limits via its status line (widget settings)     |
 | Now playing | `brew install ungive/media-control/media-control`                      |
 | Calendar    | Calendar access, requested from the widget                             |
 | Agents      | Events POSTed to `127.0.0.1:47821/event` — see `scripts/send-event.sh` |
@@ -59,6 +60,8 @@ Sources/
     Avoidance/            Window-avoidance geometry (pure functions)
     Agents/               AgentEvent, minimal HTTP request parser/response
     Codex/                codex app-server JSON-RPC session, rollout-file parser, usage models
+    ClaudeCode/           Claude plan limits from the status line, ~/.claude.json and the opt-in usage endpoint
+    Usage/                Rate-limit windows: pace forecast, reset rollover
     NowPlaying/           media-control stream state + diff merging
     System/               CPU/memory sampling
     Process/              ChildProcess (process groups, line streaming), file watchers, ProcessRunner

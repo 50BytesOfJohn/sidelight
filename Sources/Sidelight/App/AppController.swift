@@ -26,6 +26,7 @@ final class AppController {
             desktopPictures: DesktopPictures(),
             calendar: CalendarService(),
             codex: CodexService(),
+            claudeCode: ClaudeCodeService(),
             nowPlaying: NowPlayingService(),
             agentEvents: AgentEventServer(),
             systemStats: SystemStatsService(),
@@ -70,6 +71,7 @@ final class AppController {
         pendingAvoidance?.cancel()
         store.flush()
         environment.codex.stop()
+        environment.claudeCode.stop()
         environment.nowPlaying.stop()
         environment.agentEvents.stop()
         environment.calendar.stop()
@@ -96,6 +98,7 @@ final class AppController {
         environment.windowAvoider.mode = configuration.windowAvoidance
         environment.hotkeys.register(configuration.hotkey)
         environment.updater.apply(configuration.updates)
+        environment.claudeCode.refreshInterval = configuration.claudeCodeRefreshMinutes.map { .seconds($0 * 60) }
         if panels.targetFrames != previousFrames { avoidWindowsAfterPanelChange() }
     }
 
@@ -137,6 +140,7 @@ final class AppController {
             switch kind {
             case .clock: break
             case .codex: isNeeded ? environment.codex.start() : environment.codex.stop()
+            case .claudeCode: isNeeded ? environment.claudeCode.start() : environment.claudeCode.stop()
             case .calendar: isNeeded ? environment.calendar.start() : environment.calendar.stop()
             case .nowPlaying: isNeeded ? environment.nowPlaying.start() : environment.nowPlaying.stop()
             case .agents: isNeeded ? environment.agentEvents.start() : environment.agentEvents.stop()

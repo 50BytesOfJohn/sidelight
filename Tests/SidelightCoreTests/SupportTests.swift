@@ -123,6 +123,18 @@ struct ChildProcessTests {
     }
 }
 
+struct ProcessRunnerTests {
+    @Test func `captures a tool's output`() async {
+        let output = await ProcessRunner.output(of: URL(filePath: "/bin/echo"), arguments: ["hello"])
+        #expect(output == Data("hello\n".utf8))
+    }
+
+    @Test func `failing or missing tools have no output`() async {
+        #expect(await ProcessRunner.output(of: URL(filePath: "/usr/bin/false"), arguments: []) == nil)
+        #expect(await ProcessRunner.output(of: URL(filePath: "/nonexistent/tool"), arguments: []) == nil)
+    }
+}
+
 struct FileWatcherTests {
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func `notices in-place writes and atomic replacements`(atomically: Bool) async throws {

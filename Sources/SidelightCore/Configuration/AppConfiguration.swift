@@ -29,6 +29,15 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         widgets.filter { $0.isVisible(at: position) }
     }
 
+    /// How often to ask Anthropic for Claude usage: the shortest interval of any Claude Code widget that opted in,
+    /// in minutes; `nil` when none did.
+    public var claudeCodeRefreshMinutes: Int? {
+        widgets.compactMap { widget in
+            guard case .claudeCode(let settings) = widget.settings, settings.refreshesFromAnthropic else { return nil }
+            return settings.refreshMinutes
+        }.min()
+    }
+
     /// The kinds shown by panels at any of `positions`.
     public func visibleWidgetKinds(at positions: some Sequence<PanelPosition>) -> Set<WidgetKind> {
         Set(positions.flatMap { visibleWidgets(at: $0) }.map(\.kind))

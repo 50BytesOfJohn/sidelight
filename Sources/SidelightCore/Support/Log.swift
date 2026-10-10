@@ -12,6 +12,7 @@ public enum Log {
     public static let avoidance = Logger(subsystem: subsystem, category: "avoidance")
     public static let agents = Logger(subsystem: subsystem, category: "agents")
     public static let codex = Logger(subsystem: subsystem, category: "codex")
+    public static let claudeCode = Logger(subsystem: subsystem, category: "claude-code")
     public static let nowPlaying = Logger(subsystem: subsystem, category: "now-playing")
     public static let calendar = Logger(subsystem: subsystem, category: "calendar")
     public static let process = Logger(subsystem: subsystem, category: "process")

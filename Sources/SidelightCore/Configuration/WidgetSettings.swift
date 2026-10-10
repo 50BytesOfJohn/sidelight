@@ -4,6 +4,7 @@ import Foundation
 public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case clock
     case codex
+    case claudeCode
     case calendar
     case nowPlaying
     case agents
@@ -92,6 +93,35 @@ public struct CodexSettings: Codable, Hashable, Sendable {
     }
 }
 
+public struct ClaudeCodeSettings: Codable, Hashable, Sendable {
+    /// What the settings editor offers for ``refreshMinutes``.
+    public static let refreshMinuteChoices = [2, 5, 15, 30]
+
+    public var showsWeeklyLimit = true
+    /// Ask Anthropic for the plan's usage every ``refreshMinutes``, signed in as Claude Code is. Off by default:
+    /// it reads Claude Code's sign-in from the keychain and calls an undocumented endpoint.
+    public var refreshesFromAnthropic = false
+    public var refreshMinutes = 5
+
+    public init(showsWeeklyLimit: Bool = true, refreshesFromAnthropic: Bool = false, refreshMinutes: Int = 5) {
+        self.showsWeeklyLimit = showsWeeklyLimit
+        self.refreshesFromAnthropic = refreshesFromAnthropic
+        self.refreshMinutes = refreshMinutes
+    }
+
+    /// Missing options take their defaults, so settings saved before an option existed still load.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ClaudeCodeSettings()
+        showsWeeklyLimit =
+            try container.decodeIfPresent(Bool.self, forKey: .showsWeeklyLimit) ?? defaults.showsWeeklyLimit
+        refreshesFromAnthropic =
+            try container.decodeIfPresent(Bool.self, forKey: .refreshesFromAnthropic) ?? defaults.refreshesFromAnthropic
+        refreshMinutes = max(
+            1, try container.decodeIfPresent(Int.self, forKey: .refreshMinutes) ?? defaults.refreshMinutes)
+    }
+}
+
 public struct CalendarSettings: Codable, Hashable, Sendable {
     /// What the settings editor offers.
     public static let eventCountRange = 1...10
@@ -124,6 +154,7 @@ public struct SystemStatsSettings: Codable, Hashable, Sendable {
 public enum WidgetSettings: Hashable, Sendable {
     case clock(ClockSettings)
     case codex(CodexSettings)
+    case claudeCode(ClaudeCodeSettings)
     case calendar(CalendarSettings)
     case nowPlaying
     case agents
@@ -133,6 +164,7 @@ public enum WidgetSettings: Hashable, Sendable {
         switch self {
         case .clock: .clock
         case .codex: .codex
+        case .claudeCode: .claudeCode
         case .calendar: .calendar
         case .nowPlaying: .nowPlaying
         case .agents: .agents
@@ -144,6 +176,7 @@ public enum WidgetSettings: Hashable, Sendable {
         switch kind {
         case .clock: .clock(ClockSettings())
         case .codex: .codex(CodexSettings())
+        case .claudeCode: .claudeCode(ClaudeCodeSettings())
         case .calendar: .calendar(CalendarSettings())
         case .nowPlaying: .nowPlaying
         case .agents: .agents

@@ -1,18 +1,5 @@
 import Foundation
 
-/// One Codex rate-limit window (the 5-hour or the weekly one).
-public struct RateLimitWindow: Equatable, Sendable {
-    public var usedPercent: Double
-    public var resetsAt: Date?
-    public var durationMinutes: Int?
-
-    public init(usedPercent: Double, resetsAt: Date? = nil, durationMinutes: Int? = nil) {
-        self.usedPercent = usedPercent
-        self.resetsAt = resetsAt
-        self.durationMinutes = durationMinutes
-    }
-}
-
 /// Rate limits as reported by `codex app-server` (camelCase) or a rollout file (snake_case).
 public struct CodexRateLimits: Equatable, Sendable {
     /// The 5-hour window.
