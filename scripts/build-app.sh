@@ -42,7 +42,20 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 # Bundle everything else in Resources/ (e.g. wallpaper.jpg, the default image-style background).
 find Resources -maxdepth 1 -type f ! -name Info.plist ! -name '*.entitlements' -exec cp {} "$APP/Contents/Resources/" \;
 # SwiftPM's compiled asset catalog, kept in the app's Resources directory.
-ditto "$BIN_PATH/Sidelight_Sidelight.bundle" "$APP/Contents/Resources/Sidelight_Sidelight.bundle"
+RESOURCE_BUNDLE="$APP/Contents/Resources/Sidelight_Sidelight.bundle"
+ditto "$BIN_PATH/Sidelight_Sidelight.bundle" "$RESOURCE_BUNDLE"
+# The older SwiftPM build engine copies .xcassets without compiling them. Its bundles are flat; SwiftBuild's
+# bundles use Contents/Resources and already contain Assets.car. Compile only when the catalog is still raw.
+ASSET_OUTPUT="$RESOURCE_BUNDLE"
+if [[ -d "$RESOURCE_BUNDLE/Contents/Resources" ]]; then
+    ASSET_OUTPUT="$RESOURCE_BUNDLE/Contents/Resources"
+fi
+if [[ ! -f "$ASSET_OUTPUT/Assets.car" ]]; then
+    xcrun actool Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets \
+        --compile "$ASSET_OUTPUT" --platform macosx --minimum-deployment-target 26.0 \
+        --output-format human-readable-text --warnings --notices
+    rm -rf "$ASSET_OUTPUT/ProviderLogos.xcassets"
+fi
 
 # ditto keeps the framework's symlinks. Headers are build-time only; the XPC services only serve sandboxed apps.
 SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"

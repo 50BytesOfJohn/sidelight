@@ -20,3 +20,6 @@ signed app. Rendering the logos requires no downloads or installed provider apps
 The widget first looks for the resource bundle in the packaged app's resources directory, falling back to
 `Bundle.module` for package builds. This also supports older SwiftPM accessors that do not search the app's
 `Contents/Resources` directory.
+
+Older SwiftPM build engines copy `.xcassets` without compiling them. The app packaging script compiles the
+catalog with `actool` when `Assets.car` is missing; SwiftBuild's already compiled catalogs are copied as-is.
