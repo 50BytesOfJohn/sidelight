@@ -7,7 +7,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         WidgetInstance(kind: .codex),
         WidgetInstance(kind: .calendar),
         WidgetInstance(kind: .nowPlaying),
-        WidgetInstance(kind: .agents),
+        WidgetInstance(kind: .claudeSessions),
         WidgetInstance(kind: .system),
     ]
 
@@ -124,7 +124,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 providers.formUnion(settings.providers)
                 claudeMinutes += [settings.claudeRefreshMinutesIfOptedIn].compactMap(\.self)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
-            case .clock, .calendar, .nowPlaying, .agents, .system:
+            case .clock, .calendar, .nowPlaying, .claudeSessions, .system:
                 break
             }
         }

@@ -13,7 +13,7 @@ extension WidgetMetadata {
 
 extension Color {
     /// Claude's terracotta.
-    fileprivate static let claude = Color(red: 0.85, green: 0.47, blue: 0.34)
+    static let claude = Color(red: 0.85, green: 0.47, blue: 0.34)
 }
 
 extension ClaudeCodeSettings {

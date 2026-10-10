@@ -10,7 +10,7 @@ struct AppEnvironment {
     let claudeCode: ClaudeCodeService
     let cursor: CursorService
     let nowPlaying: NowPlayingService
-    let agentEvents: AgentEventServer
+    let claudeSessions: ClaudeSessionsService
     let systemStats: SystemStatsService
     let hotkeys: HotkeyCenter
     let windowAvoider: WindowAvoider
@@ -29,7 +29,7 @@ extension View {
             .environment(app.claudeCode)
             .environment(app.cursor)
             .environment(app.nowPlaying)
-            .environment(app.agentEvents)
+            .environment(app.claudeSessions)
             .environment(app.systemStats)
             .environment(app.hotkeys)
             .environment(app.windowAvoider)

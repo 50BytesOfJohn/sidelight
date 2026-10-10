@@ -38,6 +38,15 @@ public enum Formatting {
         if seconds < 86_400 { return "\(seconds / 3_600)h" }
         return date.formatted(Date.FormatStyle(locale: locale).weekday(.abbreviated))
     }
+
+    /// How long ago `date` was, in its largest unit: `now`, `4m`, `2h`, `3d`.
+    public static func shortAge(since date: Date, now: Date) -> String {
+        let seconds = Int(now.timeIntervalSince(date))
+        if seconds < 60 { return "now" }
+        if seconds < 3_600 { return "\(seconds / 60)m" }
+        if seconds < 86_400 { return "\(seconds / 3_600)h" }
+        return "\(seconds / 86_400)d"
+    }
 }
 
 /// The digits a clock face shows for a given instant.

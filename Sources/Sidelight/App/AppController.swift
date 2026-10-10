@@ -29,7 +29,7 @@ final class AppController {
             claudeCode: ClaudeCodeService(),
             cursor: CursorService(),
             nowPlaying: NowPlayingService(),
-            agentEvents: AgentEventServer(),
+            claudeSessions: ClaudeSessionsService(),
             systemStats: SystemStatsService(),
             hotkeys: HotkeyCenter(),
             windowAvoider: WindowAvoider(),
@@ -75,7 +75,7 @@ final class AppController {
         environment.claudeCode.stop()
         environment.cursor.stop()
         environment.nowPlaying.stop()
-        environment.agentEvents.stop()
+        environment.claudeSessions.stop()
         environment.calendar.stop()
         environment.systemStats.stop()
     }
@@ -165,7 +165,7 @@ final class AppController {
             case .clock, .codex, .claudeCode, .cursor, .aiUsage: break
             case .calendar: isNeeded ? environment.calendar.start() : environment.calendar.stop()
             case .nowPlaying: isNeeded ? environment.nowPlaying.start() : environment.nowPlaying.stop()
-            case .agents: isNeeded ? environment.agentEvents.start() : environment.agentEvents.stop()
+            case .claudeSessions: isNeeded ? environment.claudeSessions.start() : environment.claudeSessions.stop()
             case .system: isNeeded ? environment.systemStats.start() : environment.systemStats.stop()
             }
         }

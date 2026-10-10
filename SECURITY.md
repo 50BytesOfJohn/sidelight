@@ -21,8 +21,10 @@ ships, we'll publish an advisory and credit you, unless you'd rather stay anonym
 Sidelight runs with privileges worth protecting, so these areas matter most:
 
 - **Accessibility access.** Sidelight uses it to move and resize other apps' windows.
-- **The local agent-event server.** It listens on `127.0.0.1:47821` (loopback only) and accepts
-  unauthenticated `POST /event` requests that are displayed in the Agents widget.
+- **Claude Code's local files and your terminals.** The Claude Code sessions widget reads `~/.claude/sessions`
+  and the start and end of session transcripts in `~/.claude/projects` (for titles). When you click a session, it
+  opens the Claude desktop app through a `claude://` link, or, with your permission, sends Apple Events to Terminal,
+  iTerm2 or Ghostty to select the session's tab.
 - **External tools.** Sidelight launches `codex` and `media-control` from your `PATH` and parses their
   output, and reads Codex session files in `~/.codex/sessions`.
 - **Configuration.** It reads and live-reloads `~/Library/Application Support/Sidelight/config.json`.

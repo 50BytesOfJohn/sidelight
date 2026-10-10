@@ -15,7 +15,7 @@ struct WidgetContent: View {
         case .aiUsage(let settings): AIUsageWidgetView(settings: settings, layout: layout)
         case .calendar(let settings): CalendarWidgetView(settings: settings, layout: layout)
         case .nowPlaying: NowPlayingWidgetView(layout: layout)
-        case .agents: AgentsWidgetView(layout: layout)
+        case .claudeSessions(let settings): ClaudeSessionsWidgetView(settings: settings, layout: layout)
         case .system(let settings): SystemWidgetView(settings: settings, layout: layout)
         }
     }
@@ -35,7 +35,8 @@ struct WidgetSettingsEditor: View {
         case .aiUsage(let settings): AIUsageSettingsEditor(settings: binding(settings, WidgetSettings.aiUsage))
         case .calendar(let settings): CalendarSettingsEditor(settings: binding(settings, WidgetSettings.calendar))
         case .system(let settings): SystemSettingsEditor(settings: binding(settings, WidgetSettings.system))
-        case .agents: AgentsSettingsHelp()
+        case .claudeSessions(let settings):
+            ClaudeSessionsSettingsEditor(settings: binding(settings, WidgetSettings.claudeSessions))
         case .nowPlaying: Text("No options.").foregroundStyle(.secondary)
         }
     }

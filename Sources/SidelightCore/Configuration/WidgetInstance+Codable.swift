@@ -19,7 +19,9 @@ extension WidgetInstance: Codable {
                 .aiUsage(try container.decodeIfPresent(AIUsageSettings.self, forKey: .settings) ?? .init())
             case .calendar: .calendar(try container.decode(CalendarSettings.self, forKey: .settings))
             case .nowPlaying: .nowPlaying
-            case .agents: .agents
+            case .claudeSessions:
+                .claudeSessions(
+                    try container.decodeIfPresent(ClaudeSessionsSettings.self, forKey: .settings) ?? .init())
             case .system: .system(try container.decode(SystemStatsSettings.self, forKey: .settings))
             }
         self.init(
@@ -43,8 +45,9 @@ extension WidgetInstance: Codable {
         case .cursor(let settings): try container.encode(settings, forKey: .settings)
         case .aiUsage(let settings): try container.encode(settings, forKey: .settings)
         case .calendar(let settings): try container.encode(settings, forKey: .settings)
+        case .claudeSessions(let settings): try container.encode(settings, forKey: .settings)
         case .system(let settings): try container.encode(settings, forKey: .settings)
-        case .nowPlaying, .agents: break
+        case .nowPlaying: break
         }
     }
 }

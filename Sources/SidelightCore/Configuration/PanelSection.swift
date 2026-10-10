@@ -31,6 +31,35 @@ public struct PanelSection: Codable, Hashable, Identifiable, Sendable {
     public var isShared: Bool { (share ?? 0) > 0 }
 }
 
+extension PanelSection {
+    private enum CodingKeys: String, CodingKey {
+        case id, name, widgets, share, alignment
+    }
+
+    /// Widgets of kinds that have been removed since they were saved are dropped; any other widget that doesn't
+    /// decode still fails the configuration.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            name: try container.decodeIfPresent(String.self, forKey: .name),
+            widgets: try container.decode([StoredWidget].self, forKey: .widgets).compactMap(\.widget),
+            share: try container.decodeIfPresent(Double.self, forKey: .share),
+            alignment: try container.decode(PanelAlignment.self, forKey: .alignment)
+        )
+    }
+
+    private struct StoredWidget: Decodable {
+        let widget: WidgetInstance?
+
+        init(from decoder: any Decoder) throws {
+            let kind = try decoder.container(keyedBy: AnyCodingKey.self).decode(
+                String.self, forKey: AnyCodingKey("kind"))
+            widget = WidgetKind.retiredRawValues.contains(kind) ? nil : try WidgetInstance(from: decoder)
+        }
+    }
+}
+
 /// One row of the Widgets window's list, which shows every section's header followed by its widgets.
 public enum PanelRow: Hashable, Identifiable, Sendable {
     /// A section's header. Its widgets are the rows that follow, so the section here has none.

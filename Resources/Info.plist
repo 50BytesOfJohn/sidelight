@@ -11,6 +11,7 @@
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>LSUIElement</key><true/>
+  <key>NSAppleEventsUsageDescription</key><string>Sidelight brings the terminal tab running a Claude Code session to the front when you click the session.</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>SUFeedURL</key><string>https://github.com/50BytesOfJohn/sidelight/releases/latest/download/appcast.xml</string>
   <key>SUPublicEDKey</key><string>VRS4SZkmoSz+y/NOMenffjbNDf2QO3gaGRZUPdmtuCI=</string>

@@ -10,10 +10,18 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case aiUsage
     case calendar
     case nowPlaying
-    case agents
+    /// Running and recently finished Claude Code sessions.
+    case claudeSessions
     case system
 
     public var id: Self { self }
+
+    /// Kinds that released versions saved and that have since been removed. Widgets of these kinds are dropped
+    /// when a configuration loads, instead of making it unreadable.
+    static let retiredRawValues: Set<String> = [
+        // Agent activity: events POSTed to a local HTTP server. Replaced by Claude Code sessions.
+        "agents"
+    ]
 }
 
 /// A clock's look. Each style draws the same time its own way.
@@ -379,6 +387,37 @@ public struct CalendarSettings: Codable, Hashable, Sendable {
     }
 }
 
+public struct ClaudeSessionsSettings: Codable, Hashable, Sendable {
+    /// What the settings editor offers.
+    public static let sessionCountRange = 1...10
+    /// What the settings editor offers for ``recentHours``.
+    public static let recentHourChoices = [1, 4, 12, 24]
+
+    /// Rows listed in the regular layout; compact lists fewer.
+    public var sessionCount = 5
+    /// Finished, idle and closed sessions stay listed this long. Sessions that are working or need input always show.
+    public var recentHours = 4
+
+    public init(sessionCount: Int = 5, recentHours: Int = 4) {
+        self.sessionCount = sessionCount
+        self.recentHours = recentHours
+    }
+
+    /// Missing options take their defaults, so settings saved before an option existed still load.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ClaudeSessionsSettings()
+        sessionCount = min(
+            max(
+                try container.decodeIfPresent(Int.self, forKey: .sessionCount) ?? defaults.sessionCount,
+                Self.sessionCountRange.lowerBound),
+            Self.sessionCountRange.upperBound)
+        recentHours = max(1, try container.decodeIfPresent(Int.self, forKey: .recentHours) ?? defaults.recentHours)
+    }
+
+    public var recentWindow: TimeInterval { TimeInterval(recentHours) * 60 * 60 }
+}
+
 public struct SystemStatsSettings: Codable, Hashable, Sendable {
     public enum Metrics: String, Codable, CaseIterable, Identifiable, Sendable {
         case both, cpu, memory
@@ -404,7 +443,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case aiUsage(AIUsageSettings)
     case calendar(CalendarSettings)
     case nowPlaying
-    case agents
+    case claudeSessions(ClaudeSessionsSettings)
     case system(SystemStatsSettings)
 
     public var kind: WidgetKind {
@@ -416,7 +455,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .aiUsage: .aiUsage
         case .calendar: .calendar
         case .nowPlaying: .nowPlaying
-        case .agents: .agents
+        case .claudeSessions: .claudeSessions
         case .system: .system
         }
     }
@@ -430,7 +469,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .aiUsage: .aiUsage(AIUsageSettings())
         case .calendar: .calendar(CalendarSettings())
         case .nowPlaying: .nowPlaying
-        case .agents: .agents
+        case .claudeSessions: .claudeSessions(ClaudeSessionsSettings())
         case .system: .system(SystemStatsSettings())
         }
     }
