@@ -39,6 +39,7 @@ struct AppearanceSettingsPane: View {
         }
         .animation(Motion.layout, value: appearance.background.kind)
         .animation(Motion.layout, value: appearance.cards.style)
+        .animation(Motion.layout, value: appearance.cards.showsTitles)
     }
 }
 
@@ -129,7 +130,9 @@ private struct AppearanceMiniature: View {
                 ForEach([30.0, 44, 24, 36].indices, id: \.self) { index in
                     let height = [30.0, 44, 24, 36][index] * scale
                     VStack(alignment: .leading, spacing: 4 * scale) {
-                        Capsule().fill(.secondary).frame(width: 26 * scale, height: 3 * scale)
+                        if appearance.cards.showsTitles {
+                            Capsule().fill(.secondary).frame(width: 26 * scale, height: 3 * scale)
+                        }
                         Capsule().fill(.primary).frame(width: 52 * scale, height: 5 * scale)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -395,6 +398,11 @@ private struct CardsSection: View {
                 TintRow(tint: $appearance.cards.tint)
             case .solid:
                 TintRow(title: "Color", tint: $appearance.cards.fill)
+            }
+
+            Toggle(isOn: $appearance.cards.showsTitles) {
+                Text("Show titles")
+                Text("The widget's icon and name above it. Minimal widgets and bar chips never show one.")
             }
         } header: {
             Text("Cards")
