@@ -8,6 +8,7 @@ struct AppEnvironment {
     let calendar: CalendarService
     let codex: CodexService
     let claudeCode: ClaudeCodeService
+    let cursor: CursorService
     let nowPlaying: NowPlayingService
     let agentEvents: AgentEventServer
     let systemStats: SystemStatsService
@@ -26,6 +27,7 @@ extension View {
             .environment(app.calendar)
             .environment(app.codex)
             .environment(app.claudeCode)
+            .environment(app.cursor)
             .environment(app.nowPlaying)
             .environment(app.agentEvents)
             .environment(app.systemStats)

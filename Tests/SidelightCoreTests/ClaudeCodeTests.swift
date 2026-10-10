@@ -57,6 +57,25 @@ struct RateLimitWindowTests {
     }
 }
 
+struct UsageRefreshTests {
+    @Test func `failures back off up to a maximum`() {
+        let interval = Duration.seconds(300)
+        let maximum = Duration.seconds(3_600)
+        #expect(UsageRefresh.retryDelay(interval: interval, consecutiveFailures: 0, maximum: maximum) == interval)
+        #expect(
+            UsageRefresh.retryDelay(interval: interval, consecutiveFailures: 1, maximum: maximum) == .seconds(600)
+        )
+        #expect(
+            UsageRefresh.retryDelay(interval: interval, consecutiveFailures: 2, maximum: maximum)
+                == .seconds(1_200))
+        #expect(UsageRefresh.retryDelay(interval: interval, consecutiveFailures: 50, maximum: maximum) == maximum)
+        // An interval longer than the maximum is never shortened.
+        #expect(
+            UsageRefresh.retryDelay(interval: .seconds(7_200), consecutiveFailures: 3, maximum: maximum)
+                == .seconds(7_200))
+    }
+}
+
 struct ClaudeCodeUsageTests {
     private let captured = Date(timeIntervalSince1970: 1_791_000_000)
 
@@ -181,23 +200,6 @@ struct ClaudeCodeUsageAPITests {
         #expect(throws: ClaudeCodeFetchProblem.unreadable) {
             try ClaudeCodeUsageAPI.result(status: 200, body: Data("<html>".utf8), receivedAt: received).get()
         }
-    }
-
-    @Test func `failures back off up to a maximum`() {
-        let interval = Duration.seconds(300)
-        let maximum = Duration.seconds(3_600)
-        #expect(ClaudeCodeUsageAPI.retryDelay(interval: interval, consecutiveFailures: 0, maximum: maximum) == interval)
-        #expect(
-            ClaudeCodeUsageAPI.retryDelay(interval: interval, consecutiveFailures: 1, maximum: maximum) == .seconds(600)
-        )
-        #expect(
-            ClaudeCodeUsageAPI.retryDelay(interval: interval, consecutiveFailures: 2, maximum: maximum)
-                == .seconds(1_200))
-        #expect(ClaudeCodeUsageAPI.retryDelay(interval: interval, consecutiveFailures: 50, maximum: maximum) == maximum)
-        // An interval longer than the maximum is never shortened.
-        #expect(
-            ClaudeCodeUsageAPI.retryDelay(interval: .seconds(7_200), consecutiveFailures: 3, maximum: maximum)
-                == .seconds(7_200))
     }
 
     @Test func `reads Claude Code's stored sign-in`() throws {

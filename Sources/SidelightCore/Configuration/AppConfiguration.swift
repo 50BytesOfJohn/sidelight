@@ -38,6 +38,15 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         }.min()
     }
 
+    /// How often to ask Cursor for its usage: the shortest interval of any Cursor widget that opted in, in minutes;
+    /// `nil` when none did.
+    public var cursorRefreshMinutes: Int? {
+        widgets.compactMap { widget in
+            guard case .cursor(let settings) = widget.settings, settings.refreshesFromCursor else { return nil }
+            return settings.refreshMinutes
+        }.min()
+    }
+
     /// The kinds shown by panels at any of `positions`.
     public func visibleWidgetKinds(at positions: some Sequence<PanelPosition>) -> Set<WidgetKind> {
         Set(positions.flatMap { visibleWidgets(at: $0) }.map(\.kind))

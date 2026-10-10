@@ -5,6 +5,7 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case clock
     case codex
     case claudeCode
+    case cursor
     case calendar
     case nowPlaying
     case agents
@@ -220,6 +221,37 @@ public struct ClaudeCodeSettings: Codable, Hashable, Sendable {
     }
 }
 
+public struct CursorSettings: Codable, Hashable, Sendable {
+    /// What the settings editor offers for ``refreshMinutes``.
+    public static let refreshMinuteChoices = [5, 15, 30, 60]
+
+    /// Ask Cursor for the account's usage every ``refreshMinutes``, signed in as the Cursor app or CLI is. Cursor
+    /// keeps usage nowhere on this Mac, so the widget shows nothing without it; it's still off until the user turns
+    /// it on, since it reads Cursor's sign-in and calls an undocumented endpoint.
+    public var refreshesFromCursor = false
+    /// Included usage moves slowly over a month, so the default is gentle.
+    public var refreshMinutes = 15
+    /// On-demand spending past the included usage, when it's turned on for the account.
+    public var showsOnDemand = true
+
+    public init(refreshesFromCursor: Bool = false, refreshMinutes: Int = 15, showsOnDemand: Bool = true) {
+        self.refreshesFromCursor = refreshesFromCursor
+        self.refreshMinutes = refreshMinutes
+        self.showsOnDemand = showsOnDemand
+    }
+
+    /// Missing options take their defaults, so settings saved before an option existed still load.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = CursorSettings()
+        refreshesFromCursor =
+            try container.decodeIfPresent(Bool.self, forKey: .refreshesFromCursor) ?? defaults.refreshesFromCursor
+        refreshMinutes = max(
+            1, try container.decodeIfPresent(Int.self, forKey: .refreshMinutes) ?? defaults.refreshMinutes)
+        showsOnDemand = try container.decodeIfPresent(Bool.self, forKey: .showsOnDemand) ?? defaults.showsOnDemand
+    }
+}
+
 public struct CalendarSettings: Codable, Hashable, Sendable {
     /// What the settings editor offers.
     public static let eventCountRange = 1...10
@@ -253,6 +285,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case clock(ClockSettings)
     case codex(CodexSettings)
     case claudeCode(ClaudeCodeSettings)
+    case cursor(CursorSettings)
     case calendar(CalendarSettings)
     case nowPlaying
     case agents
@@ -263,6 +296,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .clock: .clock
         case .codex: .codex
         case .claudeCode: .claudeCode
+        case .cursor: .cursor
         case .calendar: .calendar
         case .nowPlaying: .nowPlaying
         case .agents: .agents
@@ -275,6 +309,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .clock: .clock(ClockSettings())
         case .codex: .codex(CodexSettings())
         case .claudeCode: .claudeCode(ClaudeCodeSettings())
+        case .cursor: .cursor(CursorSettings())
         case .calendar: .calendar(CalendarSettings())
         case .nowPlaying: .nowPlaying
         case .agents: .agents
