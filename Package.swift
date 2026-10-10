@@ -25,6 +25,7 @@ let package = Package(
         .executableTarget(
             name: "Sidelight",
             dependencies: ["SidelightCore", .product(name: "Sparkle", package: "Sparkle")],
+            resources: [.process("Widgets/AIUsage/ProviderLogos.xcassets")],
             swiftSettings: approachableConcurrency + [.defaultIsolation(MainActor.self)]
         ),
         // UI-free domain logic: configuration schema, protocols, parsers, geometry. Nonisolated and Sendable.

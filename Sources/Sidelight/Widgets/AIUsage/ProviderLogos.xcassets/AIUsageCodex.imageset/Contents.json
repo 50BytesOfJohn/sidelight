@@ -1,0 +1,22 @@
+{
+  "images": [
+    {
+      "filename": "codex-light.png",
+      "idiom": "universal"
+    },
+    {
+      "filename": "codex-dark.png",
+      "idiom": "universal",
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ]
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}
