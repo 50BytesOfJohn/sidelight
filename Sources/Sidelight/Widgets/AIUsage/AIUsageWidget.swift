@@ -1,3 +1,4 @@
+import Foundation
 import SidelightCore
 import SwiftUI
 
@@ -743,8 +744,16 @@ private struct ProviderMark: View {
     let provider: AIUsageProvider
     let size: CGFloat
 
+    /// Older SwiftPM accessors search beside the executable, rather than in the app's Resources directory.
+    private static let resourceBundle: Bundle = {
+        guard let url = Bundle.main.url(forResource: "Sidelight_Sidelight", withExtension: "bundle"),
+            let bundle = Bundle(url: url)
+        else { return .module }
+        return bundle
+    }()
+
     var body: some View {
-        Image(assetName, bundle: .module)
+        Image(assetName, bundle: Self.resourceBundle)
             .resizable()
             .scaledToFit()
             .frame(width: size, height: size)

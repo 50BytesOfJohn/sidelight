@@ -41,7 +41,7 @@ install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # Bundle everything else in Resources/ (e.g. wallpaper.jpg, the default image-style background).
 find Resources -maxdepth 1 -type f ! -name Info.plist ! -name '*.entitlements' -exec cp {} "$APP/Contents/Resources/" \;
-# SwiftPM's compiled asset catalog, located by Bundle.module in both package and app builds.
+# SwiftPM's compiled asset catalog, kept in the app's Resources directory.
 ditto "$BIN_PATH/Sidelight_Sidelight.bundle" "$APP/Contents/Resources/Sidelight_Sidelight.bundle"
 
 # ditto keeps the framework's symlinks. Headers are build-time only; the XPC services only serve sandboxed apps.

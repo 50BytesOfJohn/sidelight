@@ -16,3 +16,7 @@ Sources for `Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets`:
 The asset catalog compiles the SVGs as vector artwork and selects light/dark variants automatically.
 `Package.swift` processes it into the SwiftPM resource bundle, which `scripts/build-app.sh` embeds in the
 signed app. Rendering the logos requires no downloads or installed provider apps.
+
+The widget first looks for the resource bundle in the packaged app's resources directory, falling back to
+`Bundle.module` for package builds. This also supports older SwiftPM accessors that do not search the app's
+`Contents/Resources` directory.
