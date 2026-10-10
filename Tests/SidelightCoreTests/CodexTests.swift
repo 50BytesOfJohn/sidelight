@@ -18,34 +18,91 @@ struct CodexAppServerSessionTests {
 
     @Test func `matches responses to requests`() throws {
         var session = CodexAppServerSession()
-        let request = session.request(.readRateLimits)
-        let id = try #require((try JSONSerialization.jsonObject(with: request) as? [String: Any])?["id"] as? Int)
+        let id = try requestID(session.request(.readRateLimits))
 
         let response = #"""
             {"jsonrpc":"2.0","id":\#(id),"result":{
               "rateLimits":{"primary":{"usedPercent":42,"resetsAt":1791502532,"windowDurationMins":300},
-                            "secondary":{"usedPercent":12.5,"windowDurationMins":10080},"planType":"plus"},
-              "rateLimitResetCredits":{"availableCount":2}}}
+                            "secondary":{"usedPercent":12.5,"windowDurationMins":10080},"planType":"plus",
+                            "credits":{"hasCredits":true,"unlimited":false,"balance":"125.5"},
+                            "rateLimitReachedType":null},
+              "rateLimitResetCredits":{"availableCount":2},"ordinaryUsageAllowed":true}}
             """#
         let message = session.decode(Data(response.utf8))
 
         #expect(
             message
                 == .rateLimits(
-                    CodexRateLimits(
-                        primary: RateLimitWindow(
-                            usedPercent: 42,
-                            resetsAt: Date(timeIntervalSince1970: 1_791_502_532),
-                            durationMinutes: 300
+                    CodexRateLimitsReading(
+                        rateLimits: CodexRateLimits(
+                            primary: RateLimitWindow(
+                                usedPercent: 42,
+                                resetsAt: Date(timeIntervalSince1970: 1_791_502_532),
+                                durationMinutes: 300
+                            ),
+                            secondary: RateLimitWindow(usedPercent: 12.5, durationMinutes: 10_080),
+                            planType: "plus",
+                            credits: CodexCredits(hasCredits: true, balance: "125.5")
                         ),
-                        secondary: RateLimitWindow(usedPercent: 12.5, durationMinutes: 10_080),
-                        planType: "plus"
-                    ),
-                    resetCredits: 2
+                        resetCredits: 2,
+                        ordinaryUsageAllowed: true
+                    )
                 )
         )
         // A response is consumed once.
         #expect(session.decode(Data(response.utf8)) == nil)
+    }
+
+    @Test func `a window without its percentage is missing, not unused`() throws {
+        var session = CodexAppServerSession()
+        let id = try requestID(session.request(.readRateLimits))
+        let response = #"""
+            {"id":\#(id),"result":{"rateLimits":{"primary":{"resetsAt":1791502532,"windowDurationMins":300},
+              "secondary":{"usedPercent":30,"windowDurationMins":10080}}}}
+            """#
+        guard case .rateLimits(let reading) = session.decode(Data(response.utf8)) else {
+            Issue.record("Expected rate limits")
+            return
+        }
+        #expect(reading.rateLimits.primary == nil)
+        #expect(reading.rateLimits.secondary?.usedPercent == 30)
+        // Not said is not allowed.
+        #expect(reading.ordinaryUsageAllowed == nil)
+    }
+
+    @Test func `reports error responses for the request they answer`() throws {
+        var session = CodexAppServerSession()
+        let id = try requestID(session.request(.readRateLimits))
+        let response = #"{"id":\#(id),"error":{"code":-32600,"message":"codex account authentication required"}}"#
+        #expect(
+            session.decode(Data(response.utf8))
+                == .failed(.readRateLimits, message: "codex account authentication required")
+        )
+    }
+
+    @Test func `account reads send the params object it requires`() throws {
+        var session = CodexAppServerSession()
+        let request = try #require(
+            try JSONSerialization.jsonObject(with: session.request(.readAccount)) as? [String: Any]
+        )
+        #expect(request["method"] as? String == "account/read")
+        #expect((request["params"] as? [String: Any])?.isEmpty == true)
+    }
+
+    @Test(arguments: [
+        (#"{"account":null,"requiresOpenaiAuth":true}"#, CodexAccount.signedOut),
+        (#"{"account":null,"requiresOpenaiAuth":false}"#, .otherProvider),
+        (#"{"account":{"type":"apiKey"},"requiresOpenaiAuth":true}"#, .apiKey),
+        (
+            #"{"account":{"type":"chatgpt","email":null,"planType":"pro"},"requiresOpenaiAuth":true}"#,
+            .chatGPT(plan: "pro")
+        ),
+        (#"{"account":{"type":"amazonBedrock"},"requiresOpenaiAuth":false}"#, .otherProvider),
+    ])
+    func `decodes who Codex is signed in as`(result: String, account: CodexAccount) throws {
+        var session = CodexAppServerSession()
+        let id = try requestID(session.request(.readAccount))
+        #expect(session.decode(Data(#"{"id":\#(id),"result":\#(result)}"#.utf8)) == .account(account))
     }
 
     @Test func `decodes usage buckets`() throws {
@@ -71,7 +128,11 @@ struct CodexAppServerSessionTests {
         var session = CodexAppServerSession()
         #expect(
             session.decode(Data(#"{"method":"account/updated","params":{"planType":"pro"}}"#.utf8))
-                == .planUpdated("pro")
+                == .accountUpdated(plan: "pro")
+        )
+        #expect(
+            session.decode(Data(#"{"method":"account/updated","params":{"authMode":null,"planType":null}}"#.utf8))
+                == .accountUpdated(plan: nil)
         )
         #expect(
             session.decode(
@@ -86,6 +147,69 @@ struct CodexAppServerSessionTests {
     func `ignores irrelevant lines`(line: String) {
         var session = CodexAppServerSession()
         #expect(session.decode(Data(line.utf8)) == nil)
+    }
+}
+
+private func requestID(_ request: Data) throws -> Int {
+    try #require((try JSONSerialization.jsonObject(with: request) as? [String: Any])?["id"] as? Int)
+}
+
+struct CodexRateLimitsTests {
+    let fiveHours = RateLimitWindow(usedPercent: 40, durationMinutes: 300)
+    let week = RateLimitWindow(usedPercent: 70, durationMinutes: 10_080)
+
+    @Test func `sparse updates keep what they leave out`() {
+        let known = CodexRateLimits(
+            primary: fiveHours, secondary: week, planType: "plus", credits: CodexCredits(hasCredits: true))
+        let update = CodexRateLimits(primary: RateLimitWindow(usedPercent: 45, durationMinutes: 300))
+
+        let merged = known.merging(update)
+
+        #expect(merged.primary?.usedPercent == 45)
+        #expect(merged.secondary == week)
+        #expect(merged.planType == "plus")
+        #expect(merged.credits == CodexCredits(hasCredits: true))
+    }
+
+    @Test func `limits are named and ordered by their window, not their slot`() {
+        // Free plans can have just a weekly window, sent as the primary one.
+        let free = CodexRateLimits(primary: week).limits()
+        #expect(free.map(\.title) == ["Weekly"])
+        #expect(free.map(\.segments) == [7])
+
+        let swapped = CodexRateLimits(primary: week, secondary: fiveHours).limits()
+        #expect(swapped.map(\.title) == ["5-hour", "Weekly"])
+        #expect(swapped.map(\.shortTitle) == ["5h", "wk"])
+        #expect(swapped.map(\.segments) == [5, 7])
+    }
+
+    @Test func `hiding the weekly limit never hides the only one`() {
+        #expect(
+            CodexRateLimits(primary: fiveHours, secondary: week).limits(includesLonger: false).map(\.title) == [
+                "5-hour"
+            ])
+        #expect(CodexRateLimits(primary: week).limits(includesLonger: false).map(\.title) == ["Weekly"])
+    }
+
+    @Test func `windows of unknown or odd length still get a name`() {
+        let limits = CodexRateLimits(
+            primary: RateLimitWindow(usedPercent: 1), secondary: RateLimitWindow(usedPercent: 2, durationMinutes: 90)
+        )
+        .limits()
+        #expect(limits.map(\.title) == ["Usage limit", "90-minute"])
+        #expect(limits.map(\.segments) == [1, 1])
+    }
+
+    @Test func `the tightest limit skips windows that have reset since`() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let reset = CodexLimit(
+            role: .primary, window: RateLimitWindow(usedPercent: 95, resetsAt: now.addingTimeInterval(-60)))
+        let weekly = CodexLimit(
+            role: .secondary, window: RateLimitWindow(usedPercent: 50, resetsAt: now.addingTimeInterval(3_600)))
+
+        #expect(reset.hasReset(at: now))
+        #expect(CodexLimit.tightest([reset, weekly], at: now) == weekly)
+        #expect(CodexLimit.tightest([reset], at: now) == reset)
     }
 }
 
@@ -131,6 +255,15 @@ struct CodexRolloutTests {
                     sessionTokens: 16_626_447
                 )
         )
+    }
+
+    @Test func `dates a snapshot by its event`() throws {
+        let log = """
+            {"timestamp":"2026-10-10T07:15:42.123Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":5.0}}}}
+            """
+        let snapshot = try #require(CodexRollout.latestSnapshot(inLog: Data(log.utf8)))
+        let capturedAt = try #require(snapshot.capturedAt)
+        #expect(abs(capturedAt.timeIntervalSince1970 - 1_791_616_542.123) < 0.01)
     }
 
     @Test func `finds the newest rollout file`() throws {

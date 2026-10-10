@@ -3,6 +3,10 @@ import SwiftUI
 /// Usage meter for a time window, in one segment per unit of its time (five for five hours, seven for a week),
 /// with a tick where the window's time has got to. Fill past the tick means the limit is going faster than the
 /// window and runs out before it resets.
+///
+/// With `showsRemaining`, it reads the other way round, like a fuel gauge: the fill is what's left of the limit
+/// and the tick what's left of the window's time, both shrinking to the left. Fill falling short of the tick
+/// means the same thing: the limit runs out first.
 struct SegmentedMeter: View {
     let percent: Double
     let segments: Int
@@ -10,10 +14,12 @@ struct SegmentedMeter: View {
     var elapsedFraction: Double?
     var height: CGFloat = 6
     var spacing: CGFloat = 3
+    var showsRemaining = false
 
     var body: some View {
         let color = Color.usage(percent: percent)
-        let filledSegments = min(max(percent / 100, 0), 1) * Double(segments)
+        let shown = showsRemaining ? 100 - percent : percent
+        let filledSegments = min(max(shown / 100, 0), 1) * Double(segments)
         GeometryReader { proxy in
             let segmentWidth = (proxy.size.width - spacing * CGFloat(segments - 1)) / CGFloat(segments)
             HStack(spacing: spacing) {
@@ -30,7 +36,8 @@ struct SegmentedMeter: View {
             if let elapsedFraction {
                 tick
                     .position(
-                        x: tickPosition(elapsedFraction, segmentWidth: segmentWidth),
+                        x: tickPosition(
+                            showsRemaining ? 1 - elapsedFraction : elapsedFraction, segmentWidth: segmentWidth),
                         y: proxy.size.height / 2
                     )
             }
@@ -38,7 +45,7 @@ struct SegmentedMeter: View {
         .frame(height: height)
         .animation(Motion.gentle, value: percent)
         .accessibilityElement()
-        .accessibilityValue("\(Int(percent.rounded())) percent")
+        .accessibilityValue("\(Int(shown.rounded())) percent\(showsRemaining ? " left" : "")")
     }
 
     private var tick: some View {

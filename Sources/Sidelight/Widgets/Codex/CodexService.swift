@@ -3,6 +3,47 @@ import Observation
 import SidelightCore
 import os
 
+/// Everything the Codex widget draws, as one value, so a view can be drawn for any state.
+struct CodexState: Equatable {
+    enum Source: Equatable {
+        case off
+        case starting
+        /// `codex app-server`, asked every minute.
+        case appServer
+        /// The newest session rollout file, re-read whenever Codex writes to it.
+        case rolloutFile
+        /// Neither answers: Codex isn't installed or hasn't been used on this Mac.
+        case unavailable
+    }
+
+    var source = Source.off
+    /// Who Codex is signed in as; `nil` until the app-server says (it never does without one).
+    var account: CodexAccount?
+    var rateLimits: CodexRateLimits?
+    /// When ``rateLimits`` were read or logged.
+    var limitsCapturedAt: Date?
+    var ordinaryUsageAllowed: Bool?
+    var resetCredits: Int?
+    var usage: CodexUsage?
+    /// Tokens of the latest session; only known from rollout files.
+    var sessionTokens: Int64?
+    /// Why the app-server's last rate-limit read failed; cleared by the next good one.
+    var problem: String?
+
+    var plan: String? {
+        if let plan = rateLimits?.planType { return plan }
+        if case .chatGPT(let plan) = account { return plan }
+        return nil
+    }
+
+    /// Whether the limits are current: read from the app-server within the last few refreshes, without an error
+    /// since. Forecasts only make sense then.
+    func isLive(at now: Date) -> Bool {
+        guard source == .appServer, problem == nil, let limitsCapturedAt else { return false }
+        return now.timeIntervalSince(limitsCapturedAt) < 3 * Double(CodexService.refreshInterval.components.seconds)
+    }
+}
+
 /// Codex rate limits and token usage.
 ///
 /// Primary source is `codex app-server` (JSON-RPC over stdio, read-only methods only). If it's not installed,
@@ -10,41 +51,14 @@ import os
 /// instead and re-read whenever Codex writes to it.
 @Observable
 final class CodexService {
-    enum Source: Equatable {
-        case off
-        case starting
-        case appServer
-        case rolloutFile
-        case unavailable
-
-        var title: String {
-            switch self {
-            case .off: "off"
-            case .starting: "starting…"
-            case .appServer: "app-server"
-            case .rolloutFile: "rollout file"
-            case .unavailable: "unavailable"
-            }
-        }
-    }
-
     static let executableName = "codex"
     static let appServerTimeout: Duration = .seconds(15)
     static let refreshInterval: Duration = .seconds(60)
     static let appServerRetryDelay: Duration = .seconds(300)
-    static let sparklineDays = 14
+    /// "Refresh now" waits at least this long after the last request.
+    static let minimumManualRefreshGap: TimeInterval = 10
 
-    private(set) var source: Source = .off
-    private(set) var fiveHourWindow: RateLimitWindow?
-    private(set) var weeklyWindow: RateLimitWindow?
-    private(set) var plan: String?
-    private(set) var resetCredits: Int?
-    private(set) var lifetimeTokens: Int64?
-    private(set) var todayTokens: Int64?
-    /// Tokens of the latest session; only known from rollout files.
-    private(set) var sessionTokens: Int64?
-    /// Tokens per day for the last ``sparklineDays`` days, oldest first.
-    private(set) var dailyTokens: [Int64] = []
+    private(set) var state = CodexState()
 
     @ObservationIgnored private var isEnabled = false
     @ObservationIgnored private var appServer: ChildProcess?
@@ -55,11 +69,12 @@ final class CodexService {
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var rolloutLoadTask: Task<Void, Never>?
     @ObservationIgnored private var rolloutWatcher: FileEventStream?
+    @ObservationIgnored private var lastRequest: Date?
 
     func start() {
         guard !isEnabled else { return }
         isEnabled = true
-        source = .starting
+        state.source = .starting
         startAppServer()
     }
 
@@ -74,7 +89,20 @@ final class CodexService {
         appServer?.terminate()
         appServer = nil
         rolloutWatcher = nil
-        source = .off
+        state.source = .off
+    }
+
+    /// Asks the app-server again, or starts it if it isn't running. Ignored right after another request.
+    func refreshNow() {
+        guard isEnabled else { return }
+        if let lastRequest, Date.now.timeIntervalSince(lastRequest) < Self.minimumManualRefreshGap { return }
+        if appServer != nil {
+            requestUpdates()
+        } else {
+            retryTask?.cancel()
+            retryTask = nil
+            startAppServer()
+        }
     }
 
     // MARK: App server
@@ -109,7 +137,7 @@ final class CodexService {
         }
         watchdogTask = Task { [weak self] in
             do { try await Task.sleep(for: Self.appServerTimeout) } catch { return }
-            guard let self, source != .appServer else { return }
+            guard let self, state.source != .appServer else { return }
             Log.codex.notice("codex app-server sent no rate limits in time; reading rollout files")
             startRolloutFallback()
         }
@@ -123,6 +151,7 @@ final class CodexService {
 
     private func requestUpdates() {
         guard let appServer else { return }
+        lastRequest = .now
         for method in CodexAppServerSession.Method.allCases {
             appServer.send(session.request(method))
         }
@@ -131,25 +160,40 @@ final class CodexService {
     private func handleAppServerLine(_ line: Data) {
         guard let message = session.decode(line) else { return }
         switch message {
-        case .rateLimits(let rateLimits, let resetCredits):
-            apply(rateLimits)
-            self.resetCredits = resetCredits
+        case .account(let account):
+            state.account = account
+            // Without a ChatGPT sign-in there are no plan limits to wait for, so the session logs (possibly
+            // another account's) mustn't stand in for them.
+            if !account.hasPlanLimits { didReceiveFromAppServer() }
+        case .rateLimits(let reading):
+            state.rateLimits = reading.rateLimits
+            state.resetCredits = reading.resetCredits
+            state.ordinaryUsageAllowed = reading.ordinaryUsageAllowed
+            state.limitsCapturedAt = .now
+            state.sessionTokens = nil
+            state.problem = nil
             didReceiveFromAppServer()
-        case .rateLimitsUpdated(let rateLimits):
-            apply(rateLimits)
+        case .rateLimitsUpdated(let update):
+            state.rateLimits = (state.rateLimits ?? CodexRateLimits()).merging(update)
+            state.limitsCapturedAt = .now
             didReceiveFromAppServer()
         case .usage(let usage):
-            let now = Date.now
-            if let lifetime = usage.lifetimeTokens { lifetimeTokens = lifetime }
-            todayTokens = usage.tokens(on: now)
-            dailyTokens = usage.dailyTotals(endingOn: now, days: Self.sparklineDays)
-        case .planUpdated(let plan):
-            self.plan = plan
+            state.usage = usage
+        case .failed(.readRateLimits, let message):
+            Log.codex.notice("codex app-server can't read rate limits: \(message, privacy: .public)")
+            state.problem = message
+        case .failed(let method, let message):
+            Log.codex.debug(
+                "codex app-server failed \(method.rawValue, privacy: .public): \(message, privacy: .public)")
+        case .accountUpdated(let plan):
+            if let plan { state.rateLimits?.planType = plan }
+            // The sign-in changed: everything else may have too.
+            requestUpdates()
         }
     }
 
     private func didReceiveFromAppServer() {
-        source = .appServer
+        state.source = .appServer
         watchdogTask?.cancel()
         rolloutWatcher = nil
     }
@@ -160,6 +204,8 @@ final class CodexService {
         refreshTask?.cancel()
         guard isEnabled else { return }
         Log.codex.notice("codex app-server exited; retrying later")
+        // What it said last stays on screen, no longer live, until the session logs have something newer.
+        state.source = .starting
         startRolloutFallback()
         retryTask = Task { [weak self] in
             do { try await Task.sleep(for: Self.appServerRetryDelay) } catch { return }
@@ -179,18 +225,23 @@ final class CodexService {
     }
 
     private func reloadRollout() {
-        guard isEnabled, source != .appServer else { return }
+        guard isEnabled, state.source != .appServer else { return }
         rolloutLoadTask?.cancel()
         rolloutLoadTask = Task { [weak self] in
             let snapshot = await Self.loadRolloutSnapshot()
-            guard !Task.isCancelled, let self, isEnabled, source != .appServer else { return }
+            guard !Task.isCancelled, let self, isEnabled, state.source != .appServer else { return }
             guard let snapshot else {
-                source = .unavailable
+                if state.rateLimits == nil { state.source = .unavailable }
                 return
             }
-            apply(snapshot.rateLimits)
-            sessionTokens = snapshot.sessionTokens
-            source = .rolloutFile
+            // Keep a newer reading from an app-server that has since exited.
+            if let shown = state.limitsCapturedAt, let logged = snapshot.capturedAt, logged < shown { return }
+            state.rateLimits = snapshot.rateLimits
+            state.limitsCapturedAt = snapshot.capturedAt
+            state.ordinaryUsageAllowed = nil
+            state.resetCredits = nil
+            state.sessionTokens = snapshot.sessionTokens
+            state.source = .rolloutFile
         }
     }
 
@@ -198,11 +249,5 @@ final class CodexService {
     @concurrent
     private static func loadRolloutSnapshot() async -> CodexRolloutSnapshot? {
         CodexRollout.latestSnapshot()
-    }
-
-    private func apply(_ rateLimits: CodexRateLimits) {
-        fiveHourWindow = rateLimits.primary
-        weeklyWindow = rateLimits.secondary
-        if let planType = rateLimits.planType { plan = planType }
     }
 }

@@ -7,19 +7,25 @@ import Foundation
 /// login/logout or thread/turn methods here.
 public struct CodexAppServerSession: Sendable {
     public enum Method: String, CaseIterable, Sendable {
+        case readAccount = "account/read"
         case readRateLimits = "account/rateLimits/read"
         case readUsage = "account/usage/read"
     }
 
     public enum Message: Equatable, Sendable {
+        /// Response to ``Method/readAccount``.
+        case account(CodexAccount)
         /// Response to ``Method/readRateLimits``.
-        case rateLimits(CodexRateLimits, resetCredits: Int?)
+        case rateLimits(CodexRateLimitsReading)
         /// Response to ``Method/readUsage``.
         case usage(CodexUsage)
-        /// `account/rateLimits/updated` notification.
+        /// An error response to one of our requests, such as reading rate limits while signed out.
+        case failed(Method, message: String)
+        /// `account/rateLimits/updated` notification: sparse, so merge it into what's known
+        /// (``CodexRateLimits/merging(_:)``).
         case rateLimitsUpdated(CodexRateLimits)
-        /// `account/updated` notification.
-        case planUpdated(String)
+        /// `account/updated` notification: the sign-in or plan changed. Its plan, when it has one.
+        case accountUpdated(plan: String?)
     }
 
     private var nextRequestID = 10
@@ -39,7 +45,9 @@ public struct CodexAppServerSession: Sendable {
     public mutating func request(_ method: Method) -> Data {
         nextRequestID += 1
         pendingRequests[nextRequestID] = method
-        return Self.encode(Request<NoParams>(id: nextRequestID, method: method.rawValue, params: nil))
+        // `account/read` requires its params object; an empty one doesn't ask for a token refresh.
+        let params: NoParams? = method == .readAccount ? NoParams() : nil
+        return Self.encode(Request(id: nextRequestID, method: method.rawValue, params: params))
     }
 
     /// Decodes one line of server output. Returns `nil` for anything we don't care about.
@@ -49,12 +57,25 @@ public struct CodexAppServerSession: Sendable {
 
         if let id = envelope.id {
             guard let method = pendingRequests.removeValue(forKey: id) else { return nil }
+            if let error = envelope.error {
+                return .failed(method, message: error.message ?? "Error \(error.code ?? 0)")
+            }
             switch method {
+            case .readAccount:
+                return (try? decoder.decode(Response<AccountResult>.self, from: line)).map {
+                    .account($0.result.account)
+                }
             case .readRateLimits:
                 guard let result = try? decoder.decode(Response<RateLimitsResult>.self, from: line).result,
                     let rateLimits = result.rateLimits
                 else { return nil }
-                return .rateLimits(rateLimits, resetCredits: result.resetCredits)
+                return .rateLimits(
+                    CodexRateLimitsReading(
+                        rateLimits: rateLimits,
+                        resetCredits: result.resetCredits,
+                        ordinaryUsageAllowed: result.ordinaryUsageAllowed
+                    )
+                )
             case .readUsage:
                 guard let result = try? decoder.decode(Response<UsageResult>.self, from: line).result else {
                     return nil
@@ -70,9 +91,8 @@ public struct CodexAppServerSession: Sendable {
             else { return nil }
             return .rateLimitsUpdated(rateLimits)
         case "account/updated":
-            guard let plan = try? decoder.decode(Notification<AccountUpdatedParams>.self, from: line).params.planType
-            else { return nil }
-            return .planUpdated(plan)
+            let params = try? decoder.decode(Notification<AccountUpdatedParams>.self, from: line).params
+            return .accountUpdated(plan: params?.planType)
         default:
             return nil
         }
@@ -99,11 +119,24 @@ public struct CodexAppServerSession: Sendable {
     private struct Envelope: Decodable {
         var id: Int?
         var method: String?
+        var error: ErrorBody?
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: AnyCodingKey.self)
             id = container.lenient(Int.self, "id")
             method = container.lenient(String.self, "method")
+            error = container.lenient(ErrorBody.self, "error")
+        }
+    }
+
+    private struct ErrorBody: Decodable {
+        var code: Int64?
+        var message: String?
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: AnyCodingKey.self)
+            code = container.lenientInt64("code")
+            message = container.lenient(String.self, "message")
         }
     }
 
@@ -118,11 +151,13 @@ public struct CodexAppServerSession: Sendable {
     private struct RateLimitsResult: Decodable {
         var rateLimits: CodexRateLimits?
         var resetCredits: Int?
+        var ordinaryUsageAllowed: Bool?
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: AnyCodingKey.self)
             rateLimits = container.lenient(CodexRateLimits.self, "rateLimits")
             resetCredits = container.lenient(ResetCredits.self, "rateLimitResetCredits")?.availableCount
+            ordinaryUsageAllowed = container.lenient(Bool.self, "ordinaryUsageAllowed")
         }
     }
 
@@ -170,6 +205,40 @@ public struct CodexAppServerSession: Sendable {
     }
 
     private struct AccountUpdatedParams: Decodable {
-        var planType: String
+        var planType: String?
+
+        init(from decoder: any Decoder) throws {
+            planType = try decoder.container(keyedBy: AnyCodingKey.self).lenient(String.self, "planType")
+        }
+    }
+
+    private struct AccountResult: Decodable {
+        var account: CodexAccount
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: AnyCodingKey.self)
+            guard let details = container.lenient(AccountDetails.self, "account") else {
+                // No account: signed out, unless the configured provider needs no OpenAI sign-in at all.
+                account = container.lenient(Bool.self, "requiresOpenaiAuth") == false ? .otherProvider : .signedOut
+                return
+            }
+            account =
+                switch details.type {
+                case "chatgpt": .chatGPT(plan: details.planType)
+                case "apiKey": .apiKey
+                default: .otherProvider
+                }
+        }
+
+        struct AccountDetails: Decodable {
+            var type: String?
+            var planType: String?
+
+            init(from decoder: any Decoder) throws {
+                let container = try decoder.container(keyedBy: AnyCodingKey.self)
+                type = container.lenient(String.self, "type")
+                planType = container.lenient(String.self, "planType")
+            }
+        }
     }
 }

@@ -109,6 +109,17 @@ struct ConfigurationCodingTests {
         #expect(clock.binary == BinaryClockOptions())
     }
 
+    @Test func `Codex widgets saved before the redesign keep their limits`() throws {
+        // A Codex widget's settings as v0.1.2 wrote them.
+        let codex = try JSONDecoder().decode(CodexSettings.self, from: Data(#"{"showsWeeklyLimit": false}"#.utf8))
+        #expect(codex == CodexSettings(showsWeeklyLimit: false, limitReading: .remaining, showsTokenHistory: true))
+
+        // A reading from a newer version doesn't throw the whole configuration away.
+        let newer = #"{"showsWeeklyLimit": true, "limitReading": "both", "showsTokenHistory": false}"#
+        let decoded = try JSONDecoder().decode(CodexSettings.self, from: Data(newer.utf8))
+        #expect(decoded == CodexSettings(showsWeeklyLimit: true, limitReading: .remaining, showsTokenHistory: false))
+    }
+
     @Test func `only faces that can show seconds redraw every second`() {
         var clock = ClockSettings(style: .words, showsSeconds: true)
         #expect(!clock.showsSecondsOnFace)
