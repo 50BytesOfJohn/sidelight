@@ -355,11 +355,14 @@ struct RailwayTests {
 
     @Test func `fetches only what the shown blocks need`() {
         var settings = RailwaySettings()
-        #expect(settings.needs == RailwayNeeds(usage: true, incidents: true, commits: true, workspaceIDs: [nil]))
+        #expect(
+            settings.needs
+                == RailwayNeeds(
+                    usage: true, incidents: true, commits: true, workspaceIDs: [nil], environmentNames: [nil]))
 
         settings.blocks = BlockLayout(shown: [.services])
         settings.blockOptions.services.showsCommit = false
-        #expect(settings.needs == RailwayNeeds(workspaceIDs: [nil]))
+        #expect(settings.needs == RailwayNeeds(workspaceIDs: [nil], environmentNames: [nil]))
 
         settings.glance = .usage
         #expect(settings.needs.usage)
@@ -379,7 +382,9 @@ struct RailwayTests {
         #expect(automatic?.incidents == false)
         #expect(automatic?.refreshMinutes == nil)
         #expect(automatic?.workspaceIDs == ["ws1", nil])
-        #expect(needs[.token] == RailwayNeeds(incidents: true, refreshMinutes: 15, workspaceIDs: [nil]))
+        #expect(
+            needs[.token]
+                == RailwayNeeds(incidents: true, refreshMinutes: 15, workspaceIDs: [nil], environmentNames: [nil]))
         #expect(needs[.cli] == nil)
     }
 
@@ -508,5 +513,30 @@ struct RailwayTests {
         hidden.commits = false
         #expect(hidden.isCovered(by: before))
         #expect(!RailwayNeeds(usage: true).isCovered(by: before))
+    }
+
+    @Test func `a quicker refresh isn't covered by a slower one`() {
+        let fiveMinutes = RailwayNeeds(refreshMinutes: 5)
+        #expect(!RailwayNeeds(refreshMinutes: 1).isCovered(by: fiveMinutes))
+        #expect(!RailwayNeeds(refreshMinutes: nil).isCovered(by: fiveMinutes))
+        #expect(RailwayNeeds(refreshMinutes: 15).isCovered(by: fiveMinutes))
+        #expect(RailwayNeeds(refreshMinutes: 5).isCovered(by: RailwayNeeds(refreshMinutes: nil)))
+        #expect(!RailwayNeeds(environmentNames: ["staging"]).isCovered(by: RailwayNeeds(environmentNames: [nil])))
+    }
+
+    @Test func `asks for commits only in the environments widgets show`() throws {
+        let snapshot = try Self.snapshot()
+        #expect(snapshot.deploymentIDs(inEnvironmentsNamed: [nil]) == ["d1", "d3", "d4"])
+        #expect(snapshot.deploymentIDs(inEnvironmentsNamed: ["staging"]) == ["d2"])
+        #expect(snapshot.deploymentIDs(inEnvironmentsNamed: [nil, "staging"]) == snapshot.deploymentIDs)
+    }
+
+    @Test func `widgets that chose no workspace show the account's first, wherever it's listed`() {
+        let first = Railway.Workspace(id: "first", name: "Personal", projects: [])
+        let team = Railway.Workspace(id: "team", name: "Team", projects: [])
+        let snapshot = Railway.Snapshot(workspaces: [team, first], firstWorkspaceID: "first", fetchedAt: .now)
+        #expect(snapshot.workspace(id: nil)?.id == "first")
+        #expect(snapshot.workspace(id: "team")?.id == "team")
+        #expect(Railway.Snapshot(workspaces: [team], fetchedAt: .now).workspace(id: nil)?.id == "team")
     }
 }

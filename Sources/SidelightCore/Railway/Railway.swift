@@ -11,15 +11,23 @@ public enum Railway {
         public var incidents: [Incident]?
         public var fetchedAt: Date
 
-        public init(userName: String? = nil, workspaces: [Workspace], incidents: [Incident]? = nil, fetchedAt: Date) {
+        /// The account's first workspace, which widgets that chose none show.
+        public var firstWorkspaceID: String?
+
+        public init(
+            userName: String? = nil, workspaces: [Workspace], firstWorkspaceID: String? = nil,
+            incidents: [Incident]? = nil, fetchedAt: Date
+        ) {
             self.userName = userName
             self.workspaces = workspaces
+            self.firstWorkspaceID = firstWorkspaceID
             self.incidents = incidents
             self.fetchedAt = fetchedAt
         }
 
         /// The workspace with `id`, or the first one for `nil`.
         public func workspace(id: String?) -> Workspace? {
+            let id = id ?? firstWorkspaceID
             guard let id else { return workspaces.first }
             return workspaces.first { $0.id == id }
         }
@@ -48,6 +56,20 @@ public enum Railway {
             Set(
                 workspaces.flatMap(\.projects).flatMap(\.services).flatMap(\.instances)
                     .compactMap(\.deployment?.id))
+        }
+
+        /// IDs of the latest deploys in the environments widgets show, by name (`nil` for each project's primary
+        /// one): only their commits are worth asking for.
+        public func deploymentIDs(inEnvironmentsNamed names: Set<String?>) -> Set<String> {
+            var ids = Set<String>()
+            for project in workspaces.flatMap(\.projects) {
+                let environments = Set(names.compactMap { project.environment(named: $0)?.id })
+                for instance in project.services.flatMap(\.instances)
+                where environments.contains(instance.environmentID) {
+                    if let id = instance.deployment?.id { ids.insert(id) }
+                }
+            }
+            return ids
         }
     }
 

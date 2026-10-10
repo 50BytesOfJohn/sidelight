@@ -38,7 +38,8 @@ final class RailwayService {
 
     @ObservationIgnored private var isEnabled = false
     @ObservationIgnored private var savedToken: String?
-    @ObservationIgnored private var hasLookedForToken = false
+    /// Reading the keychain, once; everything that needs the token waits for this one read.
+    @ObservationIgnored private var tokenLoad: Task<String?, Never>?
 
     init() {
         cli.credentials = { [weak self] in await self?.cliCredentials() ?? .failure(.cliNotSignedIn) }
@@ -76,7 +77,7 @@ final class RailwayService {
 
     /// Fetches now with every connection in use.
     func refreshNow() {
-        lookAround()
+        if lookAround() { apply() }
         cli.refreshNow()
         token.refreshNow()
     }
@@ -91,9 +92,11 @@ final class RailwayService {
         case .failure(let problem), .success(.failure(let problem)): return problem
         case .success(.success):
             guard await Self.storeToken(token) else { return .refused(message: "Couldn't save to the keychain") }
+            tokenLoad = Task { token }
             savedToken = token
             hasToken = true
-            hasLookedForToken = true
+            // It may belong to another account: forget what the last token saw.
+            self.token.reset()
             apply()
             self.token.refreshNow()
             return nil
@@ -101,12 +104,12 @@ final class RailwayService {
     }
 
     func removeToken() {
-        Task {
-            await Self.deleteToken()
-            savedToken = nil
-            hasToken = false
-            apply()
-        }
+        tokenLoad = Task { nil }
+        savedToken = nil
+        hasToken = false
+        token.reset()
+        apply()
+        Task { await Self.deleteToken() }
     }
 
     // MARK: Demand
@@ -123,21 +126,34 @@ final class RailwayService {
         token.needs = bySource[.token]
     }
 
-    /// Looks for the CLI and its sign-in, and the saved token: all local and cheap. Done whenever the demand
-    /// changes and before each request, so signing in with the CLI is noticed without restarting.
-    private func lookAround() {
-        guard isEnabled || !needs.isEmpty else { return }
+    /// Looks for the CLI and its sign-in, and starts reading the saved token: all local and cheap. Done whenever the
+    /// demand changes and on "Refresh", so signing in with the CLI is noticed without restarting. Returns whether
+    /// the CLI's sign-in came or went, which changes what automatic widgets use.
+    @discardableResult
+    private func lookAround() -> Bool {
+        guard isEnabled else { return false }
         cliExecutable = ExecutableLocator.find("railway", in: RailwayCLISignIn.executableDirectories)
         let signedIn = (try? Data(contentsOf: RailwayCLISignIn.configFile)).flatMap(RailwayCLISignIn.init) != nil
-        if signedIn != cliIsSignedIn { cliIsSignedIn = signedIn }
-        if !hasLookedForToken {
-            hasLookedForToken = true
+        if tokenLoad == nil {
             Task {
-                savedToken = await Self.readToken()
-                hasToken = savedToken != nil
-                apply()
+                let hadToken = hasToken
+                _ = await loadToken()
+                if hasToken != hadToken { apply() }
             }
         }
+        guard signedIn != cliIsSignedIn else { return false }
+        cliIsSignedIn = signedIn
+        return true
+    }
+
+    /// The saved token, read from the keychain the first time.
+    private func loadToken() async -> String? {
+        let load = tokenLoad ?? Task { await Self.readToken() }
+        tokenLoad = load
+        let token = await load.value
+        savedToken = token
+        if hasToken != (token != nil) { hasToken = token != nil }
+        return token
     }
 
     // MARK: Credentials
@@ -149,7 +165,11 @@ final class RailwayService {
     /// The CLI's token, renewed by the CLI itself when it has run out.
     private func cliCredentials() async -> Result<String, RailwayFetchProblem> {
         var signIn = await Self.readCLISignIn()
-        cliIsSignedIn = signIn != nil
+        if (signIn != nil) != cliIsSignedIn {
+            // Automatic widgets may now use the token instead, or the CLI again.
+            cliIsSignedIn = signIn != nil
+            apply()
+        }
         guard let current = signIn else { return .failure(.cliNotSignedIn) }
         if current.needsRenewal(at: .now), let executable = cliExecutable,
             lastRenewal.map({ Date.now.timeIntervalSince($0) > Self.renewalGap }) ?? true
@@ -164,12 +184,7 @@ final class RailwayService {
     }
 
     private func tokenCredentials() async -> Result<String, RailwayFetchProblem> {
-        if !hasLookedForToken {
-            hasLookedForToken = true
-            savedToken = await Self.readToken()
-            hasToken = savedToken != nil
-        }
-        return savedToken.map { .success($0) } ?? .failure(.noToken)
+        await loadToken().map { .success($0) } ?? .failure(.noToken)
     }
 
     static var userAgent: String {
@@ -251,12 +266,35 @@ final class RailwayConnection {
     @ObservationIgnored var credentials: () async -> Result<String, RailwayFetchProblem> = { .failure(.notSignedIn) }
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var accountFetchedAt: Date?
-    @ObservationIgnored private var usageFetchedAt: Date?
+    /// When each workspace's bill was last asked for, whether or not Railway had one to show.
+    @ObservationIgnored private var usageFetchedAt: [String: Date] = [:]
     @ObservationIgnored private var incidentsFetchedAt: Date?
+    /// Services whose details were asked for on their own, so a failure isn't retried on every refresh: the
+    /// regular request carries them from then on.
+    @ObservationIgnored private var detailsAskedAlone: Set<RailwayServiceTarget> = []
+    /// After a failed commits request, they're left alone until then.
+    @ObservationIgnored private var commitsRetryAfter: Date?
     @ObservationIgnored private var consecutiveFailures = 0
+
+    /// Wait this long after commits couldn't be fetched.
+    private static let commitsRetryDelay: TimeInterval = 10 * 60
 
     init(source: RailwaySignInSource) {
         self.source = source
+    }
+
+    /// Forgets everything the sign-in saw, for a different sign-in.
+    func reset() {
+        snapshot = nil
+        problem = nil
+        account = nil
+        commits = [:]
+        details = [:]
+        accountFetchedAt = nil
+        usageFetchedAt = [:]
+        detailsAskedAlone = []
+        commitsRetryAfter = nil
+        consecutiveFailures = 0
     }
 
     /// Whether the last good data is old: a fetch has failed since, or it's missed more than two refreshes.
@@ -315,10 +353,12 @@ final class RailwayConnection {
         switch result {
         case .success(var snapshot):
             if needs.incidents { snapshot.incidents = await incidents(snapshot.incidents ?? self.snapshot?.incidents) }
+            // A newer request replaced this one while it waited: its answer would be older.
+            guard !Task.isCancelled else { return RailwayPacing.idleInterval }
             self.snapshot = snapshot
             problem = nil
             consecutiveFailures = 0
-            if needs.commits { await fetchCommits(for: snapshot) }
+            if needs.commits { await fetchCommits(for: snapshot, environments: needs.environmentNames) }
             await fetchMissingDetails(needs, in: snapshot)
             return RailwayPacing.interval(
                 refreshMinutes: needs.refreshMinutes, isDeploying: snapshot.isDeploying, rateLimit: rateLimit,
@@ -345,9 +385,11 @@ final class RailwayConnection {
         if account == nil || accountFetchedAt.map({ Date.now.timeIntervalSince($0) > Self.accountInterval }) ?? true
             || needs.workspaceIDs.contains(where: { id in id.map { !knows($0) } ?? false })
         {
-            switch await send(RailwayAPI.accountQuery, token: token).flatMap({
+            let fetched = await send(RailwayAPI.accountQuery, token: token).flatMap {
                 RailwayAPI.account(status: $0.status, body: $0.body)
-            }) {
+            }
+            guard !Task.isCancelled else { return .failure(.unreachable) }
+            switch fetched {
             case .success(let fetched):
                 account = fetched
                 accountFetchedAt = .now
@@ -356,19 +398,18 @@ final class RailwayConnection {
             }
         }
         guard let account else { return .failure(.unreadable) }
-        // The chosen workspaces the account has, and its first one for widgets that chose none.
-        var ids: [String] = []
-        for id in needs.workspaceIDs.map({ $0 ?? account.workspaces.first?.id }) {
-            if let id, knows(id), !ids.contains(id) { ids.append(id) }
-        }
+        // The account's first workspace for widgets that chose none, then the chosen ones the account has.
+        let first = account.workspaces.first?.id
+        let chosen = needs.workspaceIDs.compactMap(\.self).filter { knows($0) && $0 != first }.sorted()
+        let ids = (needs.workspaceIDs.contains(nil) ? [first].compactMap(\.self) : []) + chosen
         guard !ids.isEmpty else { return .failure(.noWorkspace) }
 
-        let usageInterval = max(
-            RailwayPacing.usageInterval, TimeInterval(needs.refreshMinutes ?? 0) * 60)
+        let usageInterval = max(RailwayPacing.usageInterval, TimeInterval(needs.refreshMinutes ?? 0) * 60)
         let includesUsage =
             needs.usage
-            && (usageFetchedAt.map { Date.now.timeIntervalSince($0) >= usageInterval - 5 } ?? true
-                || snapshot?.workspaces.contains { ids.contains($0.id) && $0.bill == nil } ?? true)
+            && ids.contains { id in
+                usageFetchedAt[id].map { Date.now.timeIntervalSince($0) >= usageInterval - 5 } ?? true
+            }
         // Services shown in detail ride along, in environments the last answer named. One that answer couldn't
         // place (the first time) is asked for right after this one.
         let targets = needs.services.sorted { "\($0)" < "\($1)" }
@@ -379,14 +420,19 @@ final class RailwayConnection {
         let result = await send(document, variables: variables, token: token).flatMap {
             RailwayAPI.status(status: $0.status, body: $0.body, workspaceCount: ids.count, detailCount: placed.count)
         }
+        guard !Task.isCancelled else { return .failure(.unreachable) }
         if case .success(let status) = result {
             var details = self.details.filter { needs.services.contains($0.key) }
-            for ((target, _), detail) in zip(placed, status.details) { details[target] = detail }
+            // A service Railway had nothing on is known to have nothing, rather than still loading.
+            for ((target, _), detail) in zip(placed, status.details) {
+                details[target] = detail ?? Railway.ServiceDetail()
+            }
             self.details = details
+            detailsAskedAlone.formIntersection(needs.services)
         }
         return result.flatMap { status in
             guard !status.workspaces.isEmpty else { return .failure(.notAuthorized) }
-            if includesUsage { usageFetchedAt = .now }
+            if includesUsage { for id in ids { usageFetchedAt[id] = .now } }
             // Bills not asked for this time carry over from the last answer.
             let workspaces = status.workspaces.map { workspace in
                 var workspace = workspace
@@ -397,32 +443,38 @@ final class RailwayConnection {
             }
             return .success(
                 Railway.Snapshot(
-                    userName: account.name, workspaces: workspaces, incidents: snapshot?.incidents, fetchedAt: .now))
+                    userName: account.name, workspaces: workspaces, firstWorkspaceID: first,
+                    incidents: snapshot?.incidents, fetchedAt: .now))
         }
     }
 
-    /// Details for services the last status request couldn't place, now that `snapshot` can.
+    /// Details for services the last status request couldn't place, now that `snapshot` can. Each is asked for on
+    /// its own once; after that it rides along with the status.
     private func fetchMissingDetails(_ needs: RailwayNeeds, in snapshot: Railway.Snapshot) async {
-        let missing = needs.services.filter { details[$0] == nil }.sorted { "\($0)" < "\($1)" }
+        let missing = needs.services.filter { details[$0] == nil && !detailsAskedAlone.contains($0) }
+            .sorted { "\($0)" < "\($1)" }
         let placed = missing.compactMap { target in snapshot.detailRequest(for: target).map { (target, $0) } }
         guard !placed.isEmpty, case .success(let token) = await credentials() else { return }
+        detailsAskedAlone.formUnion(placed.map(\.0))
         let document = RailwayAPI.statusQuery(workspaceCount: 0, includesUsage: false, detailCount: placed.count)
         let variables = RailwayAPI.statusVariables(workspaceIDs: [], details: placed.map(\.1), now: .now)
         let result = await send(document, variables: variables, token: token).flatMap {
             RailwayAPI.status(status: $0.status, body: $0.body, workspaceCount: 0, detailCount: placed.count)
         }
-        guard case .success(let status) = result else { return }
-        for ((target, _), detail) in zip(placed, status.details) { details[target] = detail }
+        guard case .success(let status) = result, !Task.isCancelled else { return }
+        for ((target, _), detail) in zip(placed, status.details) { details[target] = detail ?? Railway.ServiceDetail() }
     }
 
     private func knows(_ workspaceID: String) -> Bool {
         account?.workspaces.contains { $0.id == workspaceID } ?? false
     }
 
-    /// Commits for latest deploys not seen before, a batch at a time. Deploys that are gone are forgotten.
-    private func fetchCommits(for snapshot: Railway.Snapshot) async {
-        let ids = snapshot.deploymentIDs
+    /// Commits for latest deploys not seen before in the environments widgets show, a batch at a time. Deploys
+    /// that are gone are forgotten.
+    private func fetchCommits(for snapshot: Railway.Snapshot, environments: Set<String?>) async {
+        let ids = snapshot.deploymentIDs(inEnvironmentsNamed: environments)
         commits = commits.filter { ids.contains($0.key) }
+        if let commitsRetryAfter, commitsRetryAfter > .now { return }
         let missing = Array(ids.subtracting(commits.keys).sorted().prefix(RailwayAPI.commitBatchSize))
         guard !missing.isEmpty, case .success(let token) = await credentials() else { return }
         let document = RailwayAPI.commitsQuery(count: missing.count)
@@ -430,10 +482,15 @@ final class RailwayConnection {
         let result = await send(document, variables: variables, token: token).flatMap {
             RailwayAPI.commits(status: $0.status, body: $0.body)
         }
-        if case .success(let fetched) = result {
+        guard !Task.isCancelled else { return }
+        switch result {
+        case .success(let fetched):
             commits.merge(fetched) { _, new in new }
             // Deploys without a readable commit aren't asked about again.
             for id in missing where commits[id] == nil { commits[id] = Railway.Commit() }
+            commitsRetryAfter = nil
+        case .failure:
+            commitsRetryAfter = .now.addingTimeInterval(Self.commitsRetryDelay)
         }
     }
 

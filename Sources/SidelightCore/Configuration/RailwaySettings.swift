@@ -325,6 +325,7 @@ public struct RailwaySettings: Codable, Hashable, Sendable {
             commits: shown.contains(.services) && blockOptions.services.showsCommit || serviceCommits,
             refreshMinutes: refreshMinutes,
             workspaceIDs: [workspaceID],
+            environmentNames: [environmentName],
             services: detailedServices
         )
     }
@@ -342,26 +343,33 @@ public struct RailwayNeeds: Equatable, Sendable {
     public var refreshMinutes: Int?
     /// The workspaces shown; `nil` stands for the account's first.
     public var workspaceIDs: Set<String?> = []
+    /// The environments shown, by name; `nil` stands for each project's primary one.
+    public var environmentNames: Set<String?> = []
     /// Services shown in detail, whose CPU, memory and recent deploys are asked for.
     public var services: Set<RailwayServiceTarget> = []
 
     public init(
         usage: Bool = false, incidents: Bool = false, commits: Bool = false, refreshMinutes: Int? = nil,
-        workspaceIDs: Set<String?> = [], services: Set<RailwayServiceTarget> = []
+        workspaceIDs: Set<String?> = [], environmentNames: Set<String?> = [], services: Set<RailwayServiceTarget> = []
     ) {
         self.usage = usage
         self.incidents = incidents
         self.commits = commits
         self.refreshMinutes = refreshMinutes
         self.workspaceIDs = workspaceIDs
+        self.environmentNames = environmentNames
         self.services = services
     }
 
     /// Whether `other` already fetches everything this needs, so changing from `other` to this needn't ask sooner.
     public func isCovered(by other: RailwayNeeds) -> Bool {
         (!usage || other.usage) && (!incidents || other.incidents) && (!commits || other.commits)
-            && workspaceIDs.isSubset(of: other.workspaceIDs) && services.isSubset(of: other.services)
+            && workspaceIDs.isSubset(of: other.workspaceIDs) && environmentNames.isSubset(of: other.environmentNames)
+            && services.isSubset(of: other.services) && pace >= other.pace
     }
+
+    /// Roughly how many minutes between refreshes, automatic counting as its idle pace, to tell quicker from slower.
+    private var pace: Double { refreshMinutes.map(Double.init) ?? RailwayPacing.idleInterval / 60 }
 
     /// Both widgets' needs. An automatic widget makes the pair automatic: it may ask more often than a fixed one.
     public func merged(with other: RailwayNeeds) -> RailwayNeeds {
@@ -371,6 +379,7 @@ public struct RailwayNeeds: Equatable, Sendable {
             commits: commits || other.commits,
             refreshMinutes: refreshMinutes.flatMap { mine in other.refreshMinutes.map { min(mine, $0) } },
             workspaceIDs: workspaceIDs.union(other.workspaceIDs),
+            environmentNames: environmentNames.union(other.environmentNames),
             services: services.union(other.services)
         )
     }

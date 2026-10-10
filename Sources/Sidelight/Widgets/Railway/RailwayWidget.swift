@@ -69,8 +69,13 @@ extension RailwayOverview {
         if failing > 0 { return "\(failing) failing" }
         let deploying = count(.deploying)
         if deploying > 0 { return "\(deploying) deploying" }
-        if count(.running) > 0 { return "All online" }
-        return count(.sleeping) > 0 ? "All asleep" : "Nothing deployed"
+        let (running, sleeping) = (count(.running), count(.sleeping))
+        if running == rows.count { return "All online" }
+        if sleeping == rows.count { return "All asleep" }
+        if running == 0 && sleeping == 0 { return "Nothing deployed" }
+        // `5 online · 2 asleep`; services never deployed aren't counted.
+        return [running > 0 ? "\(running) online" : nil, sleeping > 0 ? "\(sleeping) asleep" : nil]
+            .compactMap(\.self).joined(separator: " · ")
     }
 
     /// The number a glance badges: failing services, or failing that, deploying ones.
@@ -170,7 +175,12 @@ private struct RailwayContent: View {
         switch layout {
         case .regular, .compact:
             let blocks = blocks
-            if blocks.isEmpty {
+            if blocks.isEmpty && settings.blocks.shownBlocks == [.incidents] {
+                // Its only block shows only during an incident.
+                Label("Railway reports no incidents", systemImage: "checkmark.circle")
+                    .font(.system(size: layout == .regular ? 11 : 10))
+                    .foregroundStyle(.secondary)
+            } else if blocks.isEmpty {
                 RailwayMessage(
                     title: "No blocks shown", detail: "Choose blocks in this widget's builder.",
                     systemImage: "square.stack.3d.up", layout: layout)

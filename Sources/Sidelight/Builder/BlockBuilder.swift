@@ -98,7 +98,10 @@ struct WidgetBuilderWindow: View {
                     settings: binding(id, current: settings, embed: WidgetSettings.railway) {
                         if case .railway(let settings) = $0 { settings } else { nil }
                     },
-                    embed: WidgetSettings.railway)
+                    embed: WidgetSettings.railway
+                )
+                // A new selection for each widget: a block selected in another doesn't exist in this one.
+                .id(id)
             case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system,
                 .noodleComputer:
                 ContentUnavailableView(

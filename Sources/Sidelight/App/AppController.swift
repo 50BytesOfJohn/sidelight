@@ -175,8 +175,9 @@ final class AppController {
                 environment.noodleComputer.mayConnect = demand.placedKinds.contains(kind)
                 isNeeded ? environment.noodleComputer.start() : environment.noodleComputer.stop()
             case .railway:
+                // Not for the Widgets window's previews alone: Railway's sign-in isn't read until a widget is added.
                 environment.railway.needs = demand.railway
-                isNeeded ? environment.railway.start() : environment.railway.stop()
+                isNeeded && !demand.railway.isEmpty ? environment.railway.start() : environment.railway.stop()
             }
         }
     }
