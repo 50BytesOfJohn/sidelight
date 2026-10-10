@@ -17,6 +17,7 @@ struct ConfigurationCodingTests {
             .white, RGBAColor(red: 1, green: 0, blue: 0.5, alpha: 0.5),
         ]
         configuration.appearance.cards.style = .glass
+        configuration.appearance.cards.showsTitles = false
         configuration.appearance.text = .dark
         configuration.hotkey = Hotkey(keyCode: 49, modifiers: [.control, .option], key: "Space")
         configuration.updates = UpdateSettings(checksAutomatically: false, installsAutomatically: true)
@@ -62,6 +63,22 @@ struct ConfigurationCodingTests {
     ])
     func `rejects files that aren't a complete configuration`(json: String) {
         #expect(throws: (any Error).self) { try AppConfiguration(json: Data(json.utf8)) }
+    }
+
+    @Test func `cards saved before titles could be hidden keep showing them`() throws {
+        // `appearance.cards` as v0.1.2 wrote it.
+        let json = """
+            {
+              "fill": {"amount": 0.06, "color": "#FFFFFF"},
+              "style": "glass",
+              "tint": {"amount": 0.2, "color": "#000000"}
+            }
+            """
+        let cards = try JSONDecoder().decode(CardSettings.self, from: Data(json.utf8))
+
+        #expect(cards.style == .glass)
+        #expect(cards.tint == Tint(color: .black, amount: 0.2))
+        #expect(cards.showsTitles)
     }
 
     @Test func `rejects unknown widget kinds`() throws {

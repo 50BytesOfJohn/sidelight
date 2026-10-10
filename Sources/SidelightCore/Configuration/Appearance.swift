@@ -150,8 +150,20 @@ public struct CardSettings: Codable, Hashable, Sendable {
     public var tint = Tint(color: .black, amount: 0)
     /// Color and opacity of solid cards.
     public var fill = Tint(color: .white, amount: 0.06)
+    /// The widget's icon and name above its content, in regular and compact layouts. Minimal and bar layouts
+    /// never show one.
+    public var showsTitles = true
 
     public init() {}
+
+    /// Missing options take their defaults, so settings saved before an option existed still load.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        style = try container.decode(CardStyle.self, forKey: .style)
+        tint = try container.decode(Tint.self, forKey: .tint)
+        fill = try container.decode(Tint.self, forKey: .fill)
+        showsTitles = try container.decodeIfPresent(Bool.self, forKey: .showsTitles) ?? CardSettings().showsTitles
+    }
 }
 
 // MARK: Text
