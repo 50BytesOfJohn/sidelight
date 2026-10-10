@@ -12,7 +12,7 @@ extension WidgetMetadata {
 }
 
 extension AIUsageProvider {
-    /// The provider's own widget, whose icon and color stand for it here too.
+    /// The provider's own widget supplies its display name.
     var kind: WidgetKind {
         switch self {
         case .codex: .codex
@@ -54,7 +54,7 @@ struct AIUsageSettingsEditor: View {
                     Label {
                         Text(provider.title)
                     } icon: {
-                        provider.kind.metadata.iconTile(size: 16)
+                        ProviderMark(provider: provider, size: 16)
                     }
                 }
                 // One agent at least: an empty card would only say so.
@@ -87,7 +87,7 @@ struct AIUsageSettingsEditor: View {
                 Label {
                     Text(provider.title).font(.headline)
                 } icon: {
-                    provider.kind.metadata.iconTile(size: 18)
+                    ProviderMark(provider: provider, size: 18)
                 }
                 source(of: provider)
             }
@@ -738,14 +738,25 @@ struct AIUsageView: View {
     }
 }
 
-/// An agent's icon tile, in its own widget's color.
+/// Bundled provider artwork, with appearance variants selected by the asset catalog.
 private struct ProviderMark: View {
     let provider: AIUsageProvider
     let size: CGFloat
 
     var body: some View {
-        provider.kind.metadata.iconTile(size: size)
+        Image(assetName, bundle: .module)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
             .accessibilityHidden(true)
+    }
+
+    private var assetName: String {
+        switch provider {
+        case .codex: "AIUsageCodex"
+        case .claudeCode: "AIUsageClaude"
+        case .cursor: "AIUsageCursor"
+        }
     }
 }
 
