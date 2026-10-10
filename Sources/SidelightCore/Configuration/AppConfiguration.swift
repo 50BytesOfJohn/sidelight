@@ -54,13 +54,15 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public func serviceDemand(
         at positions: some Sequence<PanelPosition>, previewsEveryWidget: Bool = false
     ) -> ServiceDemand {
+        let placed = Set(widgets.map(\.kind))
         guard !previewsEveryWidget else {
             var usage = UsageServiceDemand(widgets: widgets)
             usage.providers = Set(AIUsageProvider.allCases)
-            return ServiceDemand(kinds: Set(WidgetKind.allCases), usage: usage)
+            return ServiceDemand(kinds: Set(WidgetKind.allCases), placedKinds: placed, usage: usage)
         }
         let visible = visibleWidgets(at: positions)
-        return ServiceDemand(kinds: Set(visible.map(\.kind)), usage: UsageServiceDemand(widgets: visible))
+        return ServiceDemand(
+            kinds: Set(visible.map(\.kind)), placedKinds: placed, usage: UsageServiceDemand(widgets: visible))
     }
 }
 
@@ -81,10 +83,15 @@ extension AppConfiguration {
 public struct ServiceDemand: Equatable, Sendable {
     /// Kinds with a widget showing. The usage services go by ``usage`` instead.
     public var kinds: Set<WidgetKind>
+    /// Kinds with a widget in the configuration, shown or not. A service that asks the person something the first
+    /// time (as Noodle Computer asks whether to let Sidelight in) waits for one, rather than asking because the
+    /// Widgets window previews every kind.
+    public var placedKinds: Set<WidgetKind>
     public var usage: UsageServiceDemand
 
-    public init(kinds: Set<WidgetKind>, usage: UsageServiceDemand) {
+    public init(kinds: Set<WidgetKind>, placedKinds: Set<WidgetKind>? = nil, usage: UsageServiceDemand) {
         self.kinds = kinds
+        self.placedKinds = placedKinds ?? kinds
         self.usage = usage
     }
 }
@@ -124,7 +131,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 providers.formUnion(settings.providers)
                 claudeMinutes += [settings.claudeRefreshMinutesIfOptedIn].compactMap(\.self)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
-            case .clock, .calendar, .nowPlaying, .claudeSessions, .system:
+            case .clock, .calendar, .nowPlaying, .claudeSessions, .system, .noodleComputer:
                 break
             }
         }

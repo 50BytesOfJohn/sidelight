@@ -329,7 +329,10 @@ private struct WidgetInspector: View {
             HStack(spacing: 12) {
                 metadata.iconTile(size: 44)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(metadata.title).font(.system(size: 18, weight: .bold))
+                    HStack(spacing: 6) {
+                        Text(metadata.title).font(.system(size: 18, weight: .bold))
+                        if metadata.isBeta { BetaBadge() }
+                    }
                     Text(metadata.summary).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }

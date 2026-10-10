@@ -75,6 +75,7 @@ private struct GalleryTile: View {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
                         Text(metadata.title).font(.system(size: 13, weight: .semibold))
+                        if metadata.isBeta { BetaBadge() }
                         if !instances.isEmpty {
                             Text(instances.count == 1 ? "Added" : "Added ×\(instances.count)")
                                 .font(.system(size: 9.5, weight: .semibold))

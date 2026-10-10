@@ -13,6 +13,8 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     /// Running and recently finished Claude Code sessions.
     case claudeSessions
     case system
+    /// Computers in Noodle Computer and whether they're running.
+    case noodleComputer
 
     public var id: Self { self }
 
@@ -434,6 +436,19 @@ public struct SystemStatsSettings: Codable, Hashable, Sendable {
     }
 }
 
+/// Which of the computers lent to Sidelight a Noodle Computer widget shows.
+public struct NoodleComputerSettings: Codable, Hashable, Sendable {
+    /// The one computer shown; `nil` lists them all.
+    public var computerID: UUID?
+    /// That computer's name when it was chosen, to show while Noodle Computer can't be asked.
+    public var computerName: String?
+
+    public init(computerID: UUID? = nil, computerName: String? = nil) {
+        self.computerID = computerID
+        self.computerName = computerName
+    }
+}
+
 /// A widget's kind together with the settings that apply to that kind only.
 public enum WidgetSettings: Hashable, Sendable {
     case clock(ClockSettings)
@@ -445,6 +460,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case nowPlaying
     case claudeSessions(ClaudeSessionsSettings)
     case system(SystemStatsSettings)
+    case noodleComputer(NoodleComputerSettings)
 
     public var kind: WidgetKind {
         switch self {
@@ -457,6 +473,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .nowPlaying: .nowPlaying
         case .claudeSessions: .claudeSessions
         case .system: .system
+        case .noodleComputer: .noodleComputer
         }
     }
 
@@ -471,6 +488,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .nowPlaying: .nowPlaying
         case .claudeSessions: .claudeSessions(ClaudeSessionsSettings())
         case .system: .system(SystemStatsSettings())
+        case .noodleComputer: .noodleComputer(NoodleComputerSettings())
         }
     }
 }
