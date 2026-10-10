@@ -114,6 +114,24 @@ public struct CursorUsagePool: Equatable, Sendable, Identifiable {
     }
 }
 
+extension CursorUsagePool.Kind {
+    public var title: String {
+        switch self {
+        case .cursorModels: "Cursor models"
+        case .otherModels: "API models"
+        case .included: "Included usage"
+        }
+    }
+
+    public var explanation: String {
+        switch self {
+        case .cursorModels: "Auto, Composer and Cursor's own models."
+        case .otherModels: "Third-party models such as Claude, GPT and Gemini, charged at their API price."
+        case .included: "Your plan's included usage."
+        }
+    }
+}
+
 /// On-demand (pay-as-you-go) spending. Cursor doesn't document the unit of `used` and `limit` (its Admin API counts
 /// spend in cents), so Sidelight only shows their ratio, never an amount.
 public struct CursorSpending: Equatable, Sendable {

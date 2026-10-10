@@ -6,6 +6,8 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case codex
     case claudeCode
     case cursor
+    /// Codex, Claude Code and Cursor usage side by side.
+    case aiUsage
     case calendar
     case nowPlaying
     case agents
@@ -184,13 +186,16 @@ public struct BinaryClockOptions: Codable, Hashable, Sendable {
     }
 }
 
-public struct CodexSettings: Codable, Hashable, Sendable {
-    /// Whether limits read as what's left, the way Codex's own `/status` puts it, or as what's used.
-    public enum LimitReading: String, Codable, CaseIterable, Identifiable, Sendable {
-        case remaining, used
+/// Whether usage limits read as what's left, the way Codex's own `/status` puts it, or as what's used, the way
+/// Claude Code and Cursor do.
+public enum UsageReading: String, Codable, CaseIterable, Identifiable, Sendable {
+    case remaining, used
 
-        public var id: Self { self }
-    }
+    public var id: Self { self }
+}
+
+public struct CodexSettings: Codable, Hashable, Sendable {
+    public typealias LimitReading = UsageReading
 
     /// The longer of two limits, normally the week.
     public var showsWeeklyLimit = true
@@ -280,6 +285,88 @@ public struct CursorSettings: Codable, Hashable, Sendable {
     }
 }
 
+/// A coding agent whose plan usage the AI Usage widget shows. Each reads the same service as its own widget.
+public enum AIUsageProvider: String, Codable, CaseIterable, Identifiable, Sendable {
+    case codex, claudeCode, cursor
+
+    public var id: Self { self }
+}
+
+/// The AI Usage widget: several agents' limits in one card. Fetching from Anthropic or Cursor is its own opt-in,
+/// separate from the Claude Code and Cursor widgets', so it works without them.
+public struct AIUsageSettings: Codable, Hashable, Sendable {
+    /// The agents shown, in ``AIUsageProvider/allCases`` order.
+    public private(set) var providers: [AIUsageProvider] = AIUsageProvider.allCases
+    /// Defaults to what's used, like Claude Code and Cursor; Codex's own widget defaults to what's left.
+    public var reading = UsageReading.used
+    /// Each agent's other limits next to the one closest to running out, in the regular and compact layouts.
+    public var showsOtherLimits = true
+    /// Ask Anthropic for Claude usage every ``claudeRefreshMinutes``; see ``ClaudeCodeSettings/refreshesFromAnthropic``.
+    public var refreshesClaudeFromAnthropic = false
+    public var claudeRefreshMinutes = 5
+    /// Ask Cursor for its usage every ``cursorRefreshMinutes``; see ``CursorSettings/refreshesFromCursor``. Cursor
+    /// keeps no usage on this Mac, so its row asks to be connected until this is on.
+    public var refreshesCursor = false
+    public var cursorRefreshMinutes = 15
+
+    public init(
+        providers: some Sequence<AIUsageProvider> = AIUsageProvider.allCases, reading: UsageReading = .used,
+        showsOtherLimits: Bool = true, refreshesClaudeFromAnthropic: Bool = false, claudeRefreshMinutes: Int = 5,
+        refreshesCursor: Bool = false, cursorRefreshMinutes: Int = 15
+    ) {
+        self.providers = Self.ordered(providers)
+        self.reading = reading
+        self.showsOtherLimits = showsOtherLimits
+        self.refreshesClaudeFromAnthropic = refreshesClaudeFromAnthropic
+        self.claudeRefreshMinutes = claudeRefreshMinutes
+        self.refreshesCursor = refreshesCursor
+        self.cursorRefreshMinutes = cursorRefreshMinutes
+    }
+
+    /// Missing options take their defaults, so settings saved before an option existed still load. Unknown agents
+    /// and readings are skipped rather than failing the whole configuration.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = AIUsageSettings()
+        if let names = try? container.decodeIfPresent([String].self, forKey: .providers) {
+            providers = Self.ordered(names.compactMap(AIUsageProvider.init(rawValue:)))
+        }
+        reading = (try? container.decodeIfPresent(UsageReading.self, forKey: .reading)) ?? defaults.reading
+        showsOtherLimits =
+            try container.decodeIfPresent(Bool.self, forKey: .showsOtherLimits) ?? defaults.showsOtherLimits
+        refreshesClaudeFromAnthropic =
+            try container.decodeIfPresent(Bool.self, forKey: .refreshesClaudeFromAnthropic)
+            ?? defaults.refreshesClaudeFromAnthropic
+        claudeRefreshMinutes = max(
+            1, try container.decodeIfPresent(Int.self, forKey: .claudeRefreshMinutes) ?? defaults.claudeRefreshMinutes)
+        refreshesCursor = try container.decodeIfPresent(Bool.self, forKey: .refreshesCursor) ?? defaults.refreshesCursor
+        cursorRefreshMinutes = max(
+            1, try container.decodeIfPresent(Int.self, forKey: .cursorRefreshMinutes) ?? defaults.cursorRefreshMinutes)
+    }
+
+    public func includes(_ provider: AIUsageProvider) -> Bool { providers.contains(provider) }
+
+    /// Adds or removes an agent, keeping the order fixed.
+    public mutating func set(_ provider: AIUsageProvider, included: Bool) {
+        providers = Self.ordered(included ? providers + [provider] : providers.filter { $0 != provider })
+    }
+
+    /// The Anthropic refresh interval in minutes, when this widget shows Claude Code and opted in.
+    public var claudeRefreshMinutesIfOptedIn: Int? {
+        includes(.claudeCode) && refreshesClaudeFromAnthropic ? claudeRefreshMinutes : nil
+    }
+
+    /// The Cursor refresh interval in minutes, when this widget shows Cursor and opted in.
+    public var cursorRefreshMinutesIfOptedIn: Int? {
+        includes(.cursor) && refreshesCursor ? cursorRefreshMinutes : nil
+    }
+
+    private static func ordered(_ providers: some Sequence<AIUsageProvider>) -> [AIUsageProvider] {
+        let set = Set(providers)
+        return AIUsageProvider.allCases.filter(set.contains)
+    }
+}
+
 public struct CalendarSettings: Codable, Hashable, Sendable {
     /// What the settings editor offers.
     public static let eventCountRange = 1...10
@@ -314,6 +401,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case codex(CodexSettings)
     case claudeCode(ClaudeCodeSettings)
     case cursor(CursorSettings)
+    case aiUsage(AIUsageSettings)
     case calendar(CalendarSettings)
     case nowPlaying
     case agents
@@ -325,6 +413,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .codex: .codex
         case .claudeCode: .claudeCode
         case .cursor: .cursor
+        case .aiUsage: .aiUsage
         case .calendar: .calendar
         case .nowPlaying: .nowPlaying
         case .agents: .agents
@@ -338,6 +427,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .codex: .codex(CodexSettings())
         case .claudeCode: .claudeCode(ClaudeCodeSettings())
         case .cursor: .cursor(CursorSettings())
+        case .aiUsage: .aiUsage(AIUsageSettings())
         case .calendar: .calendar(CalendarSettings())
         case .nowPlaying: .nowPlaying
         case .agents: .agents

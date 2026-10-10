@@ -29,29 +29,31 @@ struct ClaudeCodeSettingsEditor: View {
     var body: some View {
         Toggle("Show weekly limit", isOn: $settings.showsWeeklyLimit)
         Divider()
-        AnthropicRefreshSettings(settings: $settings)
+        AnthropicRefreshSettings(isOn: $settings.refreshesFromAnthropic, minutes: $settings.refreshMinutes)
         Divider()
         StatusLineSetup()
     }
 }
 
-/// The opt-in to fetch usage from Anthropic on a timer, and how the last fetch went.
-private struct AnthropicRefreshSettings: View {
-    @Binding var settings: ClaudeCodeSettings
+/// The opt-in to fetch usage from Anthropic on a timer, and how the last fetch went. Each widget that shows Claude
+/// usage has its own; the service fetches as often as the most frequent one that's showing asks.
+struct AnthropicRefreshSettings: View {
+    @Binding var isOn: Bool
+    @Binding var minutes: Int
     @Environment(ClaudeCodeService.self) private var claude
 
     /// The offered intervals, plus one set by hand in `config.json`, so the picker always shows the real value.
     private var minuteChoices: [Int] {
-        Set(ClaudeCodeSettings.refreshMinuteChoices + [settings.refreshMinutes]).sorted()
+        Set(ClaudeCodeSettings.refreshMinuteChoices + [minutes]).sorted()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Refresh from Anthropic", isOn: $settings.refreshesFromAnthropic)
-            Picker("Every", selection: $settings.refreshMinutes) {
+            Toggle("Refresh from Anthropic", isOn: $isOn)
+            Picker("Every", selection: $minutes) {
                 ForEach(minuteChoices, id: \.self) { Text("\($0) min").tag($0) }
             }
-            .disabled(!settings.refreshesFromAnthropic)
+            .disabled(!isOn)
             Text(
                 "Asks Anthropic for your plan's usage the way /usage does, signed in as Claude Code is, so it also "
                     + "counts claude.ai and your other devices. The sign-in is read from your keychain for each "
@@ -60,7 +62,7 @@ private struct AnthropicRefreshSettings: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-            if settings.refreshesFromAnthropic {
+            if isOn {
                 status
             }
         }
@@ -75,7 +77,7 @@ private struct AnthropicRefreshSettings: View {
                 .frame(width: 7, height: 7)
             Group {
                 if let problem = claude.anthropicProblem {
-                    Text(Self.message(for: problem))
+                    Text(problem.message)
                 } else if let usage = claude.anthropicUsage {
                     Text("Fetched \(usage.capturedAt, format: .relative(presentation: .named))")
                 } else {
@@ -86,23 +88,10 @@ private struct AnthropicRefreshSettings: View {
             .fixedSize(horizontal: false, vertical: true)
         }
     }
-
-    private static func message(for problem: ClaudeCodeFetchProblem) -> String {
-        switch problem {
-        case .notSignedIn: "No Claude Code sign-in found. Run claude and sign in."
-        case .signInExpired: "Claude Code's sign-in has expired. It renews the next time you use Claude Code."
-        case .rejected(let status) where status == 401 || status == 403:
-            "Anthropic didn't accept the sign-in (HTTP \(status)). Using Claude Code renews it."
-        case .rejected(status: 429): "Anthropic asked to slow down. Trying less often."
-        case .rejected(let status): "Anthropic answered HTTP \(status). Trying again later."
-        case .unreachable: "Can't reach Anthropic. Trying again later."
-        case .unreadable: "Anthropic's answer had no limits Sidelight can read."
-        }
-    }
 }
 
 /// How to connect Claude Code's status line for live limits, and whether it is.
-private struct StatusLineSetup: View {
+struct StatusLineSetup: View {
     @Environment(ClaudeCodeService.self) private var claude
     @State private var didCopy = false
 

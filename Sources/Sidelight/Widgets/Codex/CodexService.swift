@@ -3,47 +3,6 @@ import Observation
 import SidelightCore
 import os
 
-/// Everything the Codex widget draws, as one value, so a view can be drawn for any state.
-struct CodexState: Equatable {
-    enum Source: Equatable {
-        case off
-        case starting
-        /// `codex app-server`, asked every minute.
-        case appServer
-        /// The newest session rollout file, re-read whenever Codex writes to it.
-        case rolloutFile
-        /// Neither answers: Codex isn't installed or hasn't been used on this Mac.
-        case unavailable
-    }
-
-    var source = Source.off
-    /// Who Codex is signed in as; `nil` until the app-server says (it never does without one).
-    var account: CodexAccount?
-    var rateLimits: CodexRateLimits?
-    /// When ``rateLimits`` were read or logged.
-    var limitsCapturedAt: Date?
-    var ordinaryUsageAllowed: Bool?
-    var resetCredits: Int?
-    var usage: CodexUsage?
-    /// Tokens of the latest session; only known from rollout files.
-    var sessionTokens: Int64?
-    /// Why the app-server's last rate-limit read failed; cleared by the next good one.
-    var problem: String?
-
-    var plan: String? {
-        if let plan = rateLimits?.planType { return plan }
-        if case .chatGPT(let plan) = account { return plan }
-        return nil
-    }
-
-    /// Whether the limits are current: read from the app-server within the last few refreshes, without an error
-    /// since. Forecasts only make sense then.
-    func isLive(at now: Date) -> Bool {
-        guard source == .appServer, problem == nil, let limitsCapturedAt else { return false }
-        return now.timeIntervalSince(limitsCapturedAt) < 3 * Double(CodexService.refreshInterval.components.seconds)
-    }
-}
-
 /// Codex rate limits and token usage.
 ///
 /// Primary source is `codex app-server` (JSON-RPC over stdio, read-only methods only). If it's not installed,
@@ -53,7 +12,7 @@ struct CodexState: Equatable {
 final class CodexService {
     static let executableName = "codex"
     static let appServerTimeout: Duration = .seconds(15)
-    static let refreshInterval: Duration = .seconds(60)
+    static let refreshInterval = CodexState.refreshInterval
     static let appServerRetryDelay: Duration = .seconds(300)
     /// "Refresh now" waits at least this long after the last request.
     static let minimumManualRefreshGap: TimeInterval = 10

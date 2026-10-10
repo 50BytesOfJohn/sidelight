@@ -100,8 +100,6 @@ final class AppController {
         environment.windowAvoider.mode = configuration.windowAvoidance
         environment.hotkeys.register(configuration.hotkey)
         environment.updater.apply(configuration.updates)
-        environment.claudeCode.refreshInterval = configuration.claudeCodeRefreshMinutes.map { .seconds($0 * 60) }
-        environment.cursor.refreshInterval = configuration.cursorRefreshMinutes.map { .seconds($0 * 60) }
         if panels.targetFrames != previousFrames { avoidWindowsAfterPanelChange() }
     }
 
@@ -117,7 +115,9 @@ final class AppController {
     }
 
     /// Runs each data service only while a widget that needs it is visible on some display, or while the manager
-    /// window (which previews every widget) is open.
+    /// window (which previews every widget) is open. Codex, Claude Code and Cursor are each needed by their own
+    /// widget and by an AI Usage widget showing them; they run once for all of them, and fetch on a timer only as
+    /// often as the most frequent of those that opted in asks.
     private func observeServiceDemand() {
         let store = store
         let windows = windows
@@ -125,26 +125,44 @@ final class AppController {
         observations.append(
             Task { [weak self] in
                 let demand = Observations {
-                    guard !windows.isManagerOpen else { return Set(WidgetKind.allCases) }
                     let configuration = store.configuration
                     let panels = monitor.displays.map { $0.panel(in: configuration) }.filter(\.showsPanel)
-                    return configuration.visibleWidgetKinds(at: panels.map(\.position))
+                    return configuration.serviceDemand(
+                        at: panels.map(\.position), previewsEveryWidget: windows.isManagerOpen)
                 }
-                for await kinds in demand {
-                    self?.runServices(for: kinds)
+                for await demand in demand {
+                    self?.runServices(for: demand)
                 }
             }
         )
     }
 
-    private func runServices(for kinds: Set<WidgetKind>) {
-        for kind in WidgetKind.allCases {
-            let isNeeded = kinds.contains(kind)
-            switch kind {
-            case .clock: break
+    private func runServices(for demand: ServiceDemand) {
+        let usage = demand.usage
+        // A service that's needed fetches as often as the widgets showing it ask, and not at all if none of them
+        // opted in. One that isn't needed stops and keeps its interval and last fetch, so showing its widget again
+        // doesn't ask sooner than the interval.
+        let claude = environment.claudeCode
+        let cursor = environment.cursor
+        if usage.providers.contains(.claudeCode) {
+            claude.refreshInterval = usage.claudeCodeRefreshMinutes.map { .seconds($0 * 60) }
+        }
+        if usage.providers.contains(.cursor) {
+            cursor.refreshInterval = usage.cursorRefreshMinutes.map { .seconds($0 * 60) }
+        }
+        for provider in AIUsageProvider.allCases {
+            let isNeeded = usage.providers.contains(provider)
+            switch provider {
             case .codex: isNeeded ? environment.codex.start() : environment.codex.stop()
-            case .claudeCode: isNeeded ? environment.claudeCode.start() : environment.claudeCode.stop()
-            case .cursor: isNeeded ? environment.cursor.start() : environment.cursor.stop()
+            case .claudeCode: isNeeded ? claude.start() : claude.stop()
+            case .cursor: isNeeded ? cursor.start() : cursor.stop()
+            }
+        }
+        for kind in WidgetKind.allCases {
+            let isNeeded = demand.kinds.contains(kind)
+            switch kind {
+            // Their services go by the usage demand above, which also counts AI Usage widgets.
+            case .clock, .codex, .claudeCode, .cursor, .aiUsage: break
             case .calendar: isNeeded ? environment.calendar.start() : environment.calendar.stop()
             case .nowPlaying: isNeeded ? environment.nowPlaying.start() : environment.nowPlaying.stop()
             case .agents: isNeeded ? environment.agentEvents.start() : environment.agentEvents.stop()
