@@ -31,6 +31,7 @@ final class AppController {
             nowPlaying: NowPlayingService(),
             claudeSessions: ClaudeSessionsService(),
             systemStats: SystemStatsService(),
+            noodleComputer: NoodleComputerService(),
             hotkeys: HotkeyCenter(),
             windowAvoider: WindowAvoider(),
             loginItem: LoginItem(),
@@ -78,6 +79,7 @@ final class AppController {
         environment.claudeSessions.stop()
         environment.calendar.stop()
         environment.systemStats.stop()
+        environment.noodleComputer.stop()
     }
 
     // MARK: Reacting to changes
@@ -167,6 +169,9 @@ final class AppController {
             case .nowPlaying: isNeeded ? environment.nowPlaying.start() : environment.nowPlaying.stop()
             case .claudeSessions: isNeeded ? environment.claudeSessions.start() : environment.claudeSessions.stop()
             case .system: isNeeded ? environment.systemStats.start() : environment.systemStats.stop()
+            case .noodleComputer:
+                environment.noodleComputer.mayConnect = demand.placedKinds.contains(kind)
+                isNeeded ? environment.noodleComputer.start() : environment.noodleComputer.stop()
             }
         }
     }

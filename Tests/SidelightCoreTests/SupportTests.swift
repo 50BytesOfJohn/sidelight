@@ -133,6 +133,27 @@ struct ProcessRunnerTests {
         #expect(await ProcessRunner.output(of: URL(filePath: "/usr/bin/false"), arguments: []) == nil)
         #expect(await ProcessRunner.output(of: URL(filePath: "/nonexistent/tool"), arguments: []) == nil)
     }
+
+    @Test func `returns what a tool printed and how it exited`() async throws {
+        let result = try #require(
+            await ProcessRunner.result(
+                of: URL(filePath: "/bin/sh"), arguments: ["-c", "printf out; printf err >&2; exit 3"]))
+        #expect(result.status == 3)
+        #expect(result.output == Data("out".utf8))
+        #expect(result.error == Data("err".utf8))
+        #expect(await ProcessRunner.result(of: URL(filePath: "/nonexistent/tool"), arguments: []) == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func `cancelling the task ends the tool`() async {
+        let start = ContinuousClock.now
+        let task = Task { await ProcessRunner.result(of: URL(filePath: "/bin/sleep"), arguments: ["30"]) }
+        try? await Task.sleep(for: .milliseconds(200))
+        task.cancel()
+        let result = await task.value
+        #expect(ContinuousClock.now - start < .seconds(10))
+        #expect(result == nil || result?.status != 0)
+    }
 }
 
 struct FileWatcherTests {

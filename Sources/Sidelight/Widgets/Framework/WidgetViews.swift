@@ -17,6 +17,7 @@ struct WidgetContent: View {
         case .nowPlaying: NowPlayingWidgetView(layout: layout)
         case .claudeSessions(let settings): ClaudeSessionsWidgetView(settings: settings, layout: layout)
         case .system(let settings): SystemWidgetView(settings: settings, layout: layout)
+        case .noodleComputer(let settings): NoodleComputerWidgetView(settings: settings, layout: layout)
         }
     }
 }
@@ -37,6 +38,8 @@ struct WidgetSettingsEditor: View {
         case .system(let settings): SystemSettingsEditor(settings: binding(settings, WidgetSettings.system))
         case .claudeSessions(let settings):
             ClaudeSessionsSettingsEditor(settings: binding(settings, WidgetSettings.claudeSessions))
+        case .noodleComputer(let settings):
+            NoodleComputerSettingsEditor(settings: binding(settings, WidgetSettings.noodleComputer))
         case .nowPlaying: Text("No options.").foregroundStyle(.secondary)
         }
     }
