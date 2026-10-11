@@ -27,6 +27,11 @@ Sidelight runs with privileges worth protecting, so these areas matter most:
   iTerm2 or Ghostty to select the session's tab.
 - **External tools.** Sidelight launches `codex` and `media-control` from your `PATH` and parses their
   output, and reads Codex session files in `~/.codex/sessions`.
+- **Codex's local files and processes.** The Codex sessions widget reads Codex's thread index
+  (`~/.codex/state_<N>.sqlite`, read-only) and the session files in `~/.codex/sessions`, and lists the files
+  `codex` processes have open under `~/.codex/thread-writer-locks` and the processes they started, to tell which
+  sessions are open and whether an approved command is running. When you click a session, it opens the Codex
+  desktop app through a `codex://` link, or brings the session's terminal forward as for Claude Code.
 - **Configuration.** It reads and live-reloads `~/Library/Application Support/Sidelight/config.json`.
 - **Updates.** Sparkle downloads the GitHub release feed and validates update archives with an EdDSA signature
   and the app's Apple code signature. Signing secrets are held in a tag-restricted GitHub environment.

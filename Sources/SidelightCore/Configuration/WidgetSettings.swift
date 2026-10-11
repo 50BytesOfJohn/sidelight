@@ -12,6 +12,8 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case nowPlaying
     /// Running and recently finished Claude Code sessions.
     case claudeSessions
+    /// Running and recently finished Codex sessions, with the plan and context of the most urgent. Built from blocks.
+    case codexSessions
     case system
     /// Computers in Noodle Computer and whether they're running.
     case noodleComputer
@@ -461,6 +463,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case calendar(CalendarSettings)
     case nowPlaying
     case claudeSessions(ClaudeSessionsSettings)
+    case codexSessions(CodexSessionsSettings)
     case system(SystemStatsSettings)
     case noodleComputer(NoodleComputerSettings)
     case railway(RailwaySettings)
@@ -475,6 +478,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .calendar: .calendar
         case .nowPlaying: .nowPlaying
         case .claudeSessions: .claudeSessions
+        case .codexSessions: .codexSessions
         case .system: .system
         case .noodleComputer: .noodleComputer
         case .railway: .railway
@@ -491,6 +495,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .calendar: .calendar(CalendarSettings())
         case .nowPlaying: .nowPlaying
         case .claudeSessions: .claudeSessions(ClaudeSessionsSettings())
+        case .codexSessions: .codexSessions(CodexSessionsSettings())
         case .system: .system(SystemStatsSettings())
         case .noodleComputer: .noodleComputer(NoodleComputerSettings())
         case .railway: .railway(RailwaySettings())

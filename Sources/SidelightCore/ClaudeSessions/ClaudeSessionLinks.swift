@@ -16,7 +16,7 @@ public enum ClaudeSessionLinks {
         return "cd \(shellQuoted(cwd)) && \(resume)"
     }
 
-    private static func shellQuoted(_ text: String) -> String {
+    static func shellQuoted(_ text: String) -> String {
         guard text.contains(where: { !($0.isASCII && ($0.isLetter || $0.isNumber || "-_./".contains($0))) }) else {
             return text
         }

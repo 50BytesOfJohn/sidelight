@@ -30,6 +30,7 @@ final class AppController {
             cursor: CursorService(),
             nowPlaying: NowPlayingService(),
             claudeSessions: ClaudeSessionsService(),
+            codexSessions: CodexSessionsService(),
             systemStats: SystemStatsService(),
             noodleComputer: NoodleComputerService(),
             railway: RailwayService(),
@@ -78,6 +79,7 @@ final class AppController {
         environment.cursor.stop()
         environment.nowPlaying.stop()
         environment.claudeSessions.stop()
+        environment.codexSessions.stop()
         environment.calendar.stop()
         environment.systemStats.stop()
         environment.noodleComputer.stop()
@@ -170,6 +172,7 @@ final class AppController {
             case .calendar: isNeeded ? environment.calendar.start() : environment.calendar.stop()
             case .nowPlaying: isNeeded ? environment.nowPlaying.start() : environment.nowPlaying.stop()
             case .claudeSessions: isNeeded ? environment.claudeSessions.start() : environment.claudeSessions.stop()
+            case .codexSessions: isNeeded ? environment.codexSessions.start() : environment.codexSessions.stop()
             case .system: isNeeded ? environment.systemStats.start() : environment.systemStats.stop()
             case .noodleComputer:
                 environment.noodleComputer.mayConnect = demand.placedKinds.contains(kind)

@@ -75,7 +75,7 @@ extension WidgetSettings {
     /// Whether this widget is built from blocks and has a builder.
     var hasBuilder: Bool {
         switch self {
-        case .railway: true
+        case .railway, .codexSessions: true
         case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system,
             .noodleComputer:
             false
@@ -101,6 +101,15 @@ struct WidgetBuilderWindow: View {
                     embed: WidgetSettings.railway
                 )
                 // A new selection for each widget: a block selected in another doesn't exist in this one.
+                .id(id)
+            case .codexSessions(let settings):
+                BlockBuilderView(
+                    kind: widget.kind,
+                    settings: binding(id, current: settings, embed: WidgetSettings.codexSessions) {
+                        if case .codexSessions(let settings) = $0 { settings } else { nil }
+                    },
+                    embed: WidgetSettings.codexSessions
+                )
                 .id(id)
             case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system,
                 .noodleComputer:

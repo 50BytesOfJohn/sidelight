@@ -152,7 +152,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 providers.formUnion(settings.providers)
                 claudeMinutes += [settings.claudeRefreshMinutesIfOptedIn].compactMap(\.self)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
-            case .clock, .calendar, .nowPlaying, .claudeSessions, .system, .noodleComputer, .railway:
+            case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway:
                 break
             }
         }
