@@ -7,6 +7,8 @@ struct WidgetMetadata {
     let systemImage: String
     let tint: Color
     let summary: String
+    /// The service's logo in `ProviderLogos.xcassets`, drawn in place of ``systemImage``.
+    var logo: String?
     /// Built on something new or undocumented that may still change under it. The gallery and inspector say so.
     var isBeta = false
 }
@@ -37,6 +39,7 @@ extension WidgetKind {
         case .claudeSessions: .claudeSessions
         case .system: .system
         case .noodleComputer: .noodleComputer
+        case .railway: .railway
         }
     }
 }
@@ -54,6 +57,7 @@ extension WidgetSettings {
         case .claudeSessions(let settings): settings.summary
         case .system(let settings): settings.summary
         case .noodleComputer(let settings): settings.summary
+        case .railway(let settings): settings.summary
         case .nowPlaying: kind.metadata.summary
         }
     }

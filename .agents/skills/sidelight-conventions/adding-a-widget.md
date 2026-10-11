@@ -13,6 +13,11 @@
      `Widgets/Framework/WidgetStyle.swift`; the inspector's picker and browser come for free. If the widget
      shows the time, draw `@Environment(\.frozenDate)` when it's set so catalog previews don't tick. Widgets
      with one look skip all of this.
+   - Widgets with many pieces (several sources, lists, totals) are built from blocks instead of piling up
+     options: a `WidgetBlockKind` enum and a `BlockLayout` in their settings (see `RailwaySettings`), and a
+     `BlockBuiltWidget` conformance with each block's options, presets and any blocks that can be added more
+     than once. The builder window (`Builder/BlockBuilder.swift`) comes for free; add the kind to
+     `WidgetSettings.hasBuilder` and `WidgetBuilderWindow`. Fetch only what the shown blocks need.
 3. Add the case to the switches in `Widgets/Framework/WidgetViews.swift` and `WidgetMetadata.swift`.
 4. If it has a service: create it in `AppController`, add it to `AppEnvironment`, and start/stop it in
    `AppController.runServices(for:)`.

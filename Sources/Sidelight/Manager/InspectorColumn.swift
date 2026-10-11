@@ -322,6 +322,7 @@ extension Text {
 private struct WidgetInspector: View {
     @Binding var widget: WidgetInstance
     let onRemove: () -> Void
+    @Environment(WindowCoordinator.self) private var windows
 
     var body: some View {
         let metadata = widget.kind.metadata
@@ -347,6 +348,23 @@ private struct WidgetInspector: View {
             if !widget.kind.styles.isEmpty {
                 InspectorSection("Style") {
                     StylePicker(settings: $widget.settings)
+                }
+            }
+
+            if widget.settings.hasBuilder {
+                InspectorSection("Blocks") {
+                    Text(
+                        "This widget is built from blocks. Arrange them, choose what each shows, and see it at "
+                            + "every size in its builder."
+                    )
+                    .inspectorFootnote()
+                    Button {
+                        windows.showBuilder(for: widget.id, title: "\(metadata.title) Builder")
+                    } label: {
+                        Label("Open Builder", systemImage: "square.stack.3d.up").frame(maxWidth: .infinity)
+                    }
+                    .controlSize(.large)
+                    .buttonStyle(.borderedProminent)
                 }
             }
 
@@ -382,7 +400,7 @@ private struct WidgetInspector: View {
     }
 }
 
-private struct InspectorSection<Content: View>: View {
+struct InspectorSection<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
 

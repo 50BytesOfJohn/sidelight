@@ -33,7 +33,8 @@ extension WidgetKind {
     var styles: [WidgetStyle] {
         switch self {
         case .clock: ClockStyle.allCases.map(\.widgetStyle)
-        case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system, .noodleComputer:
+        case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system, .noodleComputer,
+            .railway:
             []
         }
     }
@@ -47,7 +48,7 @@ extension WidgetSettings {
             switch self {
             case .clock(let settings): settings.style.rawValue
             case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system,
-                .noodleComputer:
+                .noodleComputer, .railway:
                 nil
             }
         }
@@ -58,7 +59,7 @@ extension WidgetSettings {
                 settings.style = style
                 self = .clock(settings)
             case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system,
-                .noodleComputer:
+                .noodleComputer, .railway:
                 break
             }
         }

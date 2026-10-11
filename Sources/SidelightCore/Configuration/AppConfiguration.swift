@@ -58,11 +58,14 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         guard !previewsEveryWidget else {
             var usage = UsageServiceDemand(widgets: widgets)
             usage.providers = Set(AIUsageProvider.allCases)
-            return ServiceDemand(kinds: Set(WidgetKind.allCases), placedKinds: placed, usage: usage)
+            return ServiceDemand(
+                kinds: Set(WidgetKind.allCases), placedKinds: placed, usage: usage,
+                railway: ServiceDemand.railwayNeeds(of: widgets))
         }
         let visible = visibleWidgets(at: positions)
         return ServiceDemand(
-            kinds: Set(visible.map(\.kind)), placedKinds: placed, usage: UsageServiceDemand(widgets: visible))
+            kinds: Set(visible.map(\.kind)), placedKinds: placed, usage: UsageServiceDemand(widgets: visible),
+            railway: ServiceDemand.railwayNeeds(of: visible))
     }
 }
 
@@ -88,11 +91,29 @@ public struct ServiceDemand: Equatable, Sendable {
     /// Widgets window previews every kind.
     public var placedKinds: Set<WidgetKind>
     public var usage: UsageServiceDemand
+    /// What Railway widgets need fetched, by whose sign-in they use. Only widgets in the configuration count, even
+    /// while the Widgets window previews every kind: Sidelight doesn't read the Railway CLI's sign-in until a
+    /// Railway widget is added.
+    public var railway: [RailwayAccountChoice: RailwayNeeds]
 
-    public init(kinds: Set<WidgetKind>, placedKinds: Set<WidgetKind>? = nil, usage: UsageServiceDemand) {
+    public init(
+        kinds: Set<WidgetKind>, placedKinds: Set<WidgetKind>? = nil, usage: UsageServiceDemand,
+        railway: [RailwayAccountChoice: RailwayNeeds] = [:]
+    ) {
         self.kinds = kinds
         self.placedKinds = placedKinds ?? kinds
         self.usage = usage
+        self.railway = railway
+    }
+
+    /// The needs of the Railway widgets among `widgets`, merged per sign-in.
+    public static func railwayNeeds(of widgets: some Sequence<WidgetInstance>) -> [RailwayAccountChoice: RailwayNeeds] {
+        var needs: [RailwayAccountChoice: RailwayNeeds] = [:]
+        for widget in widgets {
+            guard case .railway(let settings) = widget.settings else { continue }
+            needs[settings.account] = needs[settings.account].map { $0.merged(with: settings.needs) } ?? settings.needs
+        }
+        return needs
     }
 }
 
@@ -131,7 +152,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 providers.formUnion(settings.providers)
                 claudeMinutes += [settings.claudeRefreshMinutesIfOptedIn].compactMap(\.self)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
-            case .clock, .calendar, .nowPlaying, .claudeSessions, .system, .noodleComputer:
+            case .clock, .calendar, .nowPlaying, .claudeSessions, .system, .noodleComputer, .railway:
                 break
             }
         }

@@ -72,8 +72,7 @@ struct WidgetCard: View {
     private func header(fontSize: CGFloat) -> some View {
         if appearance.cards.showsTitles {
             HStack(spacing: 5) {
-                Image(systemName: metadata.systemImage)
-                    .font(.system(size: fontSize, weight: .semibold))
+                WidgetIcon(metadata: metadata, size: fontSize)
                 Text(metadata.title.uppercased())
                     .font(.system(size: fontSize, weight: .semibold))
                     .tracking(0.9)

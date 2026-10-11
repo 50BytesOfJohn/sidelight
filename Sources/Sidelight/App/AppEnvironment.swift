@@ -13,6 +13,7 @@ struct AppEnvironment {
     let claudeSessions: ClaudeSessionsService
     let systemStats: SystemStatsService
     let noodleComputer: NoodleComputerService
+    let railway: RailwayService
     let hotkeys: HotkeyCenter
     let windowAvoider: WindowAvoider
     let loginItem: LoginItem
@@ -33,6 +34,7 @@ extension View {
             .environment(app.claudeSessions)
             .environment(app.systemStats)
             .environment(app.noodleComputer)
+            .environment(app.railway)
             .environment(app.hotkeys)
             .environment(app.windowAvoider)
             .environment(app.loginItem)
