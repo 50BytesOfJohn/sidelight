@@ -17,13 +17,14 @@ public struct CodexThreadRow: Hashable, Sendable {
     public var gitBranch: String?
     public var model: String?
     public var reasoningEffort: String?
-    public var createdAt: Date
+    /// `nil` where this version of Codex doesn't record it.
+    public var createdAt: Date?
     public var updatedAt: Date
 
     public init(
         id: String, rolloutPath: String, cwd: String? = nil, name: String? = nil, title: String? = nil,
         source: String = "cli", originator: String? = nil, gitBranch: String? = nil, model: String? = nil,
-        reasoningEffort: String? = nil, createdAt: Date, updatedAt: Date
+        reasoningEffort: String? = nil, createdAt: Date? = nil, updatedAt: Date
     ) {
         self.id = id
         self.rolloutPath = rolloutPath
@@ -83,9 +84,12 @@ public enum CodexThreadIndex {
         return newest.map { codexDirectory.appending(path: $0.1) }
     }
 
-    /// Threads not archived that changed since `date`, newest first, at most `limit`; `nil` when the database
-    /// can't be read.
-    public static func threads(updatedSince date: Date, limit: Int = 200, in database: URL) -> [CodexThreadRow]? {
+    /// Threads not archived that changed since `date`, and those in `included` however long ago they changed (the
+    /// ones a Codex process has open), at most `limit`; `nil` when the database can't be read. The included ones
+    /// come first, so the limit never leaves them out, then the rest newest first.
+    public static func threads(
+        updatedSince date: Date, including included: Set<String> = [], limit: Int = 500, in database: URL
+    ) -> [CodexThreadRow]? {
         var connection: OpaquePointer?
         defer { sqlite3_close(connection) }
         guard
@@ -103,15 +107,32 @@ public enum CodexThreadIndex {
         // Milliseconds where this version has them (indexed, and filled in by a trigger), seconds otherwise.
         let updated = available.contains("updated_at_ms") ? "updated_at_ms" : "updated_at * 1000"
         let archived = available.contains("archived") ? "archived = 0 AND" : ""
-        let sql = """
+        let included = Array(included)
+        let placeholders = included.indices.map { "?\($0 + 3)" }.joined(separator: ", ")
+        let isIncluded = "id IN (\(placeholders))"
+        let sql =
+            included.isEmpty
+            ? """
             SELECT \(selected.joined(separator: ", ")) FROM threads
             WHERE \(archived) \(updated) >= ?1 ORDER BY \(updated) DESC LIMIT ?2
+            """
+            : """
+            SELECT \(selected.joined(separator: ", ")) FROM threads
+            WHERE \(archived) (\(updated) >= ?1 OR \(isIncluded))
+            ORDER BY \(isIncluded) DESC, \(updated) DESC LIMIT ?2
             """
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         guard sqlite3_prepare_v2(connection, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
         sqlite3_bind_int64(statement, 1, Int64(date.timeIntervalSince1970 * 1000))
         sqlite3_bind_int64(statement, 2, Int64(limit))
+        for (position, id) in included.enumerated() {
+            _ = id.withCString { text in
+                // SQLite copies the text (`SQLITE_TRANSIENT`), so it may outlive this closure.
+                sqlite3_bind_text(
+                    statement, Int32(position + 3), text, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            }
+        }
 
         let index = Dictionary(uniqueKeysWithValues: selected.enumerated().map { ($1, Int32($0)) })
         func text(_ column: String) -> String? {
@@ -135,7 +156,7 @@ public enum CodexThreadIndex {
                     id: id, rolloutPath: rolloutPath, cwd: text("cwd"), name: text("name"), title: text("title"),
                     source: text("source") ?? "", originator: text("originator"), gitBranch: text("git_branch"),
                     model: text("model"), reasoningEffort: text("reasoning_effort"),
-                    createdAt: Date(timeIntervalSince1970: Double(integer("created_at") ?? 0)),
+                    createdAt: integer("created_at").map { Date(timeIntervalSince1970: Double($0)) },
                     updatedAt: Date(timeIntervalSince1970: updatedAt)
                 ))
         }

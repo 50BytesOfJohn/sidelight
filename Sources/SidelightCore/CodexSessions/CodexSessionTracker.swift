@@ -140,11 +140,12 @@ public enum CodexSessionTracker {
     static let causalSlack: TimeInterval = 2
 
     /// `threads` are what the index lists, subagents included; `holders` the process with each thread open;
-    /// `logs` what each rollout file says, by thread ID. Most urgent first, then newest first. Subagents aren't
-    /// listed: they show on the session that started them.
+    /// `logs` what each rollout file says, by thread ID; `arguments` reads a process's arguments, to tell which
+    /// command a shell runs. Most urgent first, then newest first. Subagents aren't listed: they show on the session
+    /// that started them.
     public static func sessions(
         threads: [CodexThreadRow], holders: [String: Int32], logs: [String: CodexRolloutState],
-        processes: [ProcessEntry]
+        processes: [ProcessEntry], arguments: (Int32) -> [String]? = ProcessTable.arguments(of:)
     ) -> [CodexSession] {
         let subagents = threads.filter(\.isSubagent)
         return threads.filter { !$0.isSubagent }.map { thread in
@@ -159,7 +160,7 @@ public enum CodexSessionTracker {
                 subagents: subagents.filter { $0.parentThreadID == thread.id }.filter {
                     holders[$0.id] != nil && logs[$0.id]?.turn.isRunning == true
                 },
-                processes: processes
+                processes: processes, arguments: arguments
             )
         }
         .sorted(by: isOrderedBefore)
@@ -167,9 +168,10 @@ public enum CodexSessionTracker {
 
     static func session(
         for thread: CodexThreadRow, pid: Int32?, log: CodexRolloutState, reviewers: [CodexRolloutState],
-        subagents: [CodexThreadRow], processes: [ProcessEntry]
+        subagents: [CodexThreadRow], processes: [ProcessEntry], arguments: (Int32) -> [String]?
     ) -> CodexSession {
-        let (activity, since) = activity(of: thread, pid: pid, log: log, reviewers: reviewers, processes: processes)
+        let (activity, since) = activity(
+            of: thread, pid: pid, log: log, reviewers: reviewers, processes: processes, arguments: arguments)
         return CodexSession(
             id: thread.id,
             title: title(of: thread),
@@ -193,7 +195,7 @@ public enum CodexSessionTracker {
 
     private static func activity(
         of thread: CodexThreadRow, pid: Int32?, log: CodexRolloutState, reviewers: [CodexRolloutState],
-        processes: [ProcessEntry]
+        processes: [ProcessEntry], arguments: (Int32) -> [String]?
     ) -> (CodexSession.Activity, Date) {
         guard let pid else { return (.closed, thread.updatedAt) }
         switch log.turn {
@@ -203,18 +205,22 @@ public enum CodexSessionTracker {
             switch pending.kind {
             case .question:
                 return (.needsInput, pending.calledAt)
-            case .escalation(let justification):
-                if reviewers.contains(where: { $0.turn.map { $0.changed(after: calledAt) } ?? false }) {
+            case .escalation(let justification, let command):
+                // Only while the review runs: once it's decided, the command starts or the call gets its output.
+                if reviewers.contains(where: { $0.turn.runningSince.map { $0 >= calledAt } ?? false }) {
                     return (.working(reviewing: true), since)
                 }
-                let started = processes.descendants(of: pid).contains {
-                    shellNames.contains($0.name) && $0.startedAt >= calledAt
+                let started = processes.descendants(of: pid).contains { process in
+                    guard shellNames.contains(process.name), process.startedAt >= calledAt else { return false }
+                    // Codex runs it as `zsh -c <command>`. Another command's shell doesn't mean this one was approved.
+                    guard let command, let arguments = arguments(process.pid) else { return true }
+                    return arguments.dropFirst().contains { $0.contains(command) }
                 }
                 return started ? (.working(reviewing: false), since) : (.needsApproval(justification), pending.calledAt)
             }
         case .completed(let at): return (.finished, at)
         case .aborted(let at): return (.stopped, at)
-        case nil: return (.idle, thread.createdAt > .distantPast ? thread.createdAt : thread.updatedAt)
+        case nil: return (.idle, thread.createdAt ?? thread.updatedAt)
         }
     }
 
@@ -248,17 +254,12 @@ public enum CodexSessionTracker {
     }
 }
 
-extension CodexRolloutState.Turn {
-    /// Whether the turn started, or ended, after `date`.
-    func changed(after date: Date) -> Bool {
-        switch self {
-        case .running(let since): since >= date
-        case .completed(let at), .aborted(let at): at >= date
-        }
-    }
-}
-
 extension CodexRolloutState.Turn? {
+    /// When the turn started, while it runs.
+    var runningSince: Date? {
+        if case .running(let since) = self { since } else { nil }
+    }
+
     var isRunning: Bool {
         if case .running = self { true } else { false }
     }

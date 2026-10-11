@@ -38,15 +38,16 @@ public enum ProcessTable {
         return "/dev/" + String(cString: name)
     }
 
-    /// Every process running now, in one read of the kernel's table.
-    public static func snapshot() -> [ProcessEntry] {
+    /// Every process running now, in one read of the kernel's table; `nil` when the table can't be read, which
+    /// isn't the same as no processes.
+    public static func snapshot() -> [ProcessEntry]? {
         var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
         var size = 0
-        guard sysctl(&name, 3, nil, &size, nil, 0) == 0, size > 0 else { return [] }
+        guard sysctl(&name, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
         // Room for processes that start between the two reads.
         size += size / 8
         var infos = [kinfo_proc](repeating: kinfo_proc(), count: size / MemoryLayout<kinfo_proc>.stride)
-        guard sysctl(&name, 3, &infos, &size, nil, 0) == 0 else { return [] }
+        guard sysctl(&name, 3, &infos, &size, nil, 0) == 0 else { return nil }
         return infos.prefix(size / MemoryLayout<kinfo_proc>.stride).map { info in
             let start = info.kp_proc.p_un.__p_starttime
             let command = withUnsafeBytes(of: info.kp_proc.p_comm) { bytes in
@@ -88,6 +89,23 @@ public enum ProcessTable {
             if path.hasPrefix(prefix) { paths.append(path) }
         }
         return paths
+    }
+
+    /// The arguments `pid` was started with, its executable's name first; `nil` when they can't be read, as for
+    /// other users' processes.
+    public static func arguments(of pid: Int32) -> [String]? {
+        guard pid > 0 else { return nil }
+        var name: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&name, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return nil }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&name, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return nil }
+        // The argument count, the executable's path, padding, then each argument; all strings end in a zero byte.
+        let count = buffer.withUnsafeBytes { Int($0.loadUnaligned(as: Int32.self)) }
+        var strings = buffer[MemoryLayout<Int32>.size..<size].split(separator: 0, omittingEmptySubsequences: true)
+        guard !strings.isEmpty else { return nil }
+        strings.removeFirst()
+        return strings.prefix(count).map { String(decoding: $0, as: UTF8.self) }
     }
 
     /// `path` with symbolic links resolved, keeping a trailing slash; unchanged when it doesn't exist.

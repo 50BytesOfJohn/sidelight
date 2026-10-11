@@ -20,8 +20,8 @@ public struct CodexRolloutState: Equatable, Sendable {
     public struct PendingCall: Equatable, Sendable {
         public enum Kind: Equatable, Sendable {
             /// A command that asks to run outside the sandbox, which needs an approval unless the approval policy
-            /// or Codex's reviewer allows it.
-            case escalation(justification: String?)
+            /// or Codex's reviewer allows it. `command` is the shell command, when the call says it plainly.
+            case escalation(justification: String?, command: String?)
             /// A question for the user.
             case question
         }
@@ -38,6 +38,8 @@ public struct CodexRolloutState: Equatable, Sendable {
     /// From the file's first line.
     public var meta: CodexSessionMeta?
     public var turn: Turn?
+    /// ``turn`` is a guess from activity seen without the turn's start, which came before what was read.
+    var turnIsInferred = false
     /// Calls that may wait for the user, by call ID, in the current turn.
     public var pendingCalls: [String: PendingCall] = [:]
     /// The plan's steps as last updated, and whether that was in the current (or last) turn.
@@ -120,8 +122,9 @@ public struct CodexContextUsage: Hashable, Sendable {
 /// what was added since.
 public struct CodexRolloutFollower: Sendable {
     /// How much of the end of the file the first read takes. A turn's start is usually in it; when it isn't, the
-    /// turn still reads as running.
+    /// last turn event is looked for further back, up to ``turnRecoveryLimit``.
     public static let initialTailSize = 512 * 1024
+    static let turnRecoveryLimit: UInt64 = 8 * 1024 * 1024
     /// The first line, with the session's details, is read once, up to this much.
     static let headSize = 128 * 1024
 
@@ -130,6 +133,8 @@ public struct CodexRolloutFollower: Sendable {
     private var fileNumber: UInt64?
     private var partialLine = Data()
     private var hasReadHead = false
+    /// How many bytes the last read took from the file, for tests.
+    private(set) var lastReadByteCount = 0
 
     public init() {}
 
@@ -153,6 +158,7 @@ public struct CodexRolloutFollower: Sendable {
                 state.meta = CodexRolloutReducer.meta(in: Data(firstLine))
             }
         }
+        lastReadByteCount = 0
         guard size > offset else { return }
         var start = offset
         var skipsFirstLine = false
@@ -163,10 +169,47 @@ public struct CodexRolloutFollower: Sendable {
         try? handle.seek(toOffset: start)
         guard var data = try? handle.read(upToCount: Int(size - start)) else { return }
         offset = start + UInt64(data.count)
+        lastReadByteCount = data.count
+        var cutLine = Data()
         if skipsFirstLine, let newline = data.firstIndex(of: 0x0A) {
+            cutLine = Data(data[..<newline])
             data = data[data.index(after: newline)...]
         }
         consume(Data(data))
+        if skipsFirstLine, state.turn == nil || state.turnIsInferred,
+            let event = Self.lastTurnEvent(in: handle, before: start, endingWith: cutLine)
+        {
+            var recovered = CodexRolloutState()
+            CodexRolloutReducer.apply(event, to: &recovered)
+            // A turn still running since before the tail; a finished one only when the tail says nothing.
+            if case .running = recovered.turn {
+                state.turn = recovered.turn
+                state.turnIsInferred = false
+            } else if state.turn == nil {
+                state.turn = recovered.turn
+            }
+        }
+    }
+
+    /// The last turn start or end before `end`, reading back a chunk at a time up to ``turnRecoveryLimit``.
+    /// `cutLine` is the start of the line that runs past `end`.
+    private static func lastTurnEvent(in handle: FileHandle, before end: UInt64, endingWith cutLine: Data) -> Data? {
+        let lowest = end > turnRecoveryLimit ? end - turnRecoveryLimit : 0
+        let chunkSize = UInt64(initialTailSize)
+        var chunkEnd = end
+        // The start of a line whose rest came after the chunk read last.
+        var carried = cutLine
+        while chunkEnd > lowest {
+            let chunkStart = max(lowest, chunkEnd > chunkSize ? chunkEnd - chunkSize : 0)
+            try? handle.seek(toOffset: chunkStart)
+            guard var data = try? handle.read(upToCount: Int(chunkEnd - chunkStart)) else { return nil }
+            data.append(carried)
+            var lines = data.split(separator: 0x0A, omittingEmptySubsequences: false)
+            if chunkStart > 0, !lines.isEmpty { carried = Data(lines.removeFirst()) }
+            if let event = lines.last(where: CodexRolloutReducer.isTurnEvent) { return Data(event) }
+            chunkEnd = chunkStart
+        }
+        return nil
     }
 
     /// Takes appended bytes; a line without its newline yet waits for the next read.
@@ -209,6 +252,12 @@ enum CodexRolloutReducer {
     /// in are inside its content.
     private static let headerLength = 320
 
+    /// Whether the line starts or ends a turn.
+    static func isTurnEvent(_ line: Data) -> Bool {
+        let header = line.prefix(headerLength)
+        return markers.prefix(3).contains { header.firstRange(of: $0.0) != nil }
+    }
+
     static func apply(_ line: Data, to state: inout CodexRolloutState) {
         let header = line.prefix(headerLength)
         guard let kind = markers.first(where: { header.firstRange(of: $0.0) != nil })?.1 else { return }
@@ -225,16 +274,19 @@ enum CodexRolloutReducer {
         switch kind {
         case .turnStarted:
             state.turn = .running(since: date)
+            state.turnIsInferred = false
             state.pendingCalls = [:]
             state.changedFiles = []
             state.planIsCurrent = false
         case .turnCompleted:
             state.turn = .completed(at: date)
+            state.turnIsInferred = false
             state.pendingCalls = [:]
             if let message = payload.lastAgentMessage.flatMap(oneLine) { state.lastMessage = message }
             state.lastTurnDuration = payload.durationMilliseconds.map { Double($0) / 1000 }
         case .turnAborted:
             state.turn = .aborted(at: date)
+            state.turnIsInferred = false
             state.pendingCalls = [:]
         case .tokenCount:
             if let context = payload.context { state.context = context }
@@ -243,7 +295,10 @@ enum CodexRolloutReducer {
                 state.rateLimitsCapturedAt = date
             }
         case .call:
-            if state.turn == nil { state.turn = .running(since: date) }
+            if state.turn == nil {
+                state.turn = .running(since: date)
+                state.turnIsInferred = true
+            }
             guard let callID = payload.callID else { return }
             let text = payload.callText ?? ""
             if let steps = planSteps(in: text, name: payload.name), !steps.isEmpty {
@@ -278,7 +333,9 @@ enum CodexRolloutReducer {
             text.contains("require_escalated") || text.contains(#"with_escalated_permissions":true"#)
                 || text.contains("with_escalated_permissions:true")
         else { return nil }
-        return .escalation(justification: stringValue(of: "justification", in: text).flatMap(oneLine))
+        return .escalation(
+            justification: stringValue(of: "justification", in: text).flatMap(oneLine),
+            command: stringValue(of: "cmd", in: text))
     }
 
     /// The steps of an `update_plan` call: JSON arguments, or the `plan` passed to it in a code-mode script, which

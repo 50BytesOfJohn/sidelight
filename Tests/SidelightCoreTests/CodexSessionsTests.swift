@@ -94,7 +94,7 @@ struct CodexRolloutFollowerTests {
             Rollout.started("11:00:01.000"), Rollout.codeCall("11:00:05.000", id: "call_1", script: script),
         ])
         let pending = try #require(waiting.firstPendingCall)
-        #expect(pending.kind == .escalation(justification: "May I launch the app?"))
+        #expect(pending.kind == .escalation(justification: "May I launch the app?", command: "make dev"))
         #expect(pending.calledAt == Rollout.date("11:00:05.000"))
 
         let answered = Rollout.state([
@@ -114,7 +114,7 @@ struct CodexRolloutFollowerTests {
             Rollout.functionCall("11:00:03.000", id: "b", name: "request_user_input", arguments: #"{"questions":[]}"#),
             Rollout.functionCall("11:00:04.000", id: "c", name: "exec_command", arguments: #"{"cmd":"ls"}"#),
         ])
-        #expect(state.pendingCalls["a"]?.kind == .escalation(justification: "Push the tag"))
+        #expect(state.pendingCalls["a"]?.kind == .escalation(justification: "Push the tag", command: "git push"))
         #expect(state.pendingCalls["b"]?.kind == .question)
         #expect(state.pendingCalls["c"] == nil)
     }
@@ -234,13 +234,41 @@ struct CodexRolloutFollowerTests {
         follower.read(file)
         #expect(follower.state.meta?.originator == "codex-tui")
         #expect(follower.state.turn == .completed(at: Rollout.date("11:00:30.000")))
+        #expect(follower.lastReadByteCount == CodexRolloutFollower.initialTailSize)
 
+        follower.read(file)
+        #expect(follower.lastReadByteCount == 0)
+
+        let appended = Data((Rollout.started("11:01:00.000") + "\n").utf8)
         let handle = try FileHandle(forWritingTo: file)
         try handle.seekToEnd()
-        try handle.write(contentsOf: Data((Rollout.started("11:01:00.000") + "\n").utf8))
+        try handle.write(contentsOf: appended)
         try handle.close()
         follower.read(file)
+        #expect(follower.lastReadByteCount == appended.count)
         #expect(follower.state.turn == .running(since: Rollout.date("11:01:00.000")))
+    }
+
+    @Test func `a turn that started before the tail still reads as running since its start`() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let filler = Rollout.agentMessage("11:00:02.000", String(repeating: "x", count: 1000))
+        let fillers = Array(repeating: filler, count: CodexRolloutFollower.initialTailSize / 1000 + 300)
+
+        // Nothing in the tail but messages, then a tool call that alone would only guess the turn's start.
+        for tail in [[], [Rollout.functionCall("11:05:00.000", id: "c", name: "exec_command", arguments: "{}")]] {
+            let file = folder.appending(path: "rollout-\(tail.count).jsonl")
+            let lines =
+                [
+                    Rollout.meta, Rollout.started("11:00:00.000"), Rollout.completed("11:00:01.000"),
+                    Rollout.started("11:00:02.000"),
+                ] + fillers + tail
+            try Data(lines.map { $0 + "\n" }.joined().utf8).write(to: file)
+            var follower = CodexRolloutFollower()
+            follower.read(file)
+            #expect(follower.state.turn == .running(since: Rollout.date("11:00:02.000")))
+        }
     }
 }
 
@@ -299,10 +327,43 @@ struct CodexSessionTrackerTests {
         ]
         let session = CodexSessionTracker.sessions(
             threads: [Self.thread("t1")], holders: ["t1": 100], logs: ["t1": Self.waitingLog()],
-            processes: processes
+            processes: processes, arguments: { _ in ["/bin/zsh", "-c", "make"] }
         ).first
         #expect(session?.activity == .working(reviewing: false))
         #expect(session?.since == Rollout.date("11:58:00.000"))
+    }
+
+    @Test func `another command's shell doesn't mean the escalation was approved`() {
+        let processes = [
+            Self.process(100, parent: 1, name: "codex", started: "10:00:00.000"),
+            Self.process(103, parent: 100, name: "zsh", started: "11:59:20.000"),
+        ]
+        let session = CodexSessionTracker.sessions(
+            threads: [Self.thread("t1")], holders: ["t1": 100], logs: ["t1": Self.waitingLog()],
+            processes: processes, arguments: { _ in ["/bin/zsh", "-c", "git status"] }
+        ).first
+        #expect(session?.activity == .needsApproval("Build it"))
+    }
+
+    @Test func `a review that has finished no longer counts as reviewing`() {
+        var reviewer = Rollout.state([Rollout.started("11:59:01.000"), Rollout.completed("11:59:03.000")])
+        reviewer.meta = CodexSessionMeta(parentThreadID: "t1", isApprovalReviewer: true)
+        let threads = [Self.thread("t1"), Self.thread("g1", source: #"{"subagent":{"other":"guardian"}}"#)]
+        let session = CodexSessionTracker.sessions(
+            threads: threads, holders: ["t1": 100, "g1": 100], logs: ["t1": Self.waitingLog(), "g1": reviewer],
+            processes: []
+        ).first
+        #expect(session?.activity == .needsApproval("Build it"))
+    }
+
+    @Test func `an idle session without a creation date dates from its last change`() {
+        var thread = Self.thread("t1")
+        thread.createdAt = nil
+        let session = CodexSessionTracker.sessions(
+            threads: [thread], holders: ["t1": 100], logs: [:], processes: []
+        ).first
+        #expect(session?.activity == .idle)
+        #expect(session?.since == thread.updatedAt)
     }
 
     @Test func `an escalation Codex's reviewer is looking at is working, not waiting`() {
@@ -418,6 +479,8 @@ struct CodexThreadIndexTests {
             NULL, 20000, NULL, NULL);
             INSERT INTO threads VALUES ('gone', '/r/gone.jsonl', 1000, 2000, 'cli', '/code/app', 'Archived', 1,
             NULL, NULL, NULL, 2000000, NULL, NULL);
+            INSERT INTO threads VALUES ('mid', '/r/mid.jsonl', 1000, 1500, 'cli', '/code/app', 'Midway', 0, NULL,
+            NULL, NULL, 1500000, NULL, NULL);
             """
             : """
             CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, updated_at INTEGER NOT NULL,
@@ -435,13 +498,26 @@ struct CodexThreadIndexTests {
 
         let rows = try #require(
             CodexThreadIndex.threads(updatedSince: Date(timeIntervalSince1970: 1000), in: database))
-        #expect(rows.map(\.id) == ["new"])
+        #expect(rows.map(\.id) == ["new", "mid"])
         let row = try #require(rows.first)
         #expect(row.name == "Fix the build")
         #expect(row.originator == "codex-tui")
         #expect(row.gitBranch == "main")
         #expect(row.updatedAt == Date(timeIntervalSince1970: 2000.5))
         #expect(row.createdAt == Date(timeIntervalSince1970: 1000))
+    }
+
+    @Test func `open threads are listed however long ago they changed, ahead of the limit`() throws {
+        let database = try Self.makeDatabase(full: true)
+        defer { try? FileManager.default.removeItem(at: database.deletingLastPathComponent()) }
+        let since = Date(timeIntervalSince1970: 1000)
+        let rows = try #require(CodexThreadIndex.threads(updatedSince: since, including: ["old"], in: database))
+        #expect(rows.map(\.id) == ["old", "new", "mid"])
+        let limited = try #require(
+            CodexThreadIndex.threads(updatedSince: since, including: ["old"], limit: 1, in: database))
+        #expect(limited.map(\.id) == ["old"])
+        let archived = try #require(CodexThreadIndex.threads(updatedSince: since, including: ["gone"], in: database))
+        #expect(!archived.map(\.id).contains("gone"))
     }
 
     @Test func `reads a database without the optional columns`() throws {
@@ -451,6 +527,7 @@ struct CodexThreadIndexTests {
         #expect(rows.map(\.id) == ["new"])
         #expect(rows.first?.isExec == true)
         #expect(rows.first?.name == nil)
+        #expect(rows.first?.createdAt == nil)
     }
 
     @Test func `a missing database reads as nil`() {
@@ -515,8 +592,8 @@ struct CodexSessionsSettingsTests {
 }
 
 struct ProcessTableSnapshotTests {
-    @Test func `lists this process and finds descendants`() {
-        let snapshot = ProcessTable.snapshot()
+    @Test func `lists this process and finds descendants`() throws {
+        let snapshot = try #require(ProcessTable.snapshot())
         let me = getpid()
         #expect(snapshot.contains { $0.pid == me && $0.parent == getppid() })
 
@@ -537,8 +614,16 @@ struct ProcessTableSnapshotTests {
         try Data().write(to: lock)
         let handle = try FileHandle(forReadingFrom: lock)
         defer { try? handle.close() }
-        // The temporary folder is reached through a link, /var to /private/var.
+        // The temporary folder is reached through a link, /var to /private/var, which the kernel resolves.
+        let resolved = try #require(realpath(lock.path(percentEncoded: false), nil))
+        defer { free(resolved) }
         let open = ProcessTable.openFiles(of: getpid(), withPrefix: folder.path(percentEncoded: false))
-        #expect(open.contains { $0.hasSuffix("/thread.lock") })
+        #expect(open == [String(cString: resolved)])
+    }
+
+    @Test func `reads a process's arguments`() throws {
+        let arguments = try #require(ProcessTable.arguments(of: getpid()))
+        #expect(arguments == CommandLine.arguments)
+        #expect(ProcessTable.arguments(of: 0) == nil)
     }
 }

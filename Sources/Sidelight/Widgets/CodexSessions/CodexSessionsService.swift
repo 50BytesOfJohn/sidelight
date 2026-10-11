@@ -12,14 +12,16 @@ import os
 /// - A command that asked to run outside the sandbox waits for approval until its shell starts.
 ///
 /// The sessions and lock folders are watched with FSEvents, and each rollout file is read only where it grew, so a
-/// turn that ends shows within a fraction of a second and nothing runs while sessions sit still. None of this is
-/// documented; if Codex moves it, the widget says it can't find Codex rather than showing anything wrong.
+/// turn that ends shows within a fraction of a second. Opening a session leaves no trace in files, so a slow sweep
+/// looks for that. None of this is documented; if Codex moves it, the widget says it can't find Codex rather than
+/// showing anything wrong.
 @Observable
 final class CodexSessionsService {
     nonisolated static let codexDirectory = CodexThreadIndex.defaultCodexDirectory
     nonisolated static let sessionsDirectory = codexDirectory.appending(path: "sessions", directoryHint: .isDirectory)
     nonisolated static let locksDirectory = CodexThreadLocks.defaultDirectory
-    /// Sessions are listed for up to this long after they last changed; each widget shows less.
+    /// Sessions are listed for up to this long after they last changed (open ones however long ago); each widget
+    /// shows less.
     nonisolated static let lookback: TimeInterval = 24 * 60 * 60
     /// Subagents are only followed while they're this fresh: the agents working for a session, and the approval
     /// reviewer.
@@ -28,7 +30,7 @@ final class CodexSessionsService {
     /// while it works.
     static let eventLatency: TimeInterval = 0.3
     /// Statuses are in the rollout files; the thread index (names, new threads) is asked at most this often while
-    /// Codex writes.
+    /// Codex writes, and once more after the writes stop.
     nonisolated static let indexInterval: TimeInterval = 5
     /// An approval leaves no trace in Codex's files until the command finishes, so while one is pending, its
     /// shell is looked for this often.
@@ -36,7 +38,7 @@ final class CodexSessionsService {
     /// A Codex process that's killed writes nothing, so while sessions work, their processes are checked this often.
     /// Also how often to look for Codex while it isn't found.
     static let sweepInterval: Duration = .seconds(30)
-    /// Closing an idle session writes nothing either; noticed at least this often while any session is open.
+    /// Opening or closing a session without a turn writes nothing either; noticed at least this often.
     static let idleSweepInterval: Duration = .seconds(120)
 
     /// Most urgent first, then newest first, from the last day.
@@ -49,12 +51,17 @@ final class CodexSessionsService {
     /// Codex's state database and sessions folder exist.
     private(set) var codexFound = true
 
-    @ObservationIgnored private var followers: [String: CodexRolloutFollower] = [:]
-    @ObservationIgnored private var index: ThreadIndex?
+    @ObservationIgnored private var state = ReadState()
     @ObservationIgnored private var isEnabled = false
     @ObservationIgnored private var watchers: [FileEventStream] = []
+    /// The watched folders that existed when they were watched. FSEvents may not report into a folder created
+    /// after its stream started, so the streams are made again once a missing one appears.
+    @ObservationIgnored private var watchedFolders: Set<URL> = []
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
+    /// Tells a reload task that a `stop()` or a newer task replaced it.
+    @ObservationIgnored private var reloadGeneration = 0
     @ObservationIgnored private var needsReload = false
+    @ObservationIgnored private var indexRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var sweepTask: Task<Void, Never>?
     @ObservationIgnored private var sweepInterval: Duration?
 
@@ -68,65 +75,86 @@ final class CodexSessionsService {
     func stop() {
         isEnabled = false
         watchers = []
+        watchedFolders = []
+        reloadGeneration += 1
         reloadTask?.cancel()
         reloadTask = nil
+        indexRefreshTask?.cancel()
+        indexRefreshTask = nil
         updateSweep(interval: nil)
     }
 
     private func watchFolders() {
-        guard watchers.isEmpty else { return }
-        watchers = [Self.sessionsDirectory, Self.locksDirectory].compactMap { folder in
+        let folders = [Self.sessionsDirectory, Self.locksDirectory]
+        let existing = Set(folders.filter { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) })
+        guard watchers.isEmpty || !existing.isSubset(of: watchedFolders) else { return }
+        watchers = existing.compactMap { folder in
             FileEventStream(directory: folder, latency: Self.eventLatency, queue: .main) { [weak self] in
                 MainActor.assumeIsolated { self?.scheduleReload() }
             }
         }
+        watchedFolders = existing
     }
 
     /// Coalesces events that arrive during a read into one more read.
     private func scheduleReload() {
         needsReload = true
         guard reloadTask == nil else { return }
+        reloadGeneration += 1
+        let generation = reloadGeneration
         reloadTask = Task { [weak self] in
-            while let self, needsReload, !Task.isCancelled {
+            while let self, needsReload, !Task.isCancelled, generation == reloadGeneration {
                 needsReload = false
-                await reload()
+                await reload(generation: generation)
             }
-            self?.reloadTask = nil
+            if let self, generation == reloadGeneration { reloadTask = nil }
         }
     }
 
-    private func reload() async {
-        let read = await Self.read(followers: followers, index: index, now: .now)
-        guard isEnabled, !Task.isCancelled else { return }
+    private func reload(generation: Int) async {
+        let read = await Self.read(state, now: .now)
+        guard isEnabled, !Task.isCancelled, generation == reloadGeneration else { return }
         if read == nil, codexFound {
             Log.codexSessions.notice("No Codex state database or sessions folder in ~/.codex")
         }
         codexFound = read != nil
         hasLoaded = true
+        watchFolders()
         guard let read else {
-            followers = [:]
-            index = nil
+            state = ReadState()
             if !sessions.isEmpty { sessions = [] }
             updateSweep(interval: Self.sweepInterval)
             return
         }
-        followers = read.followers
-        index = read.index
+        state = read.state
         if read.sessions != sessions { sessions = read.sessions }
         if read.rateLimits?.0 != rateLimits || read.rateLimits?.1 != rateLimitsCapturedAt {
             rateLimits = read.rateLimits?.0
             rateLimitsCapturedAt = read.rateLimits?.1
         }
+        if read.reusedIndex { scheduleIndexRefresh(after: read.state.index?.readAt) }
         updateSweep(interval: sweepInterval(for: read.sessions))
     }
 
-    private func sweepInterval(for sessions: [CodexSession]) -> Duration? {
+    /// One more read once the thread index read at `readAt` is due again, so names and new threads that came while
+    /// it was reused show even if Codex then goes quiet.
+    private func scheduleIndexRefresh(after readAt: Date?) {
+        guard indexRefreshTask == nil, let readAt else { return }
+        let delay = max(0, readAt.addingTimeInterval(Self.indexInterval).timeIntervalSinceNow)
+        indexRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay), tolerance: .seconds(1))
+            guard let self, !Task.isCancelled else { return }
+            indexRefreshTask = nil
+            if isEnabled { scheduleReload() }
+        }
+    }
+
+    private func sweepInterval(for sessions: [CodexSession]) -> Duration {
         if sessions.contains(where: { if case .needsApproval = $0.activity { true } else { false } }) {
             return Self.approvalSweepInterval
         }
         if sessions.contains(where: \.activity.isOngoing) { return Self.sweepInterval }
-        if sessions.contains(where: { $0.pid != nil }) { return Self.idleSweepInterval }
-        return nil
+        return Self.idleSweepInterval
     }
 
     private func updateSweep(interval: Duration?) {
@@ -139,14 +167,18 @@ final class CodexSessionsService {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: interval, tolerance: interval / 4) } catch { return }
                 guard let self, isEnabled else { return }
-                if watchers.count < 2 {
-                    // FSEvents may not report into a folder created after the stream started.
-                    watchers = []
-                    watchFolders()
-                }
                 scheduleReload()
             }
         }
+    }
+
+    /// What one read hands the next: the rollout files as far as they were read, the thread index, and the
+    /// processes, for when the process table can't be read.
+    private struct ReadState: Sendable {
+        var followers: [String: CodexRolloutFollower] = [:]
+        var index: ThreadIndex?
+        var processes: [ProcessEntry] = []
+        var holders: [String: Int32] = [:]
     }
 
     /// The thread index as last read, and when.
@@ -157,46 +189,52 @@ final class CodexSessionsService {
 
     private struct Read: Sendable {
         var sessions: [CodexSession]
-        var followers: [String: CodexRolloutFollower]
-        var index: ThreadIndex
+        var state: ReadState
         var rateLimits: (CodexRateLimits, Date)?
+        /// The thread index wasn't due, so the last one was used.
+        var reusedIndex: Bool
     }
 
     /// Everything read again: rollout files only where they grew, the thread index once `indexInterval` has
-    /// passed. `nil` when Codex isn't found.
+    /// passed or a thread it doesn't list is open. `nil` when Codex isn't found.
     @concurrent
-    private static func read(
-        followers previous: [String: CodexRolloutFollower], index: ThreadIndex?, now: Date
-    ) async -> Read? {
-        var index = index
-        if index.map({ now.timeIntervalSince($0.readAt) >= indexInterval }) ?? true {
+    private static func read(_ previous: ReadState, now: Date) async -> Read? {
+        var state = previous
+        if let processes = ProcessTable.snapshot() {
+            state.processes = processes
+            state.holders = CodexThreadLocks.holders(in: locksDirectory, processes: processes)
+        }
+
+        let listed = Set(state.index?.threads.map(\.id) ?? [])
+        let isDue = state.index.map { now.timeIntervalSince($0.readAt) >= indexInterval } ?? true
+        let reusedIndex = !isDue && state.holders.keys.allSatisfy(listed.contains)
+        if !reusedIndex {
             guard FileManager.default.fileExists(atPath: sessionsDirectory.path(percentEncoded: false)),
                 let database = CodexThreadIndex.databaseURL(in: codexDirectory),
-                let threads = CodexThreadIndex.threads(updatedSince: now.addingTimeInterval(-lookback), in: database)
+                let threads = CodexThreadIndex.threads(
+                    updatedSince: now.addingTimeInterval(-lookback), including: Set(state.holders.keys), in: database)
             else { return nil }
-            index = ThreadIndex(threads: threads, readAt: now)
+            state.index = ThreadIndex(threads: threads, readAt: now)
         }
-        guard let index else { return nil }
-        let threads = index.threads
-        let processes = ProcessTable.snapshot()
-        let holders = CodexThreadLocks.holders(in: locksDirectory, processes: processes)
+        guard let threads = state.index?.threads else { return nil }
 
         var followers: [String: CodexRolloutFollower] = [:]
         for thread in threads
         where !thread.isSubagent || now.timeIntervalSince(thread.updatedAt) < subagentLookback
-            || holders[thread.id] != nil
+            || state.holders[thread.id] != nil
         {
-            var follower = previous[thread.id] ?? CodexRolloutFollower()
+            var follower = previous.followers[thread.id] ?? CodexRolloutFollower()
             follower.read(URL(filePath: thread.rolloutPath))
             followers[thread.id] = follower
         }
+        state.followers = followers
         let logs = followers.mapValues(\.state)
         return Read(
             sessions: CodexSessionTracker.sessions(
-                threads: threads, holders: holders, logs: logs, processes: processes),
-            followers: followers,
-            index: index,
-            rateLimits: CodexSessionTracker.latestRateLimits(in: logs.values)
+                threads: threads, holders: state.holders, logs: logs, processes: state.processes),
+            state: state,
+            rateLimits: CodexSessionTracker.latestRateLimits(in: logs.values),
+            reusedIndex: reusedIndex
         )
     }
 }
