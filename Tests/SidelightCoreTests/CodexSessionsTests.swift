@@ -24,14 +24,19 @@ enum Rollout {
     static func aborted(_ time: String) -> String {
         line(time, "event_msg", #"{"type":"turn_aborted","turn_id":"turn","reason":"interrupted"}"#)
     }
+    /// `text` as a JSON string literal. Encoding a string can't fail.
+    static func jsonString(_ text: String) -> String {
+        (try? JSONEncoder().encode(text)).map { String(decoding: $0, as: UTF8.self) } ?? #""""#
+    }
+
     static func codeCall(_ time: String, id: String, script: String) -> String {
-        let input = String(decoding: try! JSONEncoder().encode(script), as: UTF8.self)
+        let input = jsonString(script)
         return line(
             time, "response_item",
             #"{"type":"custom_tool_call","status":"completed","call_id":"\#(id)","name":"exec","input":\#(input)}"#)
     }
     static func functionCall(_ time: String, id: String, name: String, arguments: String) -> String {
-        let encoded = String(decoding: try! JSONEncoder().encode(arguments), as: UTF8.self)
+        let encoded = jsonString(arguments)
         return line(
             time, "response_item",
             #"{"type":"function_call","name":"\#(name)","arguments":\#(encoded),"call_id":"\#(id)"}"#)
