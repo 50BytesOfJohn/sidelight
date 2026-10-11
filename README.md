@@ -5,7 +5,7 @@
 ![macOS 26+, Apple Silicon](https://img.shields.io/badge/macOS-26%2B%20%C2%B7%20Apple%20Silicon-black?logo=apple)
 
 A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Codex, Claude Code and Cursor usage
-(each on its own, or side by side in one AI Usage card), calendar, now playing, Claude Code sessions and system stats. Other apps' windows are moved or shrunk so they never sit
+(each on its own, or side by side in one AI Usage card), calendar, now playing, Claude Code and Codex sessions and system stats. Other apps' windows are moved or shrunk so they never sit
 under the panel. Why it exists and where it's going: [docs/VISION.md](docs/VISION.md).
 
 Requires an Apple Silicon Mac with macOS 26. Download the latest DMG from
@@ -31,6 +31,7 @@ On first launch macOS asks for **Accessibility** access (needed to move other ap
 | Now playing          | `brew install ungive/media-control/media-control`                     |
 | Calendar             | Calendar access, requested from the widget                            |
 | Claude Code sessions | A recent Claude Code; to open terminal tabs, macOS asks once per app  |
+| Codex sessions       | A recent Codex (CLI, desktop app or IDE extension)                    |
 
 Packaged releases use Developer ID signing and Apple notarization. Installed copies check for updates through
 Sparkle; update settings and a manual check are in **Settings → General → Updates**. The menu bar also has
