@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.4
 import PackageDescription
 
 /// Approachable Concurrency: `async` functions run on the caller's actor unless marked `@concurrent`,
