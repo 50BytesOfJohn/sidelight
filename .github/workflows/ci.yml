@@ -14,16 +14,8 @@ concurrency:
 
 jobs:
   check:
-    name: check (Xcode ${{ matrix.xcode }})
-    runs-on: ${{ matrix.runner }}
+    runs-on: xcode-27
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # The one Xcode the README supports. Older ones may still build Sidelight but aren't checked.
-          - xcode: "27"
-            runner: xcode-27
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

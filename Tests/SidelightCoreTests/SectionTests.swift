@@ -26,8 +26,7 @@ struct SectionLayoutTests {
 
     @Test func `a section longer than its share keeps its content and the rest is split again`() {
         #expect(lengths([700, 100], [1, 1], available: 1000) == [700, 300])
-        let thirds: [CGFloat] = [500, 500.0 / 3, 1000.0 / 3]
-        #expect(lengths([500, 0, 0], [1, 1, 2], available: 1000) == thirds)
+        #expect(lengths([500, 0, 0], [1, 1, 2], available: 1000) == [500, 500.0 / 3, 1000.0 / 3])
     }
 
     @Test func `overflowing content stacks at its natural lengths`() {
