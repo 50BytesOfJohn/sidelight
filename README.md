@@ -10,7 +10,7 @@ under the panel. Why it exists and where it's going: [docs/VISION.md](docs/VISIO
 
 Requires an Apple Silicon Mac with macOS 26. Download the latest DMG from
 [GitHub Releases](https://github.com/50BytesOfJohn/sidelight/releases/latest), open it and drag Sidelight to
-Applications. Building from source needs Xcode 26.4+ (Swift 6.2+ toolchain).
+Applications. Building from source needs Xcode 27, the version CI checks.
 
 ## Getting started
 

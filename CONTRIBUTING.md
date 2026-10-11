@@ -22,7 +22,8 @@ Two principles shape most review feedback:
 
 ## Development setup
 
-You need an Apple Silicon Mac with **macOS 26** and **Xcode 26.4 or newer**. There are no other dependencies.
+You need an Apple Silicon Mac with **macOS 26** and **Xcode 27**, the version CI checks. Older versions may
+still build Sidelight, but aren't supported. There are no other dependencies.
 
 ```sh
 make dev      # debug build, runs in the foreground with logs in this terminal (Ctrl-C quits)

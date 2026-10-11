@@ -21,8 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - xcode: "26" # the minimum the README promises
-            runner: macos-26
+          # The one Xcode the README supports. Older ones may still build Sidelight but aren't checked.
           - xcode: "27"
             runner: xcode-27
     steps:
