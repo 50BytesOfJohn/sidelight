@@ -16,6 +16,7 @@ struct WidgetContent: View {
         case .calendar(let settings): CalendarWidgetView(settings: settings, layout: layout)
         case .nowPlaying: NowPlayingWidgetView(layout: layout)
         case .claudeSessions(let settings): ClaudeSessionsWidgetView(settings: settings, layout: layout)
+        case .codexSessions(let settings): CodexSessionsWidgetView(settings: settings, layout: layout)
         case .system(let settings): SystemWidgetView(settings: settings, layout: layout)
         case .noodleComputer(let settings): NoodleComputerWidgetView(settings: settings, layout: layout)
         case .railway(let settings): RailwayWidgetView(settings: settings, layout: layout)
@@ -39,6 +40,8 @@ struct WidgetSettingsEditor: View {
         case .system(let settings): SystemSettingsEditor(settings: binding(settings, WidgetSettings.system))
         case .claudeSessions(let settings):
             ClaudeSessionsSettingsEditor(settings: binding(settings, WidgetSettings.claudeSessions))
+        case .codexSessions(let settings):
+            CodexSessionsSettingsEditor(settings: binding(settings, WidgetSettings.codexSessions))
         case .noodleComputer(let settings):
             NoodleComputerSettingsEditor(settings: binding(settings, WidgetSettings.noodleComputer))
         case .railway(let settings): RailwaySettingsEditor(settings: binding(settings, WidgetSettings.railway))

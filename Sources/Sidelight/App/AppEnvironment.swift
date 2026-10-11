@@ -11,6 +11,7 @@ struct AppEnvironment {
     let cursor: CursorService
     let nowPlaying: NowPlayingService
     let claudeSessions: ClaudeSessionsService
+    let codexSessions: CodexSessionsService
     let systemStats: SystemStatsService
     let noodleComputer: NoodleComputerService
     let railway: RailwayService
@@ -32,6 +33,7 @@ extension View {
             .environment(app.cursor)
             .environment(app.nowPlaying)
             .environment(app.claudeSessions)
+            .environment(app.codexSessions)
             .environment(app.systemStats)
             .environment(app.noodleComputer)
             .environment(app.railway)

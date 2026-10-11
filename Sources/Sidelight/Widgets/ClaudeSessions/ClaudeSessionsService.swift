@@ -34,6 +34,8 @@ final class ClaudeSessionsService {
     @ObservationIgnored private var isEnabled = false
     @ObservationIgnored private var watcher: FileEventStream?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
+    /// Tells a reload task that a `stop()` or a newer task replaced it.
+    @ObservationIgnored private var reloadGeneration = 0
     @ObservationIgnored private var needsReload = false
     @ObservationIgnored private var sweepTask: Task<Void, Never>?
 
@@ -53,6 +55,7 @@ final class ClaudeSessionsService {
     func stop() {
         isEnabled = false
         watcher = nil
+        reloadGeneration += 1
         reloadTask?.cancel()
         reloadTask = nil
         sweepTask?.cancel()
@@ -71,18 +74,21 @@ final class ClaudeSessionsService {
     private func scheduleReload() {
         needsReload = true
         guard reloadTask == nil else { return }
+        reloadGeneration += 1
+        let generation = reloadGeneration
         reloadTask = Task { [weak self] in
-            while let self, needsReload, !Task.isCancelled {
+            while let self, needsReload, !Task.isCancelled, generation == reloadGeneration {
                 needsReload = false
-                await reload()
+                await reload(generation: generation)
             }
-            self?.reloadTask = nil
+            // A task replaced while it read mustn't drop its replacement's handle.
+            if let self, generation == reloadGeneration { reloadTask = nil }
         }
     }
 
-    private func reload() async {
+    private func reload(generation: Int) async {
         let read = await Self.readRegistry(Self.registryDirectory, previous: records)
-        guard isEnabled, !Task.isCancelled else { return }
+        guard isEnabled, !Task.isCancelled, generation == reloadGeneration else { return }
         if read == nil, registryExists {
             Log.claudeSessions.notice("No Claude Code session registry at \(Self.registryPath, privacy: .public)")
         }
@@ -94,7 +100,7 @@ final class ClaudeSessionsService {
         let stale = live.filter { !$0.isNamed && titles[$0.sessionID]?.readAfter != $0.lastChange }
         if !stale.isEmpty {
             let fresh = await Self.readTitles(of: stale.map { ($0.sessionID, $0.cwd) })
-            guard isEnabled, !Task.isCancelled else { return }
+            guard isEnabled, !Task.isCancelled, generation == reloadGeneration else { return }
             for record in stale {
                 let title = fresh[record.sessionID] ?? titles[record.sessionID]?.title
                 titles[record.sessionID] = TranscriptTitle(title: title, readAfter: record.lastChange)

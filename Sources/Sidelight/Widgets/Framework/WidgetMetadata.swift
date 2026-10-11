@@ -37,6 +37,7 @@ extension WidgetKind {
         case .calendar: .calendar
         case .nowPlaying: .nowPlaying
         case .claudeSessions: .claudeSessions
+        case .codexSessions: .codexSessions
         case .system: .system
         case .noodleComputer: .noodleComputer
         case .railway: .railway
@@ -55,6 +56,7 @@ extension WidgetSettings {
         case .aiUsage(let settings): settings.summary
         case .calendar(let settings): settings.summary
         case .claudeSessions(let settings): settings.summary
+        case .codexSessions(let settings): settings.summary
         case .system(let settings): settings.summary
         case .noodleComputer(let settings): settings.summary
         case .railway(let settings): settings.summary
