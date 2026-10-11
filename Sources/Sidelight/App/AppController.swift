@@ -20,6 +20,9 @@ final class AppController {
     private var store: ConfigurationStore { environment.configurationStore }
 
     init() {
+        let claudeSessions = ClaudeSessionsService()
+        let codexSessions = CodexSessionsService()
+        let cursorChats = CursorChatsService()
         let environment = AppEnvironment(
             configurationStore: ConfigurationStore(),
             displays: DisplayMonitor(),
@@ -29,8 +32,10 @@ final class AppController {
             claudeCode: ClaudeCodeService(),
             cursor: CursorService(),
             nowPlaying: NowPlayingService(),
-            claudeSessions: ClaudeSessionsService(),
-            codexSessions: CodexSessionsService(),
+            claudeSessions: claudeSessions,
+            codexSessions: codexSessions,
+            cursorChats: cursorChats,
+            agentSessions: AgentSessionSources(claudeCode: claudeSessions, codex: codexSessions, cursor: cursorChats),
             systemStats: SystemStatsService(),
             noodleComputer: NoodleComputerService(),
             railway: RailwayService(),
@@ -80,6 +85,7 @@ final class AppController {
         environment.nowPlaying.stop()
         environment.claudeSessions.stop()
         environment.codexSessions.stop()
+        environment.cursorChats.stop()
         environment.calendar.stop()
         environment.systemStats.stop()
         environment.noodleComputer.stop()
@@ -164,15 +170,24 @@ final class AppController {
             case .cursor: isNeeded ? cursor.start() : cursor.stop()
             }
         }
+        // Each agent's sessions are read once, for its own sessions widget and every Agent sessions widget listing it.
+        for provider in AgentProvider.allCases {
+            let isNeeded = demand.sessions.contains(provider)
+            switch provider {
+            case .claudeCode: isNeeded ? environment.claudeSessions.start() : environment.claudeSessions.stop()
+            case .codex: isNeeded ? environment.codexSessions.start() : environment.codexSessions.stop()
+            case .cursor: isNeeded ? environment.cursorChats.start() : environment.cursorChats.stop()
+            }
+        }
         for kind in WidgetKind.allCases {
             let isNeeded = demand.kinds.contains(kind)
             switch kind {
             // Their services go by the usage demand above, which also counts AI Usage widgets.
             case .clock, .codex, .claudeCode, .cursor, .aiUsage: break
+            // Theirs go by the sessions demand above.
+            case .claudeSessions, .codexSessions, .agentSessions: break
             case .calendar: isNeeded ? environment.calendar.start() : environment.calendar.stop()
             case .nowPlaying: isNeeded ? environment.nowPlaying.start() : environment.nowPlaying.stop()
-            case .claudeSessions: isNeeded ? environment.claudeSessions.start() : environment.claudeSessions.stop()
-            case .codexSessions: isNeeded ? environment.codexSessions.start() : environment.codexSessions.stop()
             case .system: isNeeded ? environment.systemStats.start() : environment.systemStats.stop()
             case .noodleComputer:
                 environment.noodleComputer.mayConnect = demand.placedKinds.contains(kind)

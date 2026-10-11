@@ -20,6 +20,7 @@ struct WidgetContent: View {
         case .system(let settings): SystemWidgetView(settings: settings, layout: layout)
         case .noodleComputer(let settings): NoodleComputerWidgetView(settings: settings, layout: layout)
         case .railway(let settings): RailwayWidgetView(settings: settings, layout: layout)
+        case .agentSessions(let settings): AgentSessionsWidgetView(settings: settings, layout: layout)
         }
     }
 }
@@ -45,6 +46,8 @@ struct WidgetSettingsEditor: View {
         case .noodleComputer(let settings):
             NoodleComputerSettingsEditor(settings: binding(settings, WidgetSettings.noodleComputer))
         case .railway(let settings): RailwaySettingsEditor(settings: binding(settings, WidgetSettings.railway))
+        case .agentSessions(let settings):
+            AgentSessionsSettingsEditor(settings: binding(settings, WidgetSettings.agentSessions))
         case .nowPlaying: Text("No options.").foregroundStyle(.secondary)
         }
     }
