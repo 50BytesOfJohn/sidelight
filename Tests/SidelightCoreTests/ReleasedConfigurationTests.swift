@@ -8,7 +8,7 @@ import Testing
 /// schema as v0.1.2). Loading one and saving it again must keep everything it says; newer options may only add to
 /// it. The one exception is a retired widget kind, which is dropped on purpose (``WidgetKind/retiredRawValues``).
 struct ReleasedConfigurationTests {
-    static let releases = ["v0.1.2", "v0.2.0", "v0.2.1", "v0.3.0", "v0.4.0"]
+    static let releases = ["v0.1.2", "v0.2.0", "v0.2.1", "v0.3.0", "v0.4.0", "v0.5.0"]
 
     @Test(arguments: releases)
     func `a released configuration loads with every setting kept`(release: String) throws {
@@ -56,7 +56,9 @@ struct ReleasedConfigurationTests {
         case let object as [String: Any]:
             return object.reduce(into: [:]) { $0.merge(values(in: $1.value, at: child($1.key))) { $1 } }
         case let array as [Any]:
-            return array.enumerated().reduce(into: [:]) { result, element in
+            let ids = array.compactMap { ($0 as? [String: Any])?["id"] as? String }
+            let order: [String: NSObject] = ids.isEmpty ? [:] : [child("$order"): ids as NSArray]
+            return array.enumerated().reduce(into: order) { result, element in
                 let key = ((element.element as? [String: Any])?["id"] as? String) ?? "\(element.offset)"
                 result.merge(values(in: element.element, at: child(key))) { $1 }
             }
