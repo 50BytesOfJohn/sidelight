@@ -28,8 +28,8 @@ nonisolated struct CalendarEvent: Identifiable, Hashable, Sendable {
 
 /// Upcoming events for today and tomorrow, kept fresh while running.
 ///
-/// Reading events is synchronous and can take a while with many calendars, so it runs off the main actor, one read
-/// at a time; the store's change notifications, which come in bursts while calendars sync, are gathered into one.
+/// Reading events is synchronous and can take a while with many calendars, so it runs off the main actor in
+/// ``EventStore``; the store's change notifications, which come in bursts while calendars sync, are gathered into one.
 @Observable
 final class CalendarService: DataService {
     enum Access {
@@ -54,9 +54,10 @@ final class CalendarService: DataService {
     func start() {
         guard !refreshes.isRunning else { return }
         refresh()
+        // Any store's changes: `EventStore` keeps the app's only one to itself.
         storeChangeObserver = NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged,
-            object: store.store,
+            object: nil,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
@@ -83,11 +84,7 @@ final class CalendarService: DataService {
             return
         }
         NSApp.activate()
-        do {
-            _ = try await store.store.requestFullAccessToEvents()
-        } catch {
-            Log.calendar.error("Calendar access request failed: \(error)")
-        }
+        await store.requestFullAccess()
         refresh()
     }
 
@@ -103,21 +100,10 @@ final class CalendarService: DataService {
     }
 
     private func reloadNow() async {
-        let events = await Self.upcomingEvents(in: store, now: .now)
+        let events = await store.upcomingEvents(from: .now)
         guard !Task.isCancelled else { return }
         // Only a real change redraws the widgets: the store notifies for every edit, in any calendar.
         if events != upcomingEvents { upcomingEvents = events }
-    }
-
-    @concurrent
-    private static func upcomingEvents(in store: EventStore, now: Date) async -> [CalendarEvent] {
-        let calendar = Calendar.autoupdatingCurrent
-        guard let end = calendar.date(byAdding: .day, value: 2, to: calendar.startOfDay(for: now)) else { return [] }
-        let predicate = store.store.predicateForEvents(withStart: now, end: end, calendars: nil)
-        return store.store.events(matching: predicate)
-            .sorted { $0.startDate < $1.startDate }
-            .prefix(maximumEvents)
-            .map(CalendarEvent.init)
     }
 
     private static var currentAccess: Access {
@@ -129,8 +115,29 @@ final class CalendarService: DataService {
     }
 }
 
-/// The event store, handed to the reads off the main actor. EventKit's guide has `events(matching:)` run on another
-/// thread; `CalendarService` runs one read at a time.
-nonisolated private final class EventStore: @unchecked Sendable {
-    let store = EKEventStore()
+/// Owns the app's `EKEventStore` and runs every call to it one at a time, off the main actor.
+///
+/// EventKit doesn't say an event store is safe to use from several threads at once, and reads can overlap: a
+/// cancelled read keeps running in `events(matching:)` while the next one starts. Only `CalendarEvent` copies leave.
+private actor EventStore {
+    private let store = EKEventStore()
+
+    func requestFullAccess() async {
+        do {
+            _ = try await store.requestFullAccessToEvents()
+        } catch {
+            Log.calendar.error("Calendar access request failed: \(error)")
+        }
+    }
+
+    /// Sorted by start date, up to `CalendarService.maximumEvents`, through the end of tomorrow.
+    func upcomingEvents(from now: Date) -> [CalendarEvent] {
+        let calendar = Calendar.autoupdatingCurrent
+        guard let end = calendar.date(byAdding: .day, value: 2, to: calendar.startOfDay(for: now)) else { return [] }
+        let predicate = store.predicateForEvents(withStart: now, end: end, calendars: nil)
+        return store.events(matching: predicate)
+            .sorted { $0.startDate < $1.startDate }
+            .prefix(CalendarService.maximumEvents)
+            .map(CalendarEvent.init)
+    }
 }
