@@ -42,6 +42,8 @@ final class RailwayService: DataService {
     /// The last change to the keychain item. Each waits for the one before, so a removal still under way can't
     /// delete a token saved after it.
     @ObservationIgnored private var tokenWrite: Task<Bool, Never>?
+    /// Counts saves and removals, so a save that a later one overtook while Railway checked it changes nothing.
+    @ObservationIgnored private var tokenChanges = 0
 
     init() {
         cli.credentials = { [weak self] in await self?.cliCredentials() ?? .failure(.cliNotSignedIn) }
@@ -84,18 +86,24 @@ final class RailwayService: DataService {
         token.refreshNow()
     }
 
-    /// Checks `token` with Railway and saves it in the keychain; returns why it wasn't saved.
+    /// Checks `token` with Railway and saves it in the keychain; returns why it wasn't saved. A token removed or
+    /// saved again while it's checked is left to that newer change.
     func saveToken(_ token: String) async -> RailwayFetchProblem? {
         let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return .noToken }
+        tokenChanges += 1
+        let change = tokenChanges
         let request = RailwayAPI.request(RailwayAPI.accountQuery, token: token, userAgent: AppInfo.userAgent)
         let check = await RailwayConnection.send(request)
         switch check.map({ RailwayAPI.account(status: $0.status, body: $0.body) }) {
         case .failure(let problem), .success(.failure(let problem)): return problem
         case .success(.success):
-            guard await writeToken({ await Self.storeToken(token) }) else {
+            guard change == tokenChanges else { return nil }
+            guard await writeToken({ await Self.storeToken(token) }).value else {
                 return .refused(message: "Couldn't save to the keychain")
             }
+            // A removal or save since queued its own write after this one, and already showed its result.
+            guard change == tokenChanges else { return nil }
             tokenLoad = Task { token }
             hasToken = true
             // It may belong to another account: forget what the last token saw.
@@ -107,23 +115,24 @@ final class RailwayService: DataService {
     }
 
     func removeToken() {
+        tokenChanges += 1
         tokenLoad = Task { nil }
         hasToken = false
         token.reset()
         apply()
-        Task { await writeToken({ await Self.deleteToken() }) }
+        writeToken { await Self.deleteToken() }
     }
 
-    /// Changes the keychain item once the change before it is done.
+    /// Queues a change to the keychain item, made once the change before it is done.
     @discardableResult
-    private func writeToken(_ write: @escaping @Sendable () async -> Bool) async -> Bool {
+    private func writeToken(_ write: @escaping @Sendable () async -> Bool) -> Task<Bool, Never> {
         let previous = tokenWrite
         let task = Task {
             _ = await previous?.value
             return await write()
         }
         tokenWrite = task
-        return await task.value
+        return task
     }
 
     // MARK: Demand
