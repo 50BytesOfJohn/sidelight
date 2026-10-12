@@ -41,14 +41,7 @@ public struct CursorChat: Identifiable, Hashable, Sendable {
 public enum CursorChatIndex {
     public static let defaultDatabase = CursorSignIn.appStateDatabase
 
-    public enum Failure: Error, Sendable {
-        /// No state database: Cursor isn't installed, or hasn't run.
-        case noDatabase
-        /// The database has no chat list this version can read: an older or much newer Cursor.
-        case unsupported
-        /// The database couldn't be read right now, such as while Cursor rewrites it.
-        case unreadable
-    }
+    public typealias Failure = SessionIndexFailure
 
     /// Chats that changed since `date`, newest first, at most `limit`. Archived chats, subagents, empty drafts and
     /// ephemeral chats are left out, as Cursor's own list leaves them out.
@@ -58,15 +51,13 @@ public enum CursorChatIndex {
         guard FileManager.default.fileExists(atPath: database.path(percentEncoded: false)) else {
             return .failure(.noDatabase)
         }
-        var connection: OpaquePointer?
+        guard let connection = SQLiteReader.open(database) else { return .failure(.unreadable) }
         defer { sqlite3_close(connection) }
-        guard
-            sqlite3_open_v2(database.path(percentEncoded: false), &connection, SQLITE_OPEN_READONLY, nil) == SQLITE_OK
-        else { return .failure(.unreadable) }
-        sqlite3_busy_timeout(connection, 500)
 
         // A schema that can't be read is a database that can't be read, not one without a chat list.
-        guard let available = columns(of: "composerHeaders", in: connection) else { return .failure(.unreadable) }
+        guard let available = SQLiteReader.columns(of: "composerHeaders", in: connection) else {
+            return .failure(.unreadable)
+        }
         guard ["composerId", "value", "lastUpdatedAt"].allSatisfy(available.contains) else {
             return .failure(.unsupported)
         }
@@ -116,8 +107,8 @@ public enum CursorChatIndex {
                     id: id,
                     name: header.name.flatMap(oneLine),
                     workspacePath: header.workspacePath,
-                    createdAt: (time(3) ?? header.createdAt.map(Double.init)).map(Self.date(milliseconds:)),
-                    updatedAt: Self.date(milliseconds: updatedAt)
+                    createdAt: (time(3) ?? header.createdAt.map(Double.init)).map(Date.init(millisecondsSince1970:)),
+                    updatedAt: Date(millisecondsSince1970: updatedAt)
                 ))
         }
         // A row still waiting means the limit was reached, not that the read failed.
@@ -147,13 +138,13 @@ public enum CursorChatIndex {
         }
     }
 
-    /// The smallest time in milliseconds that ``date(milliseconds:)`` turns into `date` or later, so the query keeps
-    /// exactly the rows that are returned dated at or after `date`, whatever rounding the conversion does. NaN, which
-    /// SQLite binds as NULL and so matches nothing, when no time is that late.
+    /// The smallest time in milliseconds that `Date(millisecondsSince1970:)` turns into `date` or later, so the query
+    /// keeps exactly the rows that are returned dated at or after `date`, whatever rounding the conversion does. NaN,
+    /// which SQLite binds as NULL and so matches nothing, when no time is that late.
     ///
     /// Later times never make earlier dates, so it's a binary search over every double in order: at most 64 steps.
     private static func cutoff(_ date: Date) -> Double {
-        func isLate(_ milliseconds: Double) -> Bool { Self.date(milliseconds: milliseconds) >= date }
+        func isLate(_ milliseconds: Double) -> Bool { Date(millisecondsSince1970: milliseconds) >= date }
         // Every date compares as at or after a NaN date; no time should count as late enough for one.
         guard !date.timeIntervalSinceReferenceDate.isNaN, isLate(.infinity) else { return .nan }
         guard !isLate(-.infinity) else { return -.infinity }
@@ -173,10 +164,6 @@ public enum CursorChatIndex {
         return value(late)
     }
 
-    private static func date(milliseconds: Double) -> Date {
-        Date(timeIntervalSince1970: milliseconds / 1000)
-    }
-
     /// Runs of whitespace and line breaks as single spaces; `nil` when nothing's left.
     private static func oneLine(_ text: String) -> String? {
         let words = text.split(whereSeparator: \.isWhitespace)
@@ -191,21 +178,5 @@ public enum CursorChatIndex {
         WHEN typeof(\(column)) = 'text' AND \(column) GLOB '[0-9]*' AND \(column) NOT GLOB '*[^0-9]*' \
         THEN CAST(\(column) AS INTEGER) END
         """
-    }
-
-    /// `nil` when the schema couldn't be read; no columns when there's no such table.
-    private static func columns(of table: String, in connection: OpaquePointer?) -> Set<String>? {
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
-        guard sqlite3_prepare_v2(connection, "PRAGMA table_info(\(table))", -1, &statement, nil) == SQLITE_OK else {
-            return nil
-        }
-        var names = Set<String>()
-        var step = sqlite3_step(statement)
-        while step == SQLITE_ROW {
-            if let name = sqlite3_column_text(statement, 1) { names.insert(String(cString: name)) }
-            step = sqlite3_step(statement)
-        }
-        return step == SQLITE_DONE ? names : nil
     }
 }

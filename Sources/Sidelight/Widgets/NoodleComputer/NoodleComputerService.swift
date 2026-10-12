@@ -15,7 +15,7 @@ import os
 /// The tool came out in Noodle Computer 0.22 and Sidelight was built against ``testedVersion``; its output isn't a
 /// documented format, so it's read leniently.
 @Observable
-final class NoodleComputerService {
+final class NoodleComputerService: DataService {
     nonisolated static let bundleIdentifier = "com.pdparchitect.noodle.computer"
     static let testedVersion = "0.25.0"
     static let downloadURL = URL(string: "https://github.com/pdparchitect/noodle/releases/tag/computer-latest")!
@@ -61,7 +61,7 @@ final class NoodleComputerService {
     @ObservationIgnored private var isEnabled = false
     @ObservationIgnored private var appURL: URL?
     @ObservationIgnored private var isAppRunning = false
-    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private let refreshing = PacedTask()
     @ObservationIgnored private var consecutiveFailures = 0
     /// The person didn't let Sidelight in. Asking again would ask them again, so that waits for them to choose to.
     @ObservationIgnored private var isRefused = false
@@ -88,8 +88,7 @@ final class NoodleComputerService {
         isEnabled = false
         for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         workspaceObservers = []
-        refreshTask?.cancel()
-        refreshTask = nil
+        refreshing.stop()
         mayBeAsking = false
     }
 
@@ -139,6 +138,7 @@ final class NoodleComputerService {
         Task {
             let result = await run(["borrow"])
             isLending = false
+            guard isEnabled else { return }
             switch result {
             case .success: restartRefreshing(immediately: true)
             case .failure(.notLent), .failure(.nothingToLend): break
@@ -155,15 +155,14 @@ final class NoodleComputerService {
         appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.bundleIdentifier)
         installedVersion = appURL.flatMap { Bundle(url: $0)?.infoDictionary?["CFBundleShortVersionString"] as? String }
         let isRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleIdentifier).isEmpty
-        guard isRunning != isAppRunning || refreshTask == nil else { return }
+        guard isRunning != isAppRunning || !refreshing.isRunning else { return }
         isAppRunning = isRunning
         consecutiveFailures = 0
         restartRefreshing(immediately: true)
     }
 
     private func restartRefreshing(immediately: Bool = false) {
-        refreshTask?.cancel()
-        refreshTask = nil
+        refreshing.stop()
         mayBeAsking = false
         guard isEnabled else { return }
         guard appURL != nil else {
@@ -190,17 +189,12 @@ final class NoodleComputerService {
             return
         }
         if status != .connected { status = .connecting }
-        var delay = immediately ? Duration.zero : nextDelay
-        refreshTask = Task { [weak self] in
-            while true {
-                if delay > .zero {
-                    do { try await Task.sleep(for: delay, tolerance: .seconds(2)) } catch { return }
-                }
-                guard let self, !Task.isCancelled else { return }
-                guard await list() else { return }
-                delay = nextDelay
-            }
-        }
+        refreshing.start(
+            after: immediately ? .zero : nextDelay, tolerance: { _ in .seconds(2) },
+            run: { [weak self] in
+                guard let self, await list() else { return nil }
+                return nextDelay
+            })
     }
 
     /// Returns whether to carry on refreshing.

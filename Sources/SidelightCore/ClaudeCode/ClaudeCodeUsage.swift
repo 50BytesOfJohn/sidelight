@@ -125,7 +125,7 @@ private struct AccountStateFile: Decodable {
         let cacheAccount = cache.lenient(String.self, "accountUuid")
         let signedInAccount = account?.lenient(String.self, "accountUuid")
         if let cacheAccount, let signedInAccount, cacheAccount != signedInAccount { return }
-        state.usage = utilization.usage(capturedAt: Date(timeIntervalSince1970: fetchedAt / 1000), source: .usageCache)
+        state.usage = utilization.usage(capturedAt: Date(millisecondsSince1970: fetchedAt), source: .usageCache)
     }
 }
 
@@ -166,7 +166,7 @@ private struct UsageUtilization: Decodable {
         else { return nil }
         return RateLimitWindow(
             usedPercent: percent,
-            resetsAt: window.lenient(String.self, "resets_at").flatMap { try? Date($0, strategy: .iso8601) },
+            resetsAt: window.lenient(String.self, "resets_at").flatMap(Date.init(iso8601:)),
             durationMinutes: minutes
         )
     }

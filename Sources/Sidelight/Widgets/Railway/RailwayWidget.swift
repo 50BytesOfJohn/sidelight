@@ -99,8 +99,8 @@ struct RailwayWidgetView: View {
 
     var body: some View {
         let connection = service.connection(for: settings.account)
-        TimelineView(.everyMinute) { context in
-            content(connection, now: context.date)
+        WidgetClock { now in
+            content(connection, now: now)
         }
     }
 
@@ -115,7 +115,7 @@ struct RailwayWidgetView: View {
                         "\($0.title) · \(Formatting.shortAge(since: snapshot.fetchedAt, now: now)) ago"
                     })
             } else {
-                RailwayMessage(
+                WidgetMessage(
                     title: settings.workspaceName.map { "\($0) not found" } ?? "No workspace",
                     detail: RailwayFetchProblem.noWorkspace.advice, systemImage: "questionmark.folder", layout: layout)
             }
@@ -128,13 +128,13 @@ struct RailwayWidgetView: View {
                 layout: layout,
                 now: Railway.Snapshot.sample.fetchedAt, footnote: nil)
         } else if let problem = connection.problem {
-            RailwayMessage(
+            WidgetMessage(
                 title: problem.title, detail: problem.advice,
                 systemImage: problem.needsSignIn ? "person.crop.circle.badge.questionmark" : "exclamationmark.triangle",
                 layout: layout,
-                action: problem.needsSignIn ? nil : ("Try Again", { service.refreshNow() }))
+                action: problem.needsSignIn ? nil : WidgetMessage.Action(title: "Try Again") { service.refreshNow() })
         } else {
-            RailwayMessage(title: "Connecting to Railway…", detail: nil, systemImage: "hourglass", layout: layout)
+            WidgetMessage(title: "Connecting to Railway…", detail: nil, systemImage: "hourglass", layout: layout)
         }
     }
 }
@@ -181,14 +181,14 @@ private struct RailwayContent: View {
                     .font(.system(size: layout == .regular ? 11 : 10))
                     .foregroundStyle(.secondary)
             } else if blocks.isEmpty {
-                RailwayMessage(
+                WidgetMessage(
                     title: "No blocks shown", detail: "Choose blocks in this widget's builder.",
                     systemImage: "square.stack.3d.up", layout: layout)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(blocks.enumerated()), id: \.element) { index, block in
                         if index > 0 {
-                            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.5)
+                            HairlineDivider()
                                 .padding(.vertical, layout == .regular ? 10 : 7)
                         }
                         view(for: block)
@@ -345,8 +345,6 @@ private struct RailwayServiceRowView: View {
     let showsProject: Bool
     let isCompact: Bool
     let now: Date
-    @State private var isHovered = false
-
     private var isQuiet: Bool { row.health == .sleeping || row.health == .inactive }
 
     var body: some View {
@@ -356,14 +354,7 @@ private struct RailwayServiceRowView: View {
             content.contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .background {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(.primary.opacity(isHovered ? 0.08 : 0))
-                .padding(.horizontal, -5)
-                .padding(.vertical, isCompact ? -2 : -3)
-        }
-        .onHover { isHovered = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .hoverHighlight(vertical: isCompact ? 2 : 3)
         .contextMenu {
             if let url = row.dashboardURL {
                 Button("Open in Railway", systemImage: "arrow.up.forward.app") { NSWorkspace.shared.open(url) }
@@ -840,40 +831,6 @@ private struct RailwayGlanceView: View {
                     + (bill.estimatedDollars.map { ", about \(dollars($0)) by the end of the period" } ?? ""))
         }
         return lines.joined(separator: "\n")
-    }
-}
-
-// MARK: - Messages
-
-private struct RailwayMessage: View {
-    let title: String
-    let detail: String?
-    let systemImage: String
-    let layout: WidgetLayout
-    var action: (title: String, run: () -> Void)?
-
-    var body: some View {
-        let text = [title, detail].compactMap(\.self).joined(separator: ". ")
-        if layout.isGlanceable {
-            Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
-                .help(text)
-                .accessibilityLabel(text)
-        } else {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(layout == .compact ? .system(size: 11) : .callout)
-                if let detail, layout == .regular {
-                    Text(detail).font(.caption).lineLimit(3).fixedSize(horizontal: false, vertical: true)
-                }
-                if let action, layout == .regular {
-                    Button(action.title, action: action.run)
-                        .controlSize(.small)
-                        .padding(.top, 4)
-                }
-            }
-            .foregroundStyle(.secondary)
-            .accessibilityElement(children: .contain)
-        }
     }
 }
 

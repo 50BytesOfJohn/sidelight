@@ -19,7 +19,7 @@ extension CodexSessionsSettings {
     }
 }
 
-extension CodexSession.Activity {
+extension CodexSession.Activity: SessionStatusDisplay {
     var title: String {
         switch self {
         case .needsApproval: "Needs approval"
@@ -160,24 +160,9 @@ struct CodexSessionsSettingsEditor: View {
     @Binding var settings: CodexSessionsSettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Layout", selection: preset) {
-                ForEach(CodexSessionsSettings.presets) { Text($0.title).tag(Optional($0.id)) }
-                if preset.wrappedValue == nil { Text("Custom").tag(String?.none) }
-            }
-            caption("Open the builder to arrange the blocks and set each one's options.")
-        }
+        BlockPresetPicker(settings: $settings)
         Divider()
         CodexSessionsWidgetOptions(settings: $settings)
-    }
-
-    private var preset: Binding<String?> {
-        Binding {
-            CodexSessionsSettings.presets.first { $0.matches(settings.blocks) }?.id
-        } set: { id in
-            guard let preset = CodexSessionsSettings.presets.first(where: { $0.id == id }) else { return }
-            settings.blocks.showOnly(preset.blocks)
-        }
     }
 }
 
@@ -188,22 +173,16 @@ struct CodexSessionsWidgetOptions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Picker("Keep finished for", selection: $settings.recentHours) {
-                ForEach(CodexSessionsSettings.recentHourChoices, id: \.self) { Text("\($0) h").tag($0) }
-            }
-            .pickerStyle(.segmented)
-            caption(
+            KeepFinishedPicker(hours: $settings.recentHours, choices: CodexSessionsSettings.recentHourChoices)
+            SettingsCaption(
                 "Sessions that are working or need you always show. Finished, idle and closed ones stay this long.")
             Toggle("Include codex exec runs", isOn: $settings.includesExec)
-            caption("Sessions started by scripts and CI. Codex's own session list leaves them out too.")
+            SettingsCaption("Sessions started by scripts and CI. Codex's own session list leaves them out too.")
         }
         Divider()
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Circle().fill(service.codexFound ? Color.green : .orange).frame(width: 7, height: 7)
-                Text(statusText).font(.callout)
-            }
-            caption(
+            StatusRow(color: service.codexFound ? Color.green : .orange, text: statusText)
+            SettingsCaption(
                 "Reads what Codex keeps in ~/.codex: its thread index, which sessions a Codex process has open, and "
                     + "each session's log. Nothing to set up; it updates the moment a turn starts or ends.")
         }
@@ -224,32 +203,26 @@ private struct CodexSessionsBlockOptionsEditor: View {
         switch block {
         case .spotlight:
             Toggle("Plan", isOn: $settings.blockOptions.spotlight.showsPlan)
-            caption("The steps Codex planned for the turn and which it's on, when it made a plan.")
+            SettingsCaption("The steps Codex planned for the turn and which it's on, when it made a plan.")
             Toggle("Details", isOn: $settings.blockOptions.spotlight.showsDetails)
-            caption("Context left, files changed, agents working, and the model.")
+            SettingsCaption("Context left, files changed, agents working, and the model.")
             Toggle("Last message", isOn: $settings.blockOptions.spotlight.showsLastMessage)
-            caption("The start of Codex's reply, once a turn is over.")
+            SettingsCaption("The start of Codex's reply, once a turn is over.")
         case .sessions:
             Stepper(
                 "Rows: \(settings.blockOptions.sessions.maximumRows)",
                 value: $settings.blockOptions.sessions.maximumRows, in: CodexSessionListOptions.rowCountRange)
             Toggle("Branch", isOn: $settings.blockOptions.sessions.showsBranch)
-            caption("The git branch each session started on, next to its folder.")
+            SettingsCaption("The git branch each session started on, next to its folder.")
         case .limits:
             Picker("Show", selection: $settings.blockOptions.limits.reading) {
                 ForEach(UsageReading.allCases) { Text($0.title).tag($0) }
             }
             Toggle("Weekly limit", isOn: $settings.blockOptions.limits.showsWeeklyLimit)
-            caption("Codex logs your limits after every turn. They're shown as of the latest one, at no extra cost.")
+            SettingsCaption(
+                "Codex logs your limits after every turn. They're shown as of the latest one, at no extra cost.")
         }
     }
-}
-
-private func caption(_ text: String) -> some View {
-    Text(text)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
 }
 
 // MARK: - Widget
@@ -258,18 +231,11 @@ struct CodexSessionsWidgetView: View {
     let settings: CodexSessionsSettings
     let layout: WidgetLayout
     @Environment(CodexSessionsService.self) private var service
-    @Environment(\.frozenDate) private var frozenDate
 
     var body: some View {
-        Group {
-            if let frozenDate {
-                CodexSessionsContent(service: service, settings: settings, layout: layout, now: frozenDate)
-            } else {
-                // Ages and the recent window move on with the clock; status changes redraw on their own.
-                TimelineView(.everyMinute) { context in
-                    CodexSessionsContent(service: service, settings: settings, layout: layout, now: context.date)
-                }
-            }
+        // Ages and the recent window move on with the clock; status changes redraw on their own.
+        WidgetClock { now in
+            CodexSessionsContent(service: service, settings: settings, layout: layout, now: now)
         }
         .shimmer(on: latestAlert, cornerRadius: 12)
     }
@@ -309,11 +275,11 @@ private struct CodexSessionsContent: View {
 
     var body: some View {
         if !service.codexFound {
-            CodexSessionsMessage(
+            WidgetMessage(
                 title: "Codex not found", detail: "Sessions show here once Codex runs on this Mac.",
                 systemImage: "terminal", layout: layout)
         } else if !service.hasLoaded {
-            CodexSessionsMessage(title: "Reading sessions…", detail: nil, systemImage: "hourglass", layout: layout)
+            WidgetMessage(title: "Reading sessions…", detail: nil, systemImage: "hourglass", layout: layout)
         } else {
             switch layout {
             case .regular, .compact: stack
@@ -327,7 +293,7 @@ private struct CodexSessionsContent: View {
         let blocks = blocks
         let isCompact = layout == .compact
         if settings.blocks.shownBlocks.isEmpty {
-            CodexSessionsMessage(
+            WidgetMessage(
                 title: "No blocks shown", detail: "Choose blocks in this widget's builder.",
                 systemImage: "square.stack.3d.up", layout: layout)
         } else if blocks.isEmpty {
@@ -338,7 +304,7 @@ private struct CodexSessionsContent: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(blocks.enumerated()), id: \.element) { index, block in
                     if index > 0 {
-                        Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.5)
+                        HairlineDivider()
                             .padding(.vertical, isCompact ? 7 : 10)
                     }
                     view(for: block, isCompact: isCompact)
@@ -380,8 +346,6 @@ private struct CodexSpotlightBlock: View {
     let isCompact: Bool
     let now: Date
 
-    @State private var isHovered = false
-
     private var canOpen: Bool { CodexSessionOpener.canOpen(session) }
 
     var body: some View {
@@ -391,13 +355,7 @@ private struct CodexSpotlightBlock: View {
             content.contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.primary.opacity(isHovered && canOpen ? 0.06 : 0))
-                .padding(-5)
-        }
-        .onHover { isHovered = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .hoverHighlight(isEnabled: canOpen, cornerRadius: 8, opacity: 0.06, vertical: 5)
         .contextMenu { CodexSessionMenu(session: session) }
         .help(canOpen ? "Open this session" : "Right-click to copy the command that resumes it.")
         .animation(Motion.snappy, value: session.activity)
@@ -634,99 +592,21 @@ private struct CodexSessionListBlock: View {
     private var limit: Int { isCompact ? min(options.maximumRows, 4) : options.maximumRows }
 
     var body: some View {
-        if sessions.isEmpty {
-            Text(isCompact ? "No sessions" : "No Codex sessions in the last \(recentHours)h")
-                .font(.system(size: isCompact ? 10.5 : 11))
-                .foregroundStyle(.secondary)
-        } else {
-            VStack(alignment: .leading, spacing: isCompact ? 5 : 8) {
-                ForEach(sessions.prefix(limit)) { session in
-                    CodexSessionRow(session: session, showsBranch: options.showsBranch, isCompact: isCompact, now: now)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-                if sessions.count > limit {
-                    Text("\(sessions.count - limit) more")
-                        .font(.system(size: isCompact ? 9.5 : 10.5))
-                        .foregroundStyle(.tertiary)
-                }
+        SessionList(
+            sessions: sessions, limit: limit, isCompact: isCompact,
+            emptyText: "No Codex sessions in the last \(recentHours)h", status: \.activity
+        ) { session in
+            SessionRow(
+                title: session.title, status: session.activity, place: session.place(showsBranch: options.showsBranch),
+                surfaceTitle: session.surface.title, surfaceSystemImage: session.surface.systemImage,
+                since: session.since, isCompact: isCompact, now: now,
+                open: CodexSessionOpener.canOpen(session) ? { CodexSessionOpener.open(session) } : nil
+            ) {
+                SessionStatusIcon(status: session.activity, isCompact: isCompact)
+            } menu: {
+                CodexSessionMenu(session: session)
             }
-            .animation(Motion.gentle, value: sessions.prefix(limit).map(\.id))
-            .animation(Motion.snappy, value: sessions.prefix(limit).map(\.activity))
         }
-    }
-}
-
-private struct CodexSessionRow: View {
-    let session: CodexSession
-    let showsBranch: Bool
-    let isCompact: Bool
-    let now: Date
-
-    @State private var isHovered = false
-
-    private var canOpen: Bool { CodexSessionOpener.canOpen(session) }
-
-    var body: some View {
-        Button {
-            if canOpen { CodexSessionOpener.open(session) }
-        } label: {
-            content.contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .background {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(.primary.opacity(isHovered && canOpen ? 0.08 : 0))
-                .padding(.horizontal, -5)
-                .padding(.vertical, isCompact ? -2 : -4)
-        }
-        .onHover { isHovered = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
-        .contextMenu { CodexSessionMenu(session: session) }
-        .help(canOpen ? "Open this session" : "Closed. Right-click to copy the command that resumes it.")
-        .accessibilityHint(canOpen ? "Opens the session" : "")
-    }
-
-    private var content: some View {
-        HStack(alignment: isCompact ? .center : .top, spacing: isCompact ? 6 : 8) {
-            Image(systemName: session.activity.systemImage)
-                .font(.system(size: isCompact ? 11 : 14))
-                .foregroundStyle(session.activity.color)
-                .contentTransition(.symbolEffect(.replace))
-            VStack(alignment: .leading, spacing: 1) {
-                Text(session.title)
-                    .font(.system(size: isCompact ? 11 : 12.5, weight: .medium))
-                    .foregroundStyle(session.activity.isQuiet ? .secondary : .primary)
-                    .lineLimit(1)
-                if !isCompact {
-                    detail
-                }
-            }
-            Spacer(minLength: 2)
-            HStack(spacing: 4) {
-                if !isCompact {
-                    Image(systemName: session.surface.systemImage)
-                        .help(session.surface.title)
-                }
-                Text(Formatting.shortAge(since: session.since, now: now))
-                    .monospacedDigit()
-            }
-            .font(.system(size: isCompact ? 9.5 : 10))
-            .foregroundStyle(.tertiary)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            "\(session.title), \(session.activity.detail), \(session.surface.title), "
-                + Formatting.shortAge(since: session.since, now: now))
-    }
-
-    private var detail: some View {
-        let status = Text(session.activity.detail)
-            .foregroundStyle(session.activity.isQuiet ? Color.secondary : session.activity.color)
-        let place = Text(session.place(showsBranch: showsBranch).map { " · \($0)" } ?? "")
-            .foregroundStyle(.secondary)
-        return Text("\(status)\(place)")
-            .font(.system(size: 11))
-            .lineLimit(1)
     }
 }
 
@@ -766,7 +646,7 @@ private struct CodexSessionLimitsBlock: View {
                     row(limit)
                 }
                 if let capturedAt, now.timeIntervalSince(capturedAt) > Self.staleAfter {
-                    Text("As of \(CodexFormat.age(of: capturedAt, now: now))")
+                    Text("As of \(UsageFormat.age(of: capturedAt, now: now))")
                         .font(.system(size: 9.5))
                         .foregroundStyle(.tertiary)
                 }
@@ -790,7 +670,7 @@ private struct CodexSessionLimitsBlock: View {
                     if hasReset {
                         Text("Reset")
                     } else {
-                        let resets = Text(limit.window.resetsAt.map { " · \(CodexFormat.moment($0, now: now))" } ?? "")
+                        let resets = Text(limit.window.resetsAt.map { " · \(UsageFormat.moment($0, now: now))" } ?? "")
                             .foregroundStyle(.tertiary)
                         Text("\(Int(shown.rounded()))% \(options.reading.suffix)\(resets)")
                     }
@@ -820,21 +700,15 @@ private struct CodexSessionsGlance: View {
     let sessions: [CodexSession]
     let isBar: Bool
 
-    private struct Tally: Identifiable {
-        let activity: CodexSession.Activity
-        let count: Int
-        var id: String { activity.title }
-    }
-
-    private var tallies: [Tally] {
+    private var tallies: [SessionTally] {
         let approvals = sessions.count { if case .needsApproval = $0.activity { true } else { false } }
         return [
-            Tally(activity: .needsApproval(nil), count: approvals),
-            Tally(activity: .needsInput, count: sessions.count { $0.activity == .needsInput }),
-            Tally(
-                activity: .working(reviewing: false),
+            SessionTally(CodexSession.Activity.needsApproval(nil), count: approvals),
+            SessionTally(CodexSession.Activity.needsInput, count: sessions.count { $0.activity == .needsInput }),
+            SessionTally(
+                CodexSession.Activity.working(reviewing: false),
                 count: sessions.count { if case .working = $0.activity { true } else { false } }),
-            Tally(activity: .finished, count: sessions.count { $0.activity == .finished }),
+            SessionTally(CodexSession.Activity.finished, count: sessions.count { $0.activity == .finished }),
         ]
         .filter { $0.count > 0 }
     }
@@ -855,32 +729,13 @@ private struct CodexSessionsGlance: View {
     }
 
     private var minimal: some View {
-        let top = tallies.first
-        return Image(systemName: top?.activity.systemImage ?? "rectangle.stack")
-            .font(.system(size: 18, weight: .medium))
-            .foregroundStyle(top?.activity.color ?? .secondary)
-            .frame(width: 28, height: 26)
-            .overlay(alignment: .topTrailing) {
-                if let top {
-                    CountBadge(count: top.count, color: top.activity.color)
-                        .offset(x: 6, y: -5)
-                        .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .animation(Motion.snappy, value: top?.count)
+        SessionTallyBadge(top: tallies.first, emptySystemImage: "rectangle.stack")
     }
 
     private var bar: some View {
-        HStack(spacing: 8) {
-            if tallies.isEmpty {
-                Image(systemName: "rectangle.stack").foregroundStyle(.secondary)
-            }
-            ForEach(tallies) { tally in
-                HStack(spacing: 3) {
-                    Image(systemName: tally.activity.systemImage).foregroundStyle(tally.activity.color)
-                    Text("\(tally.count)").monospacedDigit().contentTransition(.numericText(value: Double(tally.count)))
-                }
-            }
+        let tallies = tallies
+        return HStack(spacing: 8) {
+            SessionTallyCounts(tallies: tallies, emptySystemImage: "rectangle.stack")
             if let top = sessions.first {
                 Text(top.plan.first { $0.status == .inProgress }.map { "\(top.title) · \($0.text)" } ?? top.title)
                     .foregroundStyle(.secondary)
@@ -894,36 +749,7 @@ private struct CodexSessionsGlance: View {
 }
 
 extension View {
-    /// A click opens the first of `sessions` that can be opened: they come most urgent first.
     fileprivate func opensMostUrgent(_ sessions: [CodexSession]) -> some View {
-        let target = sessions.first(where: CodexSessionOpener.canOpen)
-        return contentShape(.rect)
-            .onTapGesture { if let target { CodexSessionOpener.open(target) } }
-            .accessibilityAddTraits(target == nil ? [] : .isButton)
-    }
-}
-
-private struct CodexSessionsMessage: View {
-    let title: String
-    let detail: String?
-    let systemImage: String
-    let layout: WidgetLayout
-
-    var body: some View {
-        if layout.isGlanceable {
-            Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
-                .help([title, detail].compactMap(\.self).joined(separator: ". "))
-                .accessibilityLabel([title, detail].compactMap(\.self).joined(separator: ". "))
-        } else {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(layout == .compact ? .system(size: 11) : .callout)
-                if let detail, layout == .regular {
-                    Text(detail).font(.caption).lineLimit(3).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .foregroundStyle(.secondary)
-            .accessibilityElement(children: .combine)
-        }
+        opensMostUrgent(sessions, canOpen: CodexSessionOpener.canOpen, open: CodexSessionOpener.open)
     }
 }

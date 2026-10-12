@@ -42,26 +42,16 @@ struct AnthropicRefreshSettings: View {
     @Binding var minutes: Int
     @Environment(ClaudeCodeService.self) private var claude
 
-    /// The offered intervals, plus one set by hand in `config.json`, so the picker always shows the real value.
-    private var minuteChoices: [Int] {
-        Set(ClaudeCodeSettings.refreshMinuteChoices + [minutes]).sorted()
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Refresh from Anthropic", isOn: $isOn)
-            Picker("Every", selection: $minutes) {
-                ForEach(minuteChoices, id: \.self) { Text("\($0) min").tag($0) }
-            }
-            .disabled(!isOn)
-            Text(
+            RefreshIntervalPicker(
+                title: "Refresh from Anthropic", isOn: $isOn, minutes: $minutes,
+                choices: ClaudeCodeSettings.refreshMinuteChoices)
+            SettingsCaption(
                 "Asks Anthropic for your plan's usage the way /usage does, signed in as Claude Code is, so it also "
                     + "counts claude.ai and your other devices. The sign-in is read from your keychain for each "
                     + "request and never stored. It's an undocumented endpoint, so it may stop working."
             )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
             if isOn {
                 status
             }
@@ -69,23 +59,17 @@ struct AnthropicRefreshSettings: View {
     }
 
     private var status: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Circle()
-                .fill(
-                    claude.anthropicProblem != nil ? Color.orange : claude.anthropicUsage != nil ? .green : .secondary
-                )
-                .frame(width: 7, height: 7)
-            Group {
-                if let problem = claude.anthropicProblem {
-                    Text(problem.message)
-                } else if let usage = claude.anthropicUsage {
-                    Text("Fetched \(usage.capturedAt, format: .relative(presentation: .named))")
-                } else {
-                    Text("Waiting for the first fetch")
-                }
+        StatusRow(
+            color: claude.anthropicProblem != nil ? Color.orange : claude.anthropicUsage != nil ? .green : .secondary,
+            alignment: .firstTextBaseline
+        ) {
+            if let problem = claude.anthropicProblem {
+                Text(problem.message)
+            } else if let usage = claude.anthropicUsage {
+                Text("Fetched \(usage.capturedAt, format: .relative(presentation: .named))")
+            } else {
+                Text("Waiting for the first fetch")
             }
-            .font(.callout)
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -118,19 +102,14 @@ struct StatusLineSetup: View {
                     NSPasteboard.general.setString(snippet, forType: .string)
                     didCopy = true
                 }
-                Text("Already have a status line? Put its command after the bridge's path and it keeps working.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                SettingsCaption(
+                    "Already have a status line? Put its command after the bridge's path and it keeps working.")
             }
         }
     }
 
     private var status: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(claude.statusLineUsage != nil ? Color.green : Color.secondary.opacity(0.5))
-                .frame(width: 7, height: 7)
+        StatusRow(color: claude.statusLineUsage != nil ? Color.green : Color.secondary.opacity(0.5)) {
             Group {
                 if let live = claude.statusLineUsage {
                     Text("Live · updated \(live.capturedAt, format: .relative(presentation: .named))")
@@ -165,15 +144,15 @@ struct ClaudeCodeWidgetView: View {
     var body: some View {
         if let usage = claude.usage {
             // Countdowns, the time tick and windows rolling over all move on with the clock.
-            TimelineView(.everyMinute) { context in
-                let current = usage.current(at: context.date)
+            WidgetClock { now in
+                let current = usage.current(at: now)
                 if let session = current.session {
                     let weekly = settings.showsWeeklyLimit ? current.weekly : nil
                     switch layout {
-                    case .regular: regular(session: session, weekly: weekly, usage: current, now: context.date)
-                    case .compact: compact(session: session, weekly: weekly, now: context.date)
-                    case .minimal: minimal(session: session, weekly: weekly, now: context.date)
-                    case .bar: bar(session: session, weekly: weekly, now: context.date)
+                    case .regular: regular(session: session, weekly: weekly, usage: current, now: now)
+                    case .compact: compact(session: session, weekly: weekly, now: now)
+                    case .minimal: minimal(session: session, weekly: weekly, now: now)
+                    case .bar: bar(session: session, weekly: weekly, now: now)
                     }
                 } else {
                     placeholder
@@ -186,16 +165,13 @@ struct ClaudeCodeWidgetView: View {
 
     @ViewBuilder
     private var placeholder: some View {
-        if layout.isGlanceable {
-            Image(systemName: claude.hasLoaded ? "asterisk" : "hourglass").foregroundStyle(.secondary)
-        } else if claude.hasLoaded {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("No Claude Code limits yet").font(.callout)
-                Text("Connect its status line in this widget's settings.").font(.caption)
-            }
-            .foregroundStyle(.secondary)
+        if claude.hasLoaded {
+            WidgetMessage(
+                title: "No Claude Code limits yet", detail: "Connect its status line in this widget's settings.",
+                systemImage: "asterisk", layout: layout, trimsCompact: false, detailLineLimit: nil)
         } else {
-            Text("Loading Claude Code usage…").font(.callout).foregroundStyle(.secondary)
+            WidgetMessage(
+                title: "Loading Claude Code usage…", systemImage: "hourglass", layout: layout, trimsCompact: false)
         }
     }
 
@@ -230,10 +206,10 @@ struct ClaudeCodeWidgetView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("Week").font(.system(size: 11.5, weight: .medium))
-                        percentText(weekly.usedPercent, size: 11.5)
+                        PercentText(percent: weekly.usedPercent, size: 11.5)
                         Spacer(minLength: 0)
                         if let resetsAt = weekly.resetsAt {
-                            Text("Resets \(moment(resetsAt, now: now))")
+                            Text("Resets \(UsageFormat.moment(resetsAt, now: now))")
                                 .font(.system(size: 10.5))
                                 .foregroundStyle(.secondary)
                         }
@@ -247,7 +223,7 @@ struct ClaudeCodeWidgetView: View {
                         spacing: 2.5
                     )
                     // The week only speaks up when it's in trouble.
-                    if isRunningOut(weekly, now: now) {
+                    if weekly.pace(at: now).isRunningOut {
                         forecast(weekly, now: now).font(.system(size: 10.5))
                     }
                 }
@@ -265,7 +241,7 @@ struct ClaudeCodeWidgetView: View {
     private func compact(session: RateLimitWindow, weekly: RateLimitWindow?, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             compactRow("Session", session, segments: 5, now: now) {
-                if isRunningOut(session, now: now) {
+                if session.pace(at: now).isRunningOut {
                     forecast(session, now: now)
                 } else {
                     Text(sessionReset(session, now: now)).foregroundStyle(.secondary)
@@ -273,10 +249,10 @@ struct ClaudeCodeWidgetView: View {
             }
             if let weekly {
                 compactRow("Week", weekly, segments: 7, now: now) {
-                    if isRunningOut(weekly, now: now) {
+                    if weekly.pace(at: now).isRunningOut {
                         forecast(weekly, now: now)
                     } else if let resetsAt = weekly.resetsAt {
-                        Text("Resets \(moment(resetsAt, now: now))").foregroundStyle(.secondary)
+                        Text("Resets \(UsageFormat.moment(resetsAt, now: now))").foregroundStyle(.secondary)
                     }
                 }
             }
@@ -291,7 +267,7 @@ struct ClaudeCodeWidgetView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
                 Spacer(minLength: 4)
-                percentText(window.usedPercent, size: 13)
+                PercentText(percent: window.usedPercent, size: 13)
             }
             SegmentedMeter(
                 percent: window.usedPercent,
@@ -307,21 +283,11 @@ struct ClaudeCodeWidgetView: View {
     /// The session as a tick gauge with its percentage inside, the countdown, and the week as a tiny meter.
     private func minimal(session: RateLimitWindow, weekly: RateLimitWindow?, now: Date) -> some View {
         VStack(spacing: 5) {
-            TickGauge(percent: session.usedPercent, elapsedFraction: session.elapsedFraction(at: now), diameter: 44)
-                .overlay {
-                    Text("\(Int(session.usedPercent.rounded()))")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .frame(maxWidth: 24)
-                        .contentTransition(.numericText(value: session.usedPercent))
-                        .animation(Motion.gentle, value: session.usedPercent)
-                }
+            PercentGauge(percent: session.usedPercent, elapsedFraction: session.elapsedFraction(at: now), diameter: 44)
             Text(session.resetsAt == nil ? "fresh" : Formatting.countdown(to: session.resetsAt, now: now))
                 .font(.system(size: 9, weight: .medium, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(isRunningOut(session, now: now) ? warningColor : .secondary)
+                .foregroundStyle(session.pace(at: now).isRunningOut ? Color.usageWarning : .secondary)
             if let weekly {
                 SegmentedMeter(percent: weekly.usedPercent, segments: 7, height: 3, spacing: 1.5)
                     .frame(width: 36)
@@ -335,16 +301,16 @@ struct ClaudeCodeWidgetView: View {
             TickGauge(
                 percent: session.usedPercent, elapsedFraction: session.elapsedFraction(at: now), diameter: 22,
                 ticks: 24, innerFraction: 0.5)
-            percentText(session.usedPercent, size: 13)
+            PercentText(percent: session.usedPercent, size: 13)
             if let resetsAt = session.resetsAt {
                 Text(Formatting.countdown(to: resetsAt, now: now))
                     .font(.system(size: 10.5, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(isRunningOut(session, now: now) ? warningColor : .secondary)
+                    .foregroundStyle(session.pace(at: now).isRunningOut ? Color.usageWarning : .secondary)
             }
             if let weekly {
                 VStack(spacing: 3) {
-                    percentText(weekly.usedPercent, size: 10.5).foregroundStyle(.secondary)
+                    PercentText(percent: weekly.usedPercent, size: 10.5).foregroundStyle(.secondary)
                     SegmentedMeter(percent: weekly.usedPercent, segments: 7, height: 2.5, spacing: 1)
                 }
                 .frame(width: 30)
@@ -354,15 +320,6 @@ struct ClaudeCodeWidgetView: View {
     }
 
     // MARK: Parts
-
-    private var warningColor: Color { .usage(percent: 75) }
-
-    private func isRunningOut(_ window: RateLimitWindow, now: Date) -> Bool {
-        switch window.pace(at: now) {
-        case .runsOut, .reached: true
-        case .lasts, .unknown: false
-        }
-    }
 
     @ViewBuilder
     private func forecast(_ window: RateLimitWindow, now: Date) -> some View {
@@ -374,13 +331,13 @@ struct ClaudeCodeWidgetView: View {
                 .labelStyle(TightLabelStyle())
                 .foregroundStyle(.secondary)
         case .runsOut(let date):
-            Label("Runs out \(moment(date, now: now))", systemImage: "exclamationmark.triangle.fill")
+            Label("Runs out \(UsageFormat.moment(date, now: now))", systemImage: "exclamationmark.triangle.fill")
                 .labelStyle(TightLabelStyle())
-                .foregroundStyle(warningColor)
+                .foregroundStyle(Color.usageWarning)
         case .reached:
             Label("Limit reached", systemImage: "hourglass")
                 .labelStyle(TightLabelStyle())
-                .foregroundStyle(Color.usage(percent: 100))
+                .foregroundStyle(Color.usageCritical)
         }
     }
 
@@ -389,18 +346,9 @@ struct ClaudeCodeWidgetView: View {
         return "Resets in \(Formatting.countdown(to: resetsAt, now: now))"
     }
 
-    /// `14:20` today, `Fri 06:00` on another day.
-    private func moment(_ date: Date, now: Date) -> String {
-        Calendar.autoupdatingCurrent.isDate(date, inSameDayAs: now)
-            ? date.formatted(date: .omitted, time: .shortened)
-            : date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
-    }
-
     /// `status line · 3m ago`
     private func source(of usage: ClaudeCodeUsage, now: Date) -> String {
-        let age =
-            now.timeIntervalSince(usage.capturedAt) < 60
-            ? "just now" : "\(Formatting.countdownLeadingUnit(to: now, now: usage.capturedAt)) ago"
+        let age = UsageFormat.age(of: usage.capturedAt, now: now)
         return switch usage.source {
         case .statusLine: "status line · \(age)"
         case .usageCache: "/usage · \(age)"
@@ -427,24 +375,10 @@ struct ClaudeCodeWidgetView: View {
         .animation(Motion.gentle, value: percent)
     }
 
-    private func percentText(_ percent: Double, size: CGFloat) -> some View {
-        Text("\(Int(percent.rounded()))%")
-            .font(.system(size: size, weight: .semibold, design: .rounded))
-            .monospacedDigit()
-            .contentTransition(.numericText(value: percent))
-            .animation(Motion.gentle, value: percent)
-    }
-
     @ViewBuilder
     private var planBadge: some View {
         if let plan = claude.plan {
-            Text(plan.uppercased())
-                .font(.system(size: 9, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(Color.claude)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(Color.claude.opacity(0.16)))
+            PlanBadge(name: plan, tint: .claude)
         }
     }
 }

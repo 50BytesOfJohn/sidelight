@@ -90,7 +90,7 @@ public struct RailwaySummaryOptions: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        showsWorkspace = try container.decodeIfPresent(Bool.self, forKey: .showsWorkspace) ?? true
+        showsWorkspace = try container.decode(.showsWorkspace, or: true)
     }
 }
 
@@ -121,14 +121,10 @@ public struct RailwayServicesOptions: Codable, Hashable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = RailwayServicesOptions()
-        order = (try? container.decodeIfPresent(RailwayServiceOrder.self, forKey: .order)) ?? defaults.order
-        showsCommit = try container.decodeIfPresent(Bool.self, forKey: .showsCommit) ?? defaults.showsCommit
-        showsSleeping = try container.decodeIfPresent(Bool.self, forKey: .showsSleeping) ?? defaults.showsSleeping
-        maximumRows = min(
-            max(
-                try container.decodeIfPresent(Int.self, forKey: .maximumRows) ?? defaults.maximumRows,
-                Self.rowCountRange.lowerBound),
-            Self.rowCountRange.upperBound)
+        order = container.decodeLeniently(.order, or: defaults.order)
+        showsCommit = try container.decode(.showsCommit, or: defaults.showsCommit)
+        showsSleeping = try container.decode(.showsSleeping, or: defaults.showsSleeping)
+        maximumRows = try container.decode(.maximumRows, or: defaults.maximumRows).clamped(to: Self.rowCountRange)
     }
 }
 
@@ -145,8 +141,8 @@ public struct RailwayUsageOptions: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        showsEstimate = try container.decodeIfPresent(Bool.self, forKey: .showsEstimate) ?? true
-        showsLimit = try container.decodeIfPresent(Bool.self, forKey: .showsLimit) ?? true
+        showsEstimate = try container.decode(.showsEstimate, or: true)
+        showsLimit = try container.decode(.showsLimit, or: true)
     }
 }
 
@@ -160,7 +156,7 @@ public struct RailwayIncidentsOptions: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        showsMaintenance = try container.decodeIfPresent(Bool.self, forKey: .showsMaintenance) ?? true
+        showsMaintenance = try container.decode(.showsMaintenance, or: true)
     }
 }
 
@@ -189,9 +185,9 @@ public struct RailwayServiceBlockOptions: Codable, Hashable, Sendable {
         projectID = try container.decodeIfPresent(String.self, forKey: .projectID)
         serviceID = try container.decodeIfPresent(String.self, forKey: .serviceID)
         serviceName = try container.decodeIfPresent(String.self, forKey: .serviceName)
-        showsCommit = try container.decodeIfPresent(Bool.self, forKey: .showsCommit) ?? true
-        showsMetrics = try container.decodeIfPresent(Bool.self, forKey: .showsMetrics) ?? true
-        showsHistory = try container.decodeIfPresent(Bool.self, forKey: .showsHistory) ?? true
+        showsCommit = try container.decode(.showsCommit, or: true)
+        showsMetrics = try container.decode(.showsMetrics, or: true)
+        showsHistory = try container.decode(.showsHistory, or: true)
     }
 }
 
@@ -208,11 +204,11 @@ public struct RailwayBlockOptions: Codable, Hashable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = RailwayBlockOptions()
-        summary = try container.decodeIfPresent(RailwaySummaryOptions.self, forKey: .summary) ?? defaults.summary
-        services = try container.decodeIfPresent(RailwayServicesOptions.self, forKey: .services) ?? defaults.services
-        usage = try container.decodeIfPresent(RailwayUsageOptions.self, forKey: .usage) ?? defaults.usage
+        summary = try container.decode(.summary, or: defaults.summary)
+        services = try container.decode(.services, or: defaults.services)
+        usage = try container.decode(.usage, or: defaults.usage)
         incidents =
-            try container.decodeIfPresent(RailwayIncidentsOptions.self, forKey: .incidents) ?? defaults.incidents
+            try container.decode(.incidents, or: defaults.incidents)
     }
 }
 
@@ -256,17 +252,18 @@ public struct RailwaySettings: Codable, Hashable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = RailwaySettings()
-        account = (try? container.decodeIfPresent(RailwayAccountChoice.self, forKey: .account)) ?? defaults.account
+        account = container.decodeLeniently(.account, or: defaults.account)
         workspaceID = try container.decodeIfPresent(String.self, forKey: .workspaceID)
         workspaceName = try container.decodeIfPresent(String.self, forKey: .workspaceName)
         projectID = try container.decodeIfPresent(String.self, forKey: .projectID)
         projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
         environmentName = try container.decodeIfPresent(String.self, forKey: .environmentName)
-        refreshMinutes = try container.decodeIfPresent(Int.self, forKey: .refreshMinutes).map { max(1, $0) }
-        blocks = (try? container.decodeIfPresent(BlockLayout<RailwayBlock>.self, forKey: .blocks)) ?? defaults.blocks
-        glance = (try? container.decodeIfPresent(RailwayGlance.self, forKey: .glance)) ?? defaults.glance
+        refreshMinutes = try container.decodeIfPresent(Int.self, forKey: .refreshMinutes)?.clamped(
+            to: UsageRefresh.minuteRange)
+        blocks = container.decodeLeniently(.blocks, or: defaults.blocks)
+        glance = container.decodeLeniently(.glance, or: defaults.glance)
         blockOptions =
-            try container.decodeIfPresent(RailwayBlockOptions.self, forKey: .blockOptions) ?? defaults.blockOptions
+            try container.decode(.blockOptions, or: defaults.blockOptions)
         // Only the Service blocks the layout has.
         let services = try container.decodeIfPresent([String: RailwayServiceBlockOptions].self, forKey: .serviceBlocks)
         serviceBlocks = (services ?? [:]).filter { key, _ in

@@ -32,9 +32,9 @@ public struct CodexSpotlightOptions: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        showsPlan = try container.decodeIfPresent(Bool.self, forKey: .showsPlan) ?? true
-        showsDetails = try container.decodeIfPresent(Bool.self, forKey: .showsDetails) ?? true
-        showsLastMessage = try container.decodeIfPresent(Bool.self, forKey: .showsLastMessage) ?? true
+        showsPlan = try container.decode(.showsPlan, or: true)
+        showsDetails = try container.decode(.showsDetails, or: true)
+        showsLastMessage = try container.decode(.showsLastMessage, or: true)
     }
 }
 
@@ -55,12 +55,8 @@ public struct CodexSessionListOptions: Codable, Hashable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = CodexSessionListOptions()
-        maximumRows = min(
-            max(
-                try container.decodeIfPresent(Int.self, forKey: .maximumRows) ?? defaults.maximumRows,
-                Self.rowCountRange.lowerBound),
-            Self.rowCountRange.upperBound)
-        showsBranch = try container.decodeIfPresent(Bool.self, forKey: .showsBranch) ?? defaults.showsBranch
+        maximumRows = try container.decode(.maximumRows, or: defaults.maximumRows).clamped(to: Self.rowCountRange)
+        showsBranch = try container.decode(.showsBranch, or: defaults.showsBranch)
     }
 }
 
@@ -76,8 +72,8 @@ public struct CodexSessionLimitsOptions: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        reading = (try? container.decodeIfPresent(UsageReading.self, forKey: .reading)) ?? .remaining
-        showsWeeklyLimit = try container.decodeIfPresent(Bool.self, forKey: .showsWeeklyLimit) ?? true
+        reading = container.decodeLeniently(.reading, or: .remaining)
+        showsWeeklyLimit = try container.decode(.showsWeeklyLimit, or: true)
     }
 }
 
@@ -91,9 +87,9 @@ public struct CodexSessionsBlockOptions: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        spotlight = try container.decodeIfPresent(CodexSpotlightOptions.self, forKey: .spotlight) ?? .init()
-        sessions = try container.decodeIfPresent(CodexSessionListOptions.self, forKey: .sessions) ?? .init()
-        limits = try container.decodeIfPresent(CodexSessionLimitsOptions.self, forKey: .limits) ?? .init()
+        spotlight = try container.decode(.spotlight, or: .init())
+        sessions = try container.decode(.sessions, or: .init())
+        limits = try container.decode(.limits, or: .init())
     }
 }
 
@@ -120,13 +116,12 @@ public struct CodexSessionsSettings: Codable, Hashable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = CodexSessionsSettings()
-        recentHours = max(1, try container.decodeIfPresent(Int.self, forKey: .recentHours) ?? defaults.recentHours)
-        includesExec = try container.decodeIfPresent(Bool.self, forKey: .includesExec) ?? defaults.includesExec
+        recentHours = max(1, try container.decode(.recentHours, or: defaults.recentHours))
+        includesExec = try container.decode(.includesExec, or: defaults.includesExec)
         blocks =
-            (try? container.decodeIfPresent(BlockLayout<CodexSessionsBlock>.self, forKey: .blocks)) ?? defaults.blocks
+            container.decodeLeniently(.blocks, or: defaults.blocks)
         blockOptions =
-            try container.decodeIfPresent(CodexSessionsBlockOptions.self, forKey: .blockOptions)
-            ?? defaults.blockOptions
+            try container.decode(.blockOptions, or: defaults.blockOptions)
     }
 
     public var recentWindow: TimeInterval { TimeInterval(recentHours) * 60 * 60 }

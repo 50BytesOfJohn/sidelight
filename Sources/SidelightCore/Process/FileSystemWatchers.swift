@@ -121,3 +121,19 @@ public final class FileEventStream: Sendable {
         FSEventStreamRelease(stream)
     }
 }
+
+extension FileWatcher {
+    /// Calls `handler` on the main actor whenever the file at `url` changes.
+    public convenience init?(file url: URL, onMainActor handler: @escaping @MainActor @Sendable () -> Void) {
+        self.init(file: url, queue: .main) { MainActor.assumeIsolated(handler) }
+    }
+}
+
+extension FileEventStream {
+    /// Calls `handler` on the main actor whenever files under `url` change, coalesced by `latency`.
+    public convenience init?(
+        directory url: URL, latency: TimeInterval, onMainActor handler: @escaping @MainActor @Sendable () -> Void
+    ) {
+        self.init(directory: url, latency: latency, queue: .main) { MainActor.assumeIsolated(handler) }
+    }
+}

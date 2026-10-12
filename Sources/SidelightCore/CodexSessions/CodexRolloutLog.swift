@@ -411,7 +411,7 @@ enum CodexRolloutReducer {
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: AnyCodingKey.self)
             payload = try container.decode(Payload.self, forKey: AnyCodingKey("payload"))
-            timestamp = container.lenient(String.self, "timestamp").flatMap(parseDate)
+            timestamp = container.lenient(String.self, "timestamp").flatMap(Date.init(iso8601:))
         }
     }
 
@@ -522,10 +522,5 @@ enum CodexRolloutReducer {
             let spawn = try? subagent?.nestedContainer(keyedBy: AnyCodingKey.self, forKey: AnyCodingKey("thread_spawn"))
             parentThreadID = spawn?.lenient(String.self, "parent_thread_id")
         }
-    }
-
-    static func parseDate(_ text: String) -> Date? {
-        (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(text))
-            ?? (try? Date.ISO8601FormatStyle().parse(text))
     }
 }

@@ -31,9 +31,9 @@ enum CodexSessionOpener {
         return .app(url)
     }
 
-    /// Whether there's anything to bring forward: a process still running, or the desktop app to open it in.
+    /// Whether a click brings anything forward, so a row never offers what it can't do.
     static func canOpen(_ session: CodexSession) -> Bool {
-        session.pid != nil || isAppInstalled
+        destination(of: session) != nil
     }
 
     /// Beeps when nothing could be brought forward, such as a session running in tmux without the desktop app.

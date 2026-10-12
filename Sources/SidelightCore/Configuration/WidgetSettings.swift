@@ -89,15 +89,15 @@ public struct ClockSettings: Codable, Hashable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = ClockSettings()
-        style = try container.decodeIfPresent(ClockStyle.self, forKey: .style) ?? defaults.style
-        showsSeconds = try container.decodeIfPresent(Bool.self, forKey: .showsSeconds) ?? defaults.showsSeconds
-        uses24HourTime = try container.decodeIfPresent(Bool.self, forKey: .uses24HourTime) ?? defaults.uses24HourTime
-        alignment = try container.decodeIfPresent(ClockAlignment.self, forKey: .alignment) ?? defaults.alignment
-        analog = try container.decodeIfPresent(AnalogClockOptions.self, forKey: .analog) ?? defaults.analog
-        pixel = try container.decodeIfPresent(PixelClockOptions.self, forKey: .pixel) ?? defaults.pixel
-        flip = try container.decodeIfPresent(FlipClockOptions.self, forKey: .flip) ?? defaults.flip
-        words = try container.decodeIfPresent(WordClockOptions.self, forKey: .words) ?? defaults.words
-        binary = try container.decodeIfPresent(BinaryClockOptions.self, forKey: .binary) ?? defaults.binary
+        style = try container.decode(.style, or: defaults.style)
+        showsSeconds = try container.decode(.showsSeconds, or: defaults.showsSeconds)
+        uses24HourTime = try container.decode(.uses24HourTime, or: defaults.uses24HourTime)
+        alignment = try container.decode(.alignment, or: defaults.alignment)
+        analog = try container.decode(.analog, or: defaults.analog)
+        pixel = try container.decode(.pixel, or: defaults.pixel)
+        flip = try container.decode(.flip, or: defaults.flip)
+        words = try container.decode(.words, or: defaults.words)
+        binary = try container.decode(.binary, or: defaults.binary)
     }
 
     /// Whether the face shows seconds, and so redraws every second.
@@ -233,11 +233,11 @@ public struct CodexSettings: Codable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = CodexSettings()
         showsWeeklyLimit =
-            try container.decodeIfPresent(Bool.self, forKey: .showsWeeklyLimit) ?? defaults.showsWeeklyLimit
+            try container.decode(.showsWeeklyLimit, or: defaults.showsWeeklyLimit)
         limitReading =
-            (try? container.decodeIfPresent(LimitReading.self, forKey: .limitReading)) ?? defaults.limitReading
+            container.decodeLeniently(.limitReading, or: defaults.limitReading)
         showsTokenHistory =
-            try container.decodeIfPresent(Bool.self, forKey: .showsTokenHistory) ?? defaults.showsTokenHistory
+            try container.decode(.showsTokenHistory, or: defaults.showsTokenHistory)
     }
 }
 
@@ -262,11 +262,11 @@ public struct ClaudeCodeSettings: Codable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = ClaudeCodeSettings()
         showsWeeklyLimit =
-            try container.decodeIfPresent(Bool.self, forKey: .showsWeeklyLimit) ?? defaults.showsWeeklyLimit
+            try container.decode(.showsWeeklyLimit, or: defaults.showsWeeklyLimit)
         refreshesFromAnthropic =
-            try container.decodeIfPresent(Bool.self, forKey: .refreshesFromAnthropic) ?? defaults.refreshesFromAnthropic
-        refreshMinutes = max(
-            1, try container.decodeIfPresent(Int.self, forKey: .refreshMinutes) ?? defaults.refreshMinutes)
+            try container.decode(.refreshesFromAnthropic, or: defaults.refreshesFromAnthropic)
+        refreshMinutes = try container.decode(.refreshMinutes, or: defaults.refreshMinutes).clamped(
+            to: UsageRefresh.minuteRange)
     }
 }
 
@@ -294,10 +294,10 @@ public struct CursorSettings: Codable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = CursorSettings()
         refreshesFromCursor =
-            try container.decodeIfPresent(Bool.self, forKey: .refreshesFromCursor) ?? defaults.refreshesFromCursor
-        refreshMinutes = max(
-            1, try container.decodeIfPresent(Int.self, forKey: .refreshMinutes) ?? defaults.refreshMinutes)
-        showsOnDemand = try container.decodeIfPresent(Bool.self, forKey: .showsOnDemand) ?? defaults.showsOnDemand
+            try container.decode(.refreshesFromCursor, or: defaults.refreshesFromCursor)
+        refreshMinutes = try container.decode(.refreshMinutes, or: defaults.refreshMinutes).clamped(
+            to: UsageRefresh.minuteRange)
+        showsOnDemand = try container.decode(.showsOnDemand, or: defaults.showsOnDemand)
     }
 }
 
@@ -347,17 +347,16 @@ public struct AIUsageSettings: Codable, Hashable, Sendable {
         if let names = try? container.decodeIfPresent([String].self, forKey: .providers) {
             providers = Self.ordered(names.compactMap(AIUsageProvider.init(rawValue:)))
         }
-        reading = (try? container.decodeIfPresent(UsageReading.self, forKey: .reading)) ?? defaults.reading
+        reading = container.decodeLeniently(.reading, or: defaults.reading)
         showsOtherLimits =
-            try container.decodeIfPresent(Bool.self, forKey: .showsOtherLimits) ?? defaults.showsOtherLimits
+            try container.decode(.showsOtherLimits, or: defaults.showsOtherLimits)
         refreshesClaudeFromAnthropic =
-            try container.decodeIfPresent(Bool.self, forKey: .refreshesClaudeFromAnthropic)
-            ?? defaults.refreshesClaudeFromAnthropic
-        claudeRefreshMinutes = max(
-            1, try container.decodeIfPresent(Int.self, forKey: .claudeRefreshMinutes) ?? defaults.claudeRefreshMinutes)
-        refreshesCursor = try container.decodeIfPresent(Bool.self, forKey: .refreshesCursor) ?? defaults.refreshesCursor
-        cursorRefreshMinutes = max(
-            1, try container.decodeIfPresent(Int.self, forKey: .cursorRefreshMinutes) ?? defaults.cursorRefreshMinutes)
+            try container.decode(.refreshesClaudeFromAnthropic, or: defaults.refreshesClaudeFromAnthropic)
+        claudeRefreshMinutes = try container.decode(.claudeRefreshMinutes, or: defaults.claudeRefreshMinutes).clamped(
+            to: UsageRefresh.minuteRange)
+        refreshesCursor = try container.decode(.refreshesCursor, or: defaults.refreshesCursor)
+        cursorRefreshMinutes = try container.decode(.cursorRefreshMinutes, or: defaults.cursorRefreshMinutes).clamped(
+            to: UsageRefresh.minuteRange)
     }
 
     public func includes(_ provider: AIUsageProvider) -> Bool { providers.contains(provider) }
@@ -393,6 +392,13 @@ public struct CalendarSettings: Codable, Hashable, Sendable {
     public init(eventCount: Int = 3) {
         self.eventCount = eventCount
     }
+
+    /// A count the settings don't offer, edited into the file by hand, is moved into range.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        eventCount = try container.decode(.eventCount, or: CalendarSettings().eventCount).clamped(
+            to: Self.eventCountRange)
+    }
 }
 
 public struct ClaudeSessionsSettings: Codable, Hashable, Sendable {
@@ -415,12 +421,9 @@ public struct ClaudeSessionsSettings: Codable, Hashable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = ClaudeSessionsSettings()
-        sessionCount = min(
-            max(
-                try container.decodeIfPresent(Int.self, forKey: .sessionCount) ?? defaults.sessionCount,
-                Self.sessionCountRange.lowerBound),
-            Self.sessionCountRange.upperBound)
-        recentHours = max(1, try container.decodeIfPresent(Int.self, forKey: .recentHours) ?? defaults.recentHours)
+        sessionCount = try container.decode(.sessionCount, or: defaults.sessionCount).clamped(
+            to: Self.sessionCountRange)
+        recentHours = max(1, try container.decode(.recentHours, or: defaults.recentHours))
     }
 
     public var recentWindow: TimeInterval { TimeInterval(recentHours) * 60 * 60 }

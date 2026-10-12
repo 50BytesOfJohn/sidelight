@@ -181,10 +181,17 @@ struct ContractHarness {
             )
         }
 
-        let cursorService = CursorChatsService()
+        // The actual generic index with its read injected; the database folder is absent, so no watcher is made.
+        let unwatched = directory.appending(path: "no-watched-folder/state.db")
+        let cursorService = CursorChatsService(name: "Cursor", database: unwatched, log: Log.cursor) { _, _ in
+            await ControlledRead.read()
+        }
+        let openCodeService = OpenCodeSessionsService(name: "OpenCode", database: unwatched, log: Log.openCode) {
+            database, _ in await ControlledOpenCodeRead.read(database)
+        }
         let sources = AgentSessionSources(
             claudeCode: ClaudeSessionsService(), codex: CodexSessionsService(), cursor: cursorService,
-            openCode: OpenCodeSessionsService())
+            openCode: openCodeService)
         check("Cursor before initial read is loading", sources.state(of: .cursor) == .reading)
         let loadingContent = AgentSessionsContent(
             sources: sources, settings: AgentSessionsSettings(providers: [.cursor]), sessions: [], layout: .regular,
@@ -196,14 +203,14 @@ struct ContractHarness {
         // Direct publication exercises actual result handling without depending on FSEvents.
         for (result, state, title) in [
             (
-                Result<[CursorChat], CursorChatIndex.Failure>.failure(.unreadable),
+                Result<[CursorChat], SessionIndexFailure>.failure(.unreadable),
                 AgentSessionSources.State.unreadable(isStale: false), "Can't read sessions"
             ), (.failure(.unsupported), .unsupported, "Can't read sessions"),
             (.success([]), .found(open: nil), "No sessions in the last 24h"),
             (.failure(.noDatabase), .notFound, "No agents found"),
         ] {
             ControlledRead.result = result
-            await cursorService.reload(generation: cursorService.reloadGeneration)
+            await cursorService.reloadNow()
             check("Cursor completed read state \(title)", sources.state(of: .cursor) == state)
             let content = AgentSessionsContent(
                 sources: sources, settings: AgentSessionsSettings(providers: [.cursor]), sessions: [], layout: .regular,
@@ -214,17 +221,17 @@ struct ContractHarness {
                 title.hasPrefix("No sessions") ? leaf.list != nil : leaf.message?.title == title)
         }
         ControlledRead.result = .success([chat])
-        await cursorService.reload(generation: cursorService.reloadGeneration)
+        await cursorService.reloadNow()
         ControlledRead.result = .failure(.unreadable)
-        await cursorService.reload(generation: cursorService.reloadGeneration)
+        await cursorService.reloadNow()
         check(
             "Good data then unreadable retains rows and stale warning",
-            cursorService.chats == [chat] && sources.state(of: .cursor) == .unreadable(isStale: true)
+            cursorService.sessions == [chat] && sources.state(of: .cursor) == .unreadable(isStale: true)
                 && sources.state(of: .cursor).problem(of: .cursor)?.contains("out of date") == true)
         for healthyRows in [false, true] {
             for failure in [CursorChatIndex.Failure.unreadable, .unsupported] {
                 ControlledRead.result = .failure(failure)
-                await cursorService.reload(generation: cursorService.reloadGeneration)
+                await cursorService.reloadNow()
                 let healthy = healthyRows ? [actionable] : []
                 let content = AgentSessionsContent(
                     sources: sources, settings: AgentSessionsSettings(providers: [.codex, .cursor]), sessions: healthy,
@@ -236,10 +243,10 @@ struct ContractHarness {
             }
         }
         ControlledRead.result = .success([chat])
-        await cursorService.reload(generation: cursorService.reloadGeneration)
+        await cursorService.reloadNow()
         check(
             "Repair clears warning and restores good source",
-            sources.state(of: .cursor) == .found(open: nil) && cursorService.chats == [chat])
+            sources.state(of: .cursor) == .found(open: nil) && cursorService.sessions == [chat])
         cursorService.stop()
 
         ControlledRead.holdNext = true
@@ -249,12 +256,12 @@ struct ContractHarness {
         let new = CursorChat(id: "new-generation", updatedAt: now)
         ControlledRead.result = .success([new])
         cursorService.start()
-        await waitFor { cursorService.chats == [new] }
+        await waitFor { cursorService.sessions == [new] }
         ControlledRead.pending?.resume(returning: .success([chat]))
         ControlledRead.pending = nil
         for _ in 0..<100 { await Task.yield() }
-        check("Old read completing after restart cannot overwrite newer rows", cursorService.chats == [new])
-        check("Old read cannot drop replacement task handle", cursorService.reloadTask == nil)
+        check("Old read completing after restart cannot overwrite newer rows", cursorService.sessions == [new])
+        check("Old read cannot drop replacement task handle", !cursorService.reload.isActive)
         cursorService.stop()
         ControlledRead.holdNext = true
         cursorService.start()
@@ -271,25 +278,24 @@ struct ContractHarness {
         for _ in 0..<100 { await Task.yield() }
         check(
             "Old completion preserves active replacement handle",
-            cursorService.reloadTask != nil && cursorService.chats == [new])
+            cursorService.reload.isActive && cursorService.sessions == [new])
         replacementRead?.resume(returning: .success([chat]))
-        await waitFor { cursorService.chats == [chat] }
-        check("Held replacement still publishes after old completion", cursorService.chats == [chat])
+        await waitFor { cursorService.sessions == [chat] }
+        check("Held replacement still publishes after old completion", cursorService.sessions == [chat])
         cursorService.stop()
         // OpenCode publication uses the current production service body with only its async read controlled.
-        let openCodeService = sources.openCode
         check("OpenCode initial source is reading", sources.state(of: .openCode) == .reading)
         openCodeService.isEnabled = true
         for (result, state) in [
             (
-                Result<[OpenCodeSession], OpenCodeSessionIndex.Failure>.failure(.unreadable),
+                Result<[OpenCodeSession], SessionIndexFailure>.failure(.unreadable),
                 AgentSessionSources.State.unreadable(isStale: false)
             ),
             (.failure(.unsupported), .unsupported), (.failure(.noDatabase), .notFound),
             (.success([]), .found(open: nil)),
         ] {
             ControlledOpenCodeRead.result = result
-            await openCodeService.reload(generation: openCodeService.reloadGeneration)
+            await openCodeService.reloadNow()
             check("OpenCode completed source state \(state)", sources.state(of: .openCode) == state)
             let content = AgentSessionsContent(
                 sources: sources, settings: AgentSessionsSettings(providers: [.openCode]), sessions: [],
@@ -302,9 +308,9 @@ struct ContractHarness {
         let openCode = OpenCodeSession(
             id: "ses_fixture", title: "Synthetic OpenCode", directory: directory.path, createdAt: now, updatedAt: now)
         ControlledOpenCodeRead.result = .success([openCode])
-        await openCodeService.reload(generation: openCodeService.reloadGeneration)
+        await openCodeService.reloadNow()
         ControlledOpenCodeRead.result = .failure(.unreadable)
-        await openCodeService.reload(generation: openCodeService.reloadGeneration)
+        await openCodeService.reloadNow()
         check(
             "OpenCode unreadable preserves stale rows",
             openCodeService.sessions == [openCode] && sources.state(of: .openCode) == .unreadable(isStale: true))
@@ -317,22 +323,22 @@ struct ContractHarness {
                 AgentSession(openCode).id
             ])
         ControlledOpenCodeRead.result = .success([openCode])
-        await openCodeService.reload(generation: openCodeService.reloadGeneration)
+        await openCodeService.reloadNow()
         check("OpenCode recovery clears warning", sources.state(of: .openCode) == .found(open: nil))
         ControlledOpenCodeRead.result = .failure(.unsupported)
-        await openCodeService.reload(generation: openCodeService.reloadGeneration)
+        await openCodeService.reloadNow()
         check("OpenCode incompatible replacement clears stale rows", openCodeService.sessions.isEmpty)
         ControlledOpenCodeRead.result = .success([openCode])
-        await openCodeService.reload(generation: openCodeService.reloadGeneration)
+        await openCodeService.reloadNow()
         ControlledOpenCodeRead.result = .failure(.noDatabase)
-        await openCodeService.reload(generation: openCodeService.reloadGeneration)
+        await openCodeService.reloadNow()
         check(
             "OpenCode removed source clears rows and starts missing sweep",
-            openCodeService.sessions.isEmpty && openCodeService.sweepTask != nil)
+            openCodeService.sessions.isEmpty && openCodeService.sweep.isRunning)
         openCodeService.stop()
         check(
             "OpenCode stop cancels read and sweep",
-            openCodeService.reloadTask == nil && openCodeService.sweepTask == nil && openCodeService.watcher == nil)
+            !openCodeService.reload.isActive && !openCodeService.sweep.isRunning && openCodeService.watcher == nil)
         ControlledOpenCodeRead.holdNext = true
         openCodeService.start()
         openCodeService.start()
@@ -349,7 +355,7 @@ struct ContractHarness {
         for _ in 0..<100 { await Task.yield() }
         check(
             "OpenCode old completion preserves replacement handle and does not publish",
-            openCodeService.reloadTask != nil && openCodeService.sessions.isEmpty)
+            openCodeService.reload.isActive && openCodeService.sessions.isEmpty)
         replacementOpenCodeRead?.resume(returning: .success([openCode]))
         await waitFor { openCodeService.sessions == [openCode] }
         check(
@@ -469,7 +475,7 @@ struct ContractHarness {
         check(
             "Other providers acquire no context-copy menus",
             [AgentSession(claude), actionable, cursor].allSatisfy { AgentSessionOpener.contextCopies(of: $0).isEmpty })
-        if let db = OpenCodeSessionsService.database {
+        if let db = OpenCodeSessionsService.openCode().database {
             try FileManager.default.createDirectory(
                 at: db.deletingLastPathComponent(), withIntermediateDirectories: true)
             var writer: OpaquePointer?
@@ -519,8 +525,8 @@ struct ContractHarness {
 
     // SwiftUI stores the chosen conditional branch. Inspect the actual production leaf,
     // rather than duplicating its branching conditions in a test implementation.
-    static func contentLeaf(_ value: Any, depth: Int = 0) -> (message: AgentSessionsMessage?, list: AgentSessionList?) {
-        if let message = value as? AgentSessionsMessage { return (message, nil) }
+    static func contentLeaf(_ value: Any, depth: Int = 0) -> (message: WidgetMessage?, list: AgentSessionList?) {
+        if let message = value as? WidgetMessage { return (message, nil) }
         if let list = value as? AgentSessionList { return (nil, list) }
         guard depth < 20 else { return (nil, nil) }
         for child in Mirror(reflecting: value).children {

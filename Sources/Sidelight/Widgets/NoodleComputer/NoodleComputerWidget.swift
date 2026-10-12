@@ -109,10 +109,7 @@ struct NoodleComputerSettingsEditor: View {
         }
         Divider()
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Circle().fill(statusColor).frame(width: 7, height: 7)
-                Text(statusText).font(.callout)
-            }
+            StatusRow(color: statusColor, text: statusText)
             HStack {
                 if service.status == .connected {
                     Button(service.isLending ? "Waiting for Noodle Computer…" : "Lend a Computer…") {
@@ -127,12 +124,12 @@ struct NoodleComputerSettingsEditor: View {
                     }
                 }
             }
-            caption(
+            SettingsCaption(
                 "Beta. Turn on Allow agents in Noodle Computer's settings, under Agents. It asks once whether to "
                     + "let Sidelight in, and shows Sidelight only the computers you lend it. Sidelight checks on "
                     + "them every 30 seconds while Noodle Computer is open, and never while it's closed."
             )
-            caption(versionText)
+            SettingsCaption(versionText)
         }
     }
 
@@ -181,13 +178,6 @@ struct NoodleComputerSettingsEditor: View {
         let tested = "Tested with Noodle Computer \(NoodleComputerService.testedVersion)"
         guard let installed = service.installedVersion else { return tested + "." }
         return installed == NoodleComputerService.testedVersion ? tested + "." : tested + "; you have \(installed)."
-    }
-
-    private func caption(_ text: String) -> some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -407,43 +397,18 @@ struct NoodleComputerWidgetView: View {
         }
     }
 
-    @ViewBuilder
     private var message: some View {
         let message = currentMessage
-        let text = [message.title, message.detail].compactMap(\.self).joined(separator: ". ")
-        if layout.isGlanceable {
-            Image(systemName: message.systemImage)
-                .foregroundStyle(.secondary)
-                .opens { message.action?.run() }
-                .help(text)
-                .accessibilityLabel(text)
-        } else {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(message.title).font(layout == .compact ? .system(size: 11) : .callout)
-                if let detail = message.detail, layout == .regular {
-                    Text(detail).font(.caption).lineLimit(3).fixedSize(horizontal: false, vertical: true)
-                }
-                if let action = message.action, layout == .regular {
-                    Button(action.title, action: action.run)
-                        .controlSize(.small)
-                        .disabled(service.isLending)
-                        .padding(.top, 4)
-                }
-            }
-            .foregroundStyle(.secondary)
-            .accessibilityElement(children: .contain)
-        }
+        return WidgetMessage(
+            title: message.title, detail: message.detail, systemImage: message.systemImage, layout: layout,
+            action: message.action.map {
+                WidgetMessage.Action(
+                    title: $0.title, isDisabled: service.isLending, runsOnGlanceClick: true, run: $0.run)
+            })
     }
 }
 
 extension View {
-    /// A click runs `action`.
-    fileprivate func opens(_ action: @escaping () -> Void) -> some View {
-        contentShape(.rect)
-            .onTapGesture(perform: action)
-            .accessibilityAddTraits(.isButton)
-    }
-
     /// A click opens the computer; right-click offers the rest.
     fileprivate func computerActions(_ computer: NoodleComputer, service: NoodleComputerService) -> some View {
         opens { service.open(computer) }
@@ -474,8 +439,6 @@ private struct ComputerRow: View {
     let isCompact: Bool
     let service: NoodleComputerService
 
-    @State private var isHovered = false
-
     private var isQuiet: Bool { !computer.state.isRunning && !computer.state.isChanging }
 
     var body: some View {
@@ -485,14 +448,7 @@ private struct ComputerRow: View {
             content.contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .background {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(.primary.opacity(isHovered ? 0.08 : 0))
-                .padding(.horizontal, -5)
-                .padding(.vertical, isCompact ? -2 : -4)
-        }
-        .onHover { isHovered = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .hoverHighlight(vertical: isCompact ? 2 : 4)
         .contextMenu { ComputerMenu(computer: computer, service: service) }
         .help(computer.state.canStart ? "Start and open in Noodle Computer" : "Open in Noodle Computer")
         .accessibilityHint("Opens the computer in Noodle Computer")

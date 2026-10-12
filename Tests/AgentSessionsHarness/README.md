@@ -23,8 +23,11 @@ successful initial reads retain their real 120-second sweep and read later write
 
 `prepare-contracts.py` generates copies under ignored build/, with source hashes. It
 exposes private declarations, mocks named AppKit/host/sound/process boundaries and controls
-only the services' asynchronous reader calls. All actual decision/publication bodies stay.
-SwiftUI conditional leaves are reflected with small source-service/list/logo stand-ins;
+only the session index's asynchronous reader calls, through the read closure its initializer
+takes (Cursor and OpenCode share one `WatchedSessionIndex`). All actual decision/publication
+bodies stay.
+SwiftUI conditional leaves (the shared `WidgetMessage`, or the list) are reflected with small
+source-service/list/logo stand-ins;
 row/menu/help/glance bodies compile too. Layout and OS AX still require real app validation.
 
 OpenCode policy is metadata only. Exactly two verbatim plaintext copies are offered; no
@@ -36,8 +39,10 @@ The structural policy checker adds privacy, row/AX/menu and packaging tripwires.
 Claude/Codex/Cursor routing and help contracts remain. Core metadata/schema/config/demand/WAL
 checks remain in Swift Testing.
 
-`prepare-fallback.py` copies the exact shared FileEventStream wrapper and both actual
-services, exposing private state and renaming the wrapper to avoid the core module symbol.
+`prepare-fallback.py` copies the exact shared FileEventStream wrapper and the actual
+`WatchedSessionIndex` (the one class behind both services) with `CoalescedReload`,
+`RepeatingTask` and `DataService`, exposing private state and renaming the wrapper to avoid
+the core module symbol.
 Only C Start/Stop/Invalidate/Release calls are observed; allocation, context release callback,
 readers and timers are real. Start's Boolean is injected deterministically for lifecycle
 checks, with real C invalidation/release. CoreServices may release its callback asynchronously

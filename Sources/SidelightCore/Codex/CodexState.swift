@@ -56,7 +56,7 @@ public struct CodexState: Equatable, Sendable {
     /// since. Forecasts only make sense then.
     public func isLive(at now: Date) -> Bool {
         guard source == .appServer, problem == nil, let limitsCapturedAt else { return false }
-        return now.timeIntervalSince(limitsCapturedAt) < 3 * Double(Self.refreshInterval.components.seconds)
+        return now.timeIntervalSince(limitsCapturedAt) < 3 * Self.refreshInterval.timeInterval
     }
 
     /// Codex has stopped ordinary usage, whatever the percentages say. `nil` from Codex isn't read as allowed or not.

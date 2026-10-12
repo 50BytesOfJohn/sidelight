@@ -25,6 +25,7 @@ struct PanelRootView: View {
         }
         .padding(margin)
         .environment(\.colorScheme, appearance.colorScheme(system: systemColorScheme, imageURL: imageURL))
+        .environment(\.isPanelShown, layout.isOnScreen)
     }
 
     /// The desktop picture behind the background while the window fills its strip. A fitted window keeps its

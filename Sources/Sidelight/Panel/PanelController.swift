@@ -20,6 +20,13 @@ final class PanelLayout {
     var columns: PanelColumns
     var length: PanelLength
     var alignment: PanelAlignment
+    /// Shown, as opposed to hidden with the shortcut. Panels start hidden until shown.
+    var isShown = false
+    /// Nothing of the window can be seen: the display sleeps, the screen is locked, or the screensaver runs.
+    var isOccluded = false
+
+    /// Shown and visible; anything that animates or ticks on its own pauses otherwise.
+    var isOnScreen: Bool { isShown && !isOccluded }
 
     init(_ placement: PanelPlacement) {
         displayID = placement.displayID
@@ -66,11 +73,18 @@ final class PanelController {
     private var isChangingEdge = false
     /// Bumped on every transition so a stale completion handler can tell it was superseded.
     private var transitionGeneration = 0
+    private var occlusionObserver: (any NSObjectProtocol)?
+    /// Told when the panel can no longer be seen at all, or can again.
+    private let onOcclusionChange: (_ isOccluded: Bool) -> Void
 
     var position: PanelPosition { placement.position }
 
-    init(placement: PanelPlacement, environment: AppEnvironment) {
+    init(
+        placement: PanelPlacement, environment: AppEnvironment,
+        onOcclusionChange: @escaping (_ isOccluded: Bool) -> Void
+    ) {
         self.placement = placement
+        self.onOcclusionChange = onOcclusionChange
         layout = PanelLayout(placement)
         window = PanelWindow(
             contentRect: placement.strip,
@@ -97,6 +111,19 @@ final class PanelController {
         window.contentView = hostingView
         // Measure the content now, so a fitted panel doesn't first show at the strip's full length.
         hostingView.layoutSubtreeIfNeeded()
+
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.occlusionChanged() }
+        }
+    }
+
+    private func occlusionChanged() {
+        let isOccluded = !window.occlusionState.contains(.visible)
+        guard isOccluded != layout.isOccluded else { return }
+        layout.isOccluded = isOccluded
+        onOcclusionChange(isOccluded)
     }
 
     /// The area other windows should stay out of, or `nil` while the panel is hidden or fading out. Always the
@@ -119,19 +146,24 @@ final class PanelController {
     }
 
     func show() {
+        layout.isShown = true
         window.alphaValue = 1
         window.orderFrontRegardless()
     }
 
     func hide() {
+        layout.isShown = false
         window.orderOut(nil)
     }
 
     /// Hides the window for good and releases its SwiftUI content.
     func close() {
         transitionGeneration += 1
+        layout.isShown = false
         window.orderOut(nil)
         window.contentView = nil
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = nil
     }
 
     /// Moves the panel to `newPlacement`. Edge changes fade out and slide in; other changes animate the frame

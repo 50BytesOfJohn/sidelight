@@ -23,6 +23,14 @@ public enum RateLimitPace: Equatable, Sendable {
     case runsOut(at: Date)
     /// The limit is used up until the window resets.
     case reached
+
+    /// The limit is used up, or runs out before the window resets.
+    public var isRunningOut: Bool {
+        switch self {
+        case .runsOut, .reached: true
+        case .lasts, .unknown: false
+        }
+    }
 }
 
 extension RateLimitWindow {

@@ -7,7 +7,7 @@ import SidelightCore
 struct OpenCodeServiceHarness {
     static func main() async throws {
         guard URL.homeDirectory.path.contains("/build/opencode-testing/"),
-            let database = OpenCodeSessionsService.database
+            let database = OpenCodeSessionsService.openCode().database
         else { fatalError("Synthetic file home required") }
         let storage = database.deletingLastPathComponent()
         var checks = 0
@@ -23,7 +23,7 @@ struct OpenCodeServiceHarness {
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
-        let service = OpenCodeSessionsService()
+        let service = OpenCodeSessionsService.openCode()
         service.start()
         service.start()
         await waitFor { service.hasLoaded }
@@ -62,7 +62,7 @@ struct OpenCodeServiceHarness {
             "unreadable event preserves stale metadata",
             service.availability == .unreadable && service.sessions.first?.title == "Stopped")
         service.stop()
-        let initialError = OpenCodeSessionsService()
+        let initialError = OpenCodeSessionsService.openCode()
         initialError.start()
         await waitFor { initialError.hasLoaded }
         check(

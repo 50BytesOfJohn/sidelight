@@ -19,7 +19,7 @@ def check(name, valid):
 opener = (root / 'Sources/Sidelight/Widgets/AgentSessions/AgentSessionOpener.swift').read_text()
 widget = (root / 'Sources/Sidelight/Widgets/AgentSessions/AgentSessionsWidget.swift').read_text()
 core = (root / 'Sources/SidelightCore/OpenCode/OpenCodeSessionIndex.swift').read_text()
-service = (root / 'Sources/Sidelight/Widgets/AgentSessions/OpenCodeSessionsService.swift').read_text()
+service = (root / 'Sources/Sidelight/Widgets/AgentSessions/WatchedSessionIndex.swift').read_text()
 check('removed OpenCode command/discovery/Terminal APIs absent', all(token not in opener + core for token in [
     'terminalCommand', 'resumeInTerminal', 'OpenCodeSessionLinks', 'terminalScript(', 'opencode2',
     'ProcessRunner', 'osascript', 'case launch', 'OPENCODE_BIN_PATH']))
@@ -29,9 +29,13 @@ check('OpenCode copy menu uses only named context data',
       and 'ContextCopy(title: "Copy Folder Path", systemImage: "folder", text: openCode.directory)' in opener
       and 'ForEach(AgentSessionOpener.contextCopies(of: session))' in widget
       and 'AgentSessionOpener.copy(context)' in widget)
+# The hover fill moved into the shared hoverHighlight modifier: the row passes whether it has a route, and the
+# modifier fills only while hovered and enabled.
+hover = (root / 'Sources/Sidelight/DesignSystem/HoverRow.swift').read_text()
 check('actual row action and hover require route',
       'if route != nil { AgentSessionOpener.open(session) }' in widget
-      and 'isHovered && route != nil ? 0.08 : 0' in widget)
+      and '.hoverHighlight(isEnabled: route != nil' in widget
+      and '.fill(.primary.opacity(isHovered && isEnabled ? opacity : 0))' in hover)
 check('actual row AX hint and help share unavailable policy',
       '.accessibilityHint(' in widget
       and '? "" : AgentSessionOpener.unavailableHelp(for: session)' in widget
@@ -46,11 +50,18 @@ check('overview explicitly distinguishes OpenCode copy-only metadata policy',
       and any(word in summary.lower() for word in ['metadata', "aren't opened", "can't be opened", 'not opened']))
 check('README explicitly says metadata and no widget opening',
       "listed by when they last changed (copy their ID or folder; they aren't opened from the widget)" in (root / 'README.md').read_text())
-# Accept only literal messages: even private interpolation would make this assertion fail.
-logs = re.findall(r'Log\.openCode\.(?:notice|info|error|debug|warning|fault)\(([^\n]+)\)', service)
-check('all OpenCode log messages fixed without raw ID title directory or path',
-      len(logs) == 4 and all(re.fullmatch(r'"[^"\\]*"', entry) for entry in logs)
-      and '"No OpenCode database found"' in logs and 'privacy: .public' not in service)
+# OpenCode shares one generic index with Cursor now, so its log calls go through `log` with the app's name as the
+# only interpolation. Accept literal text plus exactly that name: any interpolation of an ID, title, directory or
+# path (the database URL included) would make this assertion fail.
+logs = re.findall(r'\blog\.(?:notice|info|error|debug|warning|fault)\("((?:[^"\\]|\\.)*)"\)', service)
+name = r'\(self\.name, privacy: \.public\)'
+check('all shared index log messages fixed text plus the app name only, none with ID title directory or path',
+      len(logs) == 4 and all('\\(' not in re.sub(name, '', entry) for entry in logs)
+      and sum(len(re.findall(name, entry)) for entry in logs) == service.count('privacy:')
+      and 'No \\(self.name, privacy: .public) database found' in logs
+      and len(re.findall(r'\blog\.[a-z]+\(', service)) == 4 and not re.search(r'\bdatabase\b[^\n]*privacy:', service))
+check('OpenCode is named literally and logs under its own category',
+      'OpenCodeSessionsService(name: "OpenCode", database: database, log: Log.openCode)' in service)
 check('fixture tests and seeder have no research dependency', all('research/opencode-sessions/fixtures' not in p.read_text()
       for p in [root / 'Tests/SidelightCoreTests/OpenCodeSessionTests.swift', root / 'Tests/AgentSessionsHarness/opencode-fixtures.py']))
 check('packaged fixture provenance and complete license present',

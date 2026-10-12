@@ -19,10 +19,11 @@ final class ConfigurationStore {
 
     let fileURL: URL
 
+    /// What the file held when last read or written.
     @ObservationIgnored private var lastFileContents: Data?
     @ObservationIgnored private var isApplyingFileChange = false
-    @ObservationIgnored private var pendingSave: Task<Void, Never>?
-    @ObservationIgnored private var pendingReload: Task<Void, Never>?
+    @ObservationIgnored private let pendingSave = DelayedTask()
+    @ObservationIgnored private let pendingReload = DelayedTask()
     @ObservationIgnored private var watcher: FileWatcher?
 
     static let saveDelay: Duration = .milliseconds(300)
@@ -56,16 +57,13 @@ final class ConfigurationStore {
     /// Starts hot-reloading external edits to the configuration file.
     func startWatchingFile() {
         guard watcher == nil else { return }
-        watcher = FileWatcher(file: fileURL, queue: .main) { [weak self] in
-            MainActor.assumeIsolated { self?.scheduleReload() }
-        }
+        watcher = FileWatcher(file: fileURL) { [weak self] in self?.scheduleReload() }
     }
 
     /// Writes any pending change immediately (e.g. right before the app quits).
     func flush() {
-        guard let pendingSave else { return }
+        guard pendingSave.isPending else { return }
         pendingSave.cancel()
-        self.pendingSave = nil
         save()
     }
 
@@ -88,7 +86,6 @@ final class ConfigurationStore {
             applyFromFile(try AppConfiguration(json: data), contents: data)
         } catch {
             Log.configuration.error("Configuration file is invalid, using defaults: \(error)")
-            backUpInvalidFile(data)
             save()
         }
     }
@@ -101,32 +98,48 @@ final class ConfigurationStore {
         isApplyingFileChange = false
     }
 
-    private func backUpInvalidFile(_ data: Data) {
-        let backup = fileURL.deletingPathExtension().appendingPathExtension("invalid.json")
-        do {
-            try data.write(to: backup, options: .atomic)
-            Log.configuration.notice(
-                "Moved the invalid configuration to \(backup.lastPathComponent, privacy: .public)")
-        } catch {
-            Log.configuration.error("Can't back up the configuration: \(error)")
+    /// Whether the file can be saved over: it holds what was last read or written, or something readable, or an
+    /// unreadable file (found at launch, or a hand edit not yet fixed) has been kept aside first.
+    private func mayReplaceFile() -> Bool {
+        guard let onDisk = try? Data(contentsOf: fileURL), onDisk != lastFileContents,
+            (try? AppConfiguration(json: onDisk)) == nil
+        else { return true }
+        return backUpInvalidFile(onDisk)
+    }
+
+    /// Keeps an unreadable file next to the configuration, named for when it was found, so an earlier backup is
+    /// never replaced. Returns whether it was kept.
+    private func backUpInvalidFile(_ data: Data) -> Bool {
+        let stamp = Date.now.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false))
+            .replacing(":", with: "-")
+        for attempt in 1...20 {
+            let name = attempt == 1 ? "invalid-\(stamp)" : "invalid-\(stamp)-\(attempt)"
+            let backup = fileURL.deletingPathExtension().appendingPathExtension("\(name).json")
+            do {
+                try data.write(to: backup, options: .withoutOverwriting)
+                Log.configuration.notice(
+                    "Moved the invalid configuration to \(backup.lastPathComponent, privacy: .public)")
+                return true
+            } catch CocoaError.fileWriteFileExists {
+                continue
+            } catch {
+                Log.configuration.fault("Can't back up the invalid configuration: \(error)")
+                return false
+            }
         }
+        return false
     }
 
     // MARK: Saving
 
     private func scheduleSave() {
-        pendingSave?.cancel()
-        pendingSave = Task { [weak self] in
-            do { try await Task.sleep(for: Self.saveDelay) } catch { return }
-            self?.pendingSave = nil
-            self?.save()
-        }
+        pendingSave.schedule(after: Self.saveDelay) { [weak self] in self?.save() }
     }
 
     private func save() {
         do {
             let data = try configuration.json()
-            guard data != lastFileContents else { return }
+            guard data != lastFileContents, mayReplaceFile() else { return }
             try data.write(to: fileURL, options: .atomic)
             lastFileContents = data
         } catch {
@@ -137,11 +150,7 @@ final class ConfigurationStore {
     // MARK: Hot reload
 
     private func scheduleReload() {
-        pendingReload?.cancel()
-        pendingReload = Task { [weak self] in
-            do { try await Task.sleep(for: Self.reloadDelay) } catch { return }
-            self?.reloadIfChangedExternally()
-        }
+        pendingReload.schedule(after: Self.reloadDelay) { [weak self] in self?.reloadIfChangedExternally() }
     }
 
     private func reloadIfChangedExternally() {
@@ -150,6 +159,8 @@ final class ConfigurationStore {
             applyFromFile(try AppConfiguration(json: data), contents: data)
             Log.configuration.info("Reloaded the configuration file after an external edit")
         } catch {
+            // Likely mid-edit: the next valid save of it applies. A change made in the app before then is saved over
+            // it, and the edit kept aside first (see `mayReplaceFile()`).
             Log.configuration.error("Ignoring an invalid edit to the configuration file: \(error)")
         }
     }

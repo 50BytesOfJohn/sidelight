@@ -9,7 +9,7 @@ import os
 /// exits, or doesn't report rate limits within ``appServerTimeout``, the newest session rollout file is read
 /// instead and re-read whenever Codex writes to it.
 @Observable
-final class CodexService {
+final class CodexService: DataService {
     static let executableName = "codex"
     static let appServerTimeout: Duration = .seconds(15)
     static let refreshInterval = CodexState.refreshInterval
@@ -23,9 +23,9 @@ final class CodexService {
     @ObservationIgnored private var appServer: ChildProcess?
     @ObservationIgnored private var session = CodexAppServerSession()
     @ObservationIgnored private var readingTask: Task<Void, Never>?
-    @ObservationIgnored private var refreshTask: Task<Void, Never>?
-    @ObservationIgnored private var watchdogTask: Task<Void, Never>?
-    @ObservationIgnored private var retryTask: Task<Void, Never>?
+    @ObservationIgnored private let refreshes = RepeatingTask()
+    @ObservationIgnored private let watchdog = DelayedTask()
+    @ObservationIgnored private let retry = DelayedTask()
     @ObservationIgnored private var rolloutLoadTask: Task<Void, Never>?
     @ObservationIgnored private var rolloutWatcher: FileEventStream?
     @ObservationIgnored private var lastRequest: Date?
@@ -39,11 +39,11 @@ final class CodexService {
 
     func stop() {
         isEnabled = false
-        for task in [readingTask, refreshTask, watchdogTask, retryTask, rolloutLoadTask] { task?.cancel() }
+        for task in [readingTask, rolloutLoadTask] { task?.cancel() }
+        refreshes.stop()
+        watchdog.cancel()
+        retry.cancel()
         readingTask = nil
-        refreshTask = nil
-        watchdogTask = nil
-        retryTask = nil
         rolloutLoadTask = nil
         appServer?.terminate()
         appServer = nil
@@ -58,8 +58,7 @@ final class CodexService {
         if appServer != nil {
             requestUpdates()
         } else {
-            retryTask?.cancel()
-            retryTask = nil
+            retry.cancel()
             startAppServer()
         }
     }
@@ -84,27 +83,28 @@ final class CodexService {
 
         appServer = process
         session = CodexAppServerSession()
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        CodexAppServerSession.handshake(clientName: "sidelight", clientVersion: version).forEach(process.send)
+        CodexAppServerSession.handshake(clientName: "sidelight", clientVersion: AppInfo.version).forEach(process.send)
         requestUpdates()
 
+        // Left over from a server that exited: the retry that started this one, and the old server's watchdog.
+        readingTask?.cancel()
+        watchdog.cancel()
+        retry.cancel()
         readingTask = Task { [weak self] in
             for await line in process.lines {
-                self?.handleAppServerLine(line)
+                // Delivered as `stop()` ran: a newer server's session would read it as its own answer.
+                guard let self, !Task.isCancelled, appServer === process else { return }
+                handleAppServerLine(line)
             }
             self?.appServerDidExit(process)
         }
-        watchdogTask = Task { [weak self] in
-            do { try await Task.sleep(for: Self.appServerTimeout) } catch { return }
+        watchdog.schedule(after: Self.appServerTimeout) { [weak self] in
             guard let self, state.source != .appServer else { return }
             Log.codex.notice("codex app-server sent no rate limits in time; reading rollout files")
             startRolloutFallback()
         }
-        refreshTask = Task { [weak self] in
-            while true {
-                do { try await Task.sleep(for: Self.refreshInterval, tolerance: .seconds(5)) } catch { return }
-                self?.requestUpdates()
-            }
+        refreshes.schedule(every: Self.refreshInterval, tolerance: .seconds(5)) { [weak self] in
+            self?.requestUpdates()
         }
     }
 
@@ -153,23 +153,21 @@ final class CodexService {
 
     private func didReceiveFromAppServer() {
         state.source = .appServer
-        watchdogTask?.cancel()
+        watchdog.cancel()
         rolloutWatcher = nil
     }
 
     private func appServerDidExit(_ process: ChildProcess) {
         guard appServer === process else { return }
         appServer = nil
-        refreshTask?.cancel()
+        refreshes.stop()
+        watchdog.cancel()
         guard isEnabled else { return }
         Log.codex.notice("codex app-server exited; retrying later")
         // What it said last stays on screen, no longer live, until the session logs have something newer.
         state.source = .starting
         startRolloutFallback()
-        retryTask = Task { [weak self] in
-            do { try await Task.sleep(for: Self.appServerRetryDelay) } catch { return }
-            self?.startAppServer()
-        }
+        retry.schedule(after: Self.appServerRetryDelay) { [weak self] in self?.startAppServer() }
     }
 
     // MARK: Rollout fallback
@@ -177,9 +175,8 @@ final class CodexService {
     private func startRolloutFallback() {
         reloadRollout()
         guard rolloutWatcher == nil else { return }
-        rolloutWatcher = FileEventStream(directory: CodexRollout.defaultSessionsDirectory, latency: 2, queue: .main) {
-            [weak self] in
-            MainActor.assumeIsolated { self?.reloadRollout() }
+        rolloutWatcher = FileEventStream(directory: CodexRollout.defaultSessionsDirectory, latency: 2) { [weak self] in
+            self?.reloadRollout()
         }
     }
 

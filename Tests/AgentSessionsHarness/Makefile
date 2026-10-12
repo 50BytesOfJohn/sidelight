@@ -3,6 +3,10 @@ export DEVELOPER_DIR := /Applications/Xcode.app/Contents/Developer
 ROOT := ../..
 PRODUCTS := $(ROOT)/.build/out/Products/Debug
 OUT := $(ROOT)/build/agent-sessions-harness
+APP := $(ROOT)/Sources/Sidelight
+# The generic session index and the app-side helpers it uses (see WatchedSessionIndex.swift).
+INDEX := $(APP)/Widgets/AgentSessions/WatchedSessionIndex.swift $(APP)/Services/DataService.swift \
+	$(APP)/Services/CoalescedReload.swift $(APP)/Services/RepeatingTask.swift
 
 .PHONY: config
 config:
@@ -29,7 +33,7 @@ service:
 	mkdir -p $(OUT)
 	xcrun swiftc -module-cache-path $(abspath $(OUT)/module-cache) -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
 		-enable-upcoming-feature NonisolatedNonsendingByDefault -enable-upcoming-feature InferIsolatedConformances \
-		-I $(PRODUCTS) ServiceHarness.swift $(ROOT)/Sources/Sidelight/Widgets/AgentSessions/CursorChatsService.swift \
+		-I $(PRODUCTS) ServiceHarness.swift $(INDEX) \
 		$(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/service
 
 .PHONY: routes
@@ -40,7 +44,7 @@ routes:
 		-I $(PRODUCTS) RouteHarness.swift $(ROOT)/Sources/Sidelight/Widgets/AgentSessions/AgentSessionOpener.swift \
 		$(ROOT)/Sources/Sidelight/Widgets/ClaudeSessions/ClaudeSessionOpener.swift \
 		$(ROOT)/Sources/Sidelight/Widgets/CodexSessions/CodexSessionOpener.swift $(ROOT)/Sources/Sidelight/Support/SessionHost.swift \
-		$(ROOT)/Sources/Sidelight/Widgets/AgentSessions/OpenCodeSessionsService.swift \
+		$(INDEX) \
 		$(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/routes
 
 # Test-only copies expose private decisions and replace external dispatch; see README.
@@ -51,7 +55,8 @@ contracts:
 		-enable-upcoming-feature NonisolatedNonsendingByDefault -enable-upcoming-feature InferIsolatedConformances \
 		-I $(PRODUCTS) ContractHarness.swift ContractSupport.swift $(OUT)/contracts/*.swift \
 		$(ROOT)/Sources/Sidelight/DesignSystem/CountBadge.swift $(ROOT)/Sources/Sidelight/DesignSystem/Motion.swift \
-		$(ROOT)/Sources/Sidelight/Widgets/Framework/WidgetLayout.swift \
+		$(ROOT)/Sources/Sidelight/Widgets/Framework/WidgetLayout.swift $(ROOT)/Sources/Sidelight/Widgets/Framework/WidgetMessage.swift \
+		$(ROOT)/Sources/Sidelight/DesignSystem/HoverRow.swift \
 		$(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/contracts-runner
 
 .PHONY: fsevents-probe
@@ -69,7 +74,7 @@ opencode-service:
 	mkdir -p $(OUT)
 	xcrun swiftc -module-cache-path $(abspath $(OUT)/module-cache) -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
 		-enable-upcoming-feature NonisolatedNonsendingByDefault -enable-upcoming-feature InferIsolatedConformances \
-		-I $(PRODUCTS) OpenCodeServiceHarness.swift $(ROOT)/Sources/Sidelight/Widgets/AgentSessions/OpenCodeSessionsService.swift \
+		-I $(PRODUCTS) OpenCodeServiceHarness.swift $(INDEX) \
 		$(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/opencode-service
 
 .PHONY: opencode-environment
@@ -77,7 +82,7 @@ opencode-environment:
 	mkdir -p $(OUT)
 	xcrun swiftc -module-cache-path $(abspath $(OUT)/module-cache) -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
 		-enable-upcoming-feature NonisolatedNonsendingByDefault -enable-upcoming-feature InferIsolatedConformances \
-		-I $(PRODUCTS) OpenCodeEnvironmentHarness.swift $(ROOT)/Sources/Sidelight/Widgets/AgentSessions/OpenCodeSessionsService.swift \
+		-I $(PRODUCTS) OpenCodeEnvironmentHarness.swift $(INDEX) \
 		$(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/opencode-environment
 
 .PHONY: fallback

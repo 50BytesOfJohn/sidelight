@@ -256,12 +256,8 @@ private struct UsageSummary: Decodable {
     /// ISO 8601, with or without fractional seconds, or milliseconds since 1970.
     private static func date(_ container: KeyedDecodingContainer<AnyCodingKey>, _ key: String) -> Date? {
         if let string = container.lenient(String.self, key) {
-            if let date = try? Date(string, strategy: .iso8601) { return date }
-            if let date = try? Date(string, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true)) {
-                return date
-            }
-            return Double(string).map { Date(timeIntervalSince1970: $0 / 1000) }
+            return Date(iso8601: string) ?? Double(string).map(Date.init(millisecondsSince1970:))
         }
-        return container.lenientDouble(key).map { Date(timeIntervalSince1970: $0 / 1000) }
+        return container.lenientDouble(key).map(Date.init(millisecondsSince1970:))
     }
 }

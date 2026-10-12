@@ -1,3 +1,4 @@
+import SidelightCore
 import SwiftUI
 
 /// The long-lived objects views depend on, handed to SwiftUI through the environment.
@@ -24,6 +25,33 @@ struct AppEnvironment {
     let loginItem: LoginItem
     let rectangle: RectangleIntegration
     let updater: Updater
+}
+
+extension AppEnvironment {
+    /// Every service that runs only while a widget needs it.
+    var dataServices: [any DataService] {
+        [
+            calendar, codex, claudeCode, cursor, nowPlaying, claudeSessions, codexSessions, cursorChats,
+            openCodeSessions, systemStats, noodleComputer, railway,
+        ]
+    }
+
+    func usageService(for provider: AIUsageProvider) -> any DataService {
+        switch provider {
+        case .codex: codex
+        case .claudeCode: claudeCode
+        case .cursor: cursor
+        }
+    }
+
+    func sessionService(for provider: AgentProvider) -> any DataService {
+        switch provider {
+        case .claudeCode: claudeSessions
+        case .codex: codexSessions
+        case .cursor: cursorChats
+        case .openCode: openCodeSessions
+        }
+    }
 }
 
 extension View {

@@ -46,22 +46,18 @@ final class AgentSessionSources {
             guard codex.hasLoaded else { return .reading }
             guard codex.codexFound else { return .notFound }
             return .found(open: codex.sessions.count { $0.pid != nil })
-        case .cursor:
-            guard cursor.hasLoaded else { return .reading }
-            return switch cursor.availability {
-            case .found: .found(open: nil)
-            case .notFound: .notFound
-            case .unsupported: .unsupported
-            case .unreadable: .unreadable(isStale: !cursor.chats.isEmpty)
-            }
-        case .openCode:
-            guard openCode.hasLoaded else { return .reading }
-            return switch openCode.availability {
-            case .found: .found(open: nil)
-            case .notFound: .notFound
-            case .unsupported: .unsupported
-            case .unreadable: .unreadable(isStale: !openCode.sessions.isEmpty)
-            }
+        case .cursor: return state(of: cursor)
+        case .openCode: return state(of: openCode)
+        }
+    }
+
+    private func state<Session>(of index: WatchedSessionIndex<Session>) -> State {
+        guard index.hasLoaded else { return .reading }
+        return switch index.availability {
+        case .found: .found(open: nil)
+        case .notFound: .notFound
+        case .unsupported: .unsupported
+        case .unreadable: .unreadable(isStale: !index.sessions.isEmpty)
         }
     }
 
@@ -70,7 +66,7 @@ final class AgentSessionSources {
         switch provider {
         case .claudeCode: claudeCode.sessions.map(AgentSession.init)
         case .codex: codex.sessions.filter { includesCodexExec || !$0.isExec }.map(AgentSession.init)
-        case .cursor: cursor.chats.map(AgentSession.init)
+        case .cursor: cursor.sessions.map(AgentSession.init)
         case .openCode: openCode.sessions.map(AgentSession.init)
         }
     }

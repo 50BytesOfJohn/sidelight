@@ -99,14 +99,14 @@ private struct NextEventCountdown: View {
     @Environment(CalendarService.self) private var calendar
 
     var body: some View {
-        TimelineView(.everyMinute) { context in
+        WidgetClock { now in
             if calendar.access != .granted {
                 Image(systemName: "calendar.badge.exclamationmark")
                     .font(.system(size: 16))
                     .foregroundStyle(.secondary)
                     .onTapGesture { Task { await calendar.requestAccess() } }
-            } else if let event = calendar.nextTimedEvent(after: context.date) {
-                let countdown = Formatting.shortCountdown(to: event.startDate, now: context.date)
+            } else if let event = calendar.nextTimedEvent(after: now) {
+                let countdown = Formatting.shortCountdown(to: event.startDate, now: now)
                 if layout == .bar {
                     HStack(spacing: 5) {
                         Circle().fill(event.color).frame(width: 7, height: 7)

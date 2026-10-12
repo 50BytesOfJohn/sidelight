@@ -184,7 +184,7 @@ public enum RailwayAPI {
                         recentDeploys: (history?.nodes ?? []).map {
                             Railway.Deployment(
                                 id: $0.id, status: Railway.DeploymentStatus($0.status ?? ""),
-                                createdAt: $0.createdAt.flatMap(RailwayDate.parse))
+                                createdAt: $0.createdAt.flatMap(Date.init(iso8601:)))
                         })
                 })
         }
@@ -508,8 +508,8 @@ private struct WorkspaceNode: Decodable {
         let limit = customer.usageLimit
         return Railway.Bill(
             currentDollars: current, estimatedDollars: estimated,
-            periodStart: customer.billingPeriod?.start.flatMap(RailwayDate.parse),
-            periodEnd: customer.billingPeriod?.end.flatMap(RailwayDate.parse),
+            periodStart: customer.billingPeriod?.start.flatMap(Date.init(iso8601:)),
+            periodEnd: customer.billingPeriod?.end.flatMap(Date.init(iso8601:)),
             softLimitDollars: limit?.softLimit, hardLimitDollars: limit?.hardLimit,
             isOverLimit: limit?.isOverLimit ?? false)
     }
@@ -566,7 +566,7 @@ private struct ProjectNode: Decodable {
                             deployment: instance.latestDeployment.map { deployment in
                                 Railway.Deployment(
                                     id: deployment.id, status: Railway.DeploymentStatus(deployment.status ?? ""),
-                                    createdAt: deployment.createdAt.flatMap(RailwayDate.parse),
+                                    createdAt: deployment.createdAt.flatMap(Date.init(iso8601:)),
                                     domain: deployment.staticUrl)
                             })
                     })
@@ -602,13 +602,5 @@ private struct DeploymentMeta: Decodable {
         Railway.Commit(
             message: meta?.commitMessage, branch: meta?.branch, hash: meta?.commitHash, author: meta?.commitAuthor,
             image: meta?.image)
-    }
-}
-
-/// Railway's timestamps: ISO 8601, with or without fractions of a second, of any length.
-enum RailwayDate {
-    static func parse(_ string: String) -> Date? {
-        let withoutFraction = string.replacing(/\.\d+/, with: "", maxReplacements: 1)
-        return try? Date.ISO8601FormatStyle().parse(withoutFraction)
     }
 }

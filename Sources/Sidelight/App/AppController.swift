@@ -12,7 +12,7 @@ final class AppController {
     private let panels: PanelCoordinator
     private var statusItem: StatusItemController?
     private var observations: [Task<Void, Never>] = []
-    private var pendingAvoidance: Task<Void, Never>?
+    private let pendingAvoidance = DelayedTask()
 
     /// Long enough for a resize animation to finish, and for a dragged width slider to settle.
     static let avoidanceDelayAfterPanelChange: Duration = .milliseconds(600)
@@ -22,8 +22,8 @@ final class AppController {
     init() {
         let claudeSessions = ClaudeSessionsService()
         let codexSessions = CodexSessionsService()
-        let cursorChats = CursorChatsService()
-        let openCodeSessions = OpenCodeSessionsService()
+        let cursorChats = CursorChatsService.cursor()
+        let openCodeSessions = OpenCodeSessionsService.openCode()
         let environment = AppEnvironment(
             configurationStore: ConfigurationStore(),
             displays: DisplayMonitor(),
@@ -80,20 +80,9 @@ final class AppController {
     /// Stops helper processes and flushes unsaved configuration. Call before the app terminates.
     func stop() {
         for observation in observations { observation.cancel() }
-        pendingAvoidance?.cancel()
+        pendingAvoidance.cancel()
         store.flush()
-        environment.codex.stop()
-        environment.claudeCode.stop()
-        environment.cursor.stop()
-        environment.nowPlaying.stop()
-        environment.claudeSessions.stop()
-        environment.codexSessions.stop()
-        environment.cursorChats.stop()
-        environment.openCodeSessions.stop()
-        environment.calendar.stop()
-        environment.systemStats.stop()
-        environment.noodleComputer.stop()
-        environment.railway.stop()
+        for service in environment.dataServices { service.stop() }
     }
 
     // MARK: Reacting to changes
@@ -122,27 +111,27 @@ final class AppController {
     /// Window avoidance reacts to other windows moving; when a panel grows or moves instead, the windows it now
     /// covers are moved once it has settled.
     private func avoidWindowsAfterPanelChange() {
-        pendingAvoidance?.cancel()
         let avoider = environment.windowAvoider
-        pendingAvoidance = Task {
-            do { try await Task.sleep(for: Self.avoidanceDelayAfterPanelChange) } catch { return }
-            avoider.avoidAllWindows()
-        }
+        pendingAvoidance.schedule(after: Self.avoidanceDelayAfterPanelChange) { avoider.avoidAllWindows() }
     }
 
     /// Runs each data service only while a widget that needs it is visible on some display, or while the manager
-    /// window (which previews every widget) is open. Codex, Claude Code and Cursor are each needed by their own
+    /// window (which previews every widget) is open. Panels hidden with the shortcut show nothing, so they need
+    /// nothing; nor do panels nobody has seen for a minute, on a sleeping or locked screen. Codex, Claude Code and Cursor are each needed by their own
     /// widget and by an AI Usage widget showing them; they run once for all of them, and fetch on a timer only as
     /// often as the most frequent of those that opted in asks.
     private func observeServiceDemand() {
         let store = store
         let windows = windows
         let monitor = environment.displays
+        let coordinator = panels
         observations.append(
             Task { [weak self] in
                 let demand = Observations {
                     let configuration = store.configuration
-                    let panels = monitor.displays.map { $0.panel(in: configuration) }.filter(\.showsPanel)
+                    let unseen = coordinator.unseenDisplays
+                    let displays = coordinator.isHidden ? [] : monitor.displays.filter { !unseen.contains($0.id) }
+                    let panels = displays.map { $0.panel(in: configuration) }.filter(\.showsPanel)
                     return configuration.serviceDemand(
                         at: panels.map(\.position), previewsEveryWidget: windows.previewsEveryWidget)
                 }
@@ -158,31 +147,18 @@ final class AppController {
         // A service that's needed fetches as often as the widgets showing it ask, and not at all if none of them
         // opted in. One that isn't needed stops and keeps its interval and last fetch, so showing its widget again
         // doesn't ask sooner than the interval.
-        let claude = environment.claudeCode
-        let cursor = environment.cursor
         if usage.providers.contains(.claudeCode) {
-            claude.refreshInterval = usage.claudeCodeRefreshMinutes.map { .seconds($0 * 60) }
+            environment.claudeCode.refreshInterval = usage.claudeCodeRefreshMinutes.map { .seconds($0 * 60) }
         }
         if usage.providers.contains(.cursor) {
-            cursor.refreshInterval = usage.cursorRefreshMinutes.map { .seconds($0 * 60) }
+            environment.cursor.refreshInterval = usage.cursorRefreshMinutes.map { .seconds($0 * 60) }
         }
         for provider in AIUsageProvider.allCases {
-            let isNeeded = usage.providers.contains(provider)
-            switch provider {
-            case .codex: isNeeded ? environment.codex.start() : environment.codex.stop()
-            case .claudeCode: isNeeded ? claude.start() : claude.stop()
-            case .cursor: isNeeded ? cursor.start() : cursor.stop()
-            }
+            environment.usageService(for: provider).setRunning(usage.providers.contains(provider))
         }
         // Each agent's sessions are read once, for its own sessions widget and every Agent sessions widget listing it.
         for provider in AgentProvider.allCases {
-            let isNeeded = demand.sessions.contains(provider)
-            switch provider {
-            case .claudeCode: isNeeded ? environment.claudeSessions.start() : environment.claudeSessions.stop()
-            case .codex: isNeeded ? environment.codexSessions.start() : environment.codexSessions.stop()
-            case .cursor: isNeeded ? environment.cursorChats.start() : environment.cursorChats.stop()
-            case .openCode: isNeeded ? environment.openCodeSessions.start() : environment.openCodeSessions.stop()
-            }
+            environment.sessionService(for: provider).setRunning(demand.sessions.contains(provider))
         }
         for kind in WidgetKind.allCases {
             let isNeeded = demand.kinds.contains(kind)
@@ -191,16 +167,16 @@ final class AppController {
             case .clock, .codex, .claudeCode, .cursor, .aiUsage: break
             // Theirs go by the sessions demand above.
             case .claudeSessions, .codexSessions, .agentSessions: break
-            case .calendar: isNeeded ? environment.calendar.start() : environment.calendar.stop()
-            case .nowPlaying: isNeeded ? environment.nowPlaying.start() : environment.nowPlaying.stop()
-            case .system: isNeeded ? environment.systemStats.start() : environment.systemStats.stop()
+            case .calendar: environment.calendar.setRunning(isNeeded)
+            case .nowPlaying: environment.nowPlaying.setRunning(isNeeded)
+            case .system: environment.systemStats.setRunning(isNeeded)
             case .noodleComputer:
                 environment.noodleComputer.mayConnect = demand.placedKinds.contains(kind)
-                isNeeded ? environment.noodleComputer.start() : environment.noodleComputer.stop()
+                environment.noodleComputer.setRunning(isNeeded)
             case .railway:
                 // Not for the Widgets window's previews alone: Railway's sign-in isn't read until a widget is added.
                 environment.railway.needs = demand.railway
-                isNeeded && !demand.railway.isEmpty ? environment.railway.start() : environment.railway.stop()
+                environment.railway.setRunning(isNeeded && !demand.railway.isEmpty)
             }
         }
     }

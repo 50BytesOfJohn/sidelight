@@ -107,15 +107,6 @@ extension ClockAlignment {
         case .trailing: .trailing
         }
     }
-
-    /// For lines of text that wrap.
-    var text: TextAlignment {
-        switch self {
-        case .leading: .leading
-        case .center: .center
-        case .trailing: .trailing
-        }
-    }
 }
 
 extension AnalogClockOptions.Dial {
@@ -194,10 +185,7 @@ struct ClockSettingsEditor: View {
                 }
             }
             .pickerStyle(.segmented)
-            Text("In regular and compact cards. Narrow columns always center the clock; bar chips fit it.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            SettingsCaption("In regular and compact cards. Narrow columns always center the clock; bar chips fit it.")
         }
         if settings.style.showsSecondsOption {
             Toggle(settings.style == .analog ? "Second hand" : "Show seconds", isOn: $settings.showsSeconds)
@@ -244,17 +232,10 @@ struct ClockSettingsEditor: View {
 struct ClockWidgetView: View {
     let settings: ClockSettings
     let layout: WidgetLayout
-    @Environment(\.frozenDate) private var frozenDate
 
     var body: some View {
         // Redraw once a minute unless seconds are shown: a per-second timeline costs measurable energy.
-        if let frozenDate {
-            aligned(frozenDate)
-        } else if settings.showsSecondsOnFace {
-            TimelineView(.periodic(from: .now, by: 1)) { context in aligned(context.date) }
-        } else {
-            TimelineView(.everyMinute) { context in aligned(context.date) }
-        }
+        WidgetClock(tick: settings.showsSecondsOnFace ? .second : .minute) { date in aligned(date) }
     }
 
     /// Regular and compact cards have room to place the clock; minimal cards center it and bar chips fit it.

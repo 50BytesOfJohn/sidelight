@@ -17,7 +17,7 @@ enum RailwaySignInSource: Hashable {
 /// widget using it, only for what their blocks show, and as often as ``RailwayPacing`` allows. Nothing runs, and
 /// the CLI's sign-in isn't read, until a Railway widget is added.
 @Observable
-final class RailwayService {
+final class RailwayService: DataService {
     let cli = RailwayConnection(source: .cli)
     let token = RailwayConnection(source: .token)
 
@@ -37,9 +37,11 @@ final class RailwayService {
     }
 
     @ObservationIgnored private var isEnabled = false
-    @ObservationIgnored private var savedToken: String?
     /// Reading the keychain, once; everything that needs the token waits for this one read.
     @ObservationIgnored private var tokenLoad: Task<String?, Never>?
+    /// The last change to the keychain item. Each waits for the one before, so a removal still under way can't
+    /// delete a token saved after it.
+    @ObservationIgnored private var tokenWrite: Task<Bool, Never>?
 
     init() {
         cli.credentials = { [weak self] in await self?.cliCredentials() ?? .failure(.cliNotSignedIn) }
@@ -86,14 +88,15 @@ final class RailwayService {
     func saveToken(_ token: String) async -> RailwayFetchProblem? {
         let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return .noToken }
-        let request = RailwayAPI.request(RailwayAPI.accountQuery, token: token, userAgent: Self.userAgent)
+        let request = RailwayAPI.request(RailwayAPI.accountQuery, token: token, userAgent: AppInfo.userAgent)
         let check = await RailwayConnection.send(request)
         switch check.map({ RailwayAPI.account(status: $0.status, body: $0.body) }) {
         case .failure(let problem), .success(.failure(let problem)): return problem
         case .success(.success):
-            guard await Self.storeToken(token) else { return .refused(message: "Couldn't save to the keychain") }
+            guard await writeToken({ await Self.storeToken(token) }) else {
+                return .refused(message: "Couldn't save to the keychain")
+            }
             tokenLoad = Task { token }
-            savedToken = token
             hasToken = true
             // It may belong to another account: forget what the last token saw.
             self.token.reset()
@@ -105,11 +108,22 @@ final class RailwayService {
 
     func removeToken() {
         tokenLoad = Task { nil }
-        savedToken = nil
         hasToken = false
         token.reset()
         apply()
-        Task { await Self.deleteToken() }
+        Task { await writeToken({ await Self.deleteToken() }) }
+    }
+
+    /// Changes the keychain item once the change before it is done.
+    @discardableResult
+    private func writeToken(_ write: @escaping @Sendable () async -> Bool) async -> Bool {
+        let previous = tokenWrite
+        let task = Task {
+            _ = await previous?.value
+            return await write()
+        }
+        tokenWrite = task
+        return await task.value
     }
 
     // MARK: Demand
@@ -151,7 +165,8 @@ final class RailwayService {
         let load = tokenLoad ?? Task { await Self.readToken() }
         tokenLoad = load
         let token = await load.value
-        savedToken = token
+        // Saved or removed while this read: the newer answer stands.
+        guard tokenLoad == load else { return await loadToken() }
         if hasToken != (token != nil) { hasToken = token != nil }
         return token
     }
@@ -187,11 +202,6 @@ final class RailwayService {
         await loadToken().map { .success($0) } ?? .failure(.noToken)
     }
 
-    static var userAgent: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        return "Sidelight/\(version)"
-    }
-
     @concurrent
     private static func readCLISignIn() async -> RailwayCLISignIn? {
         (try? Data(contentsOf: RailwayCLISignIn.configFile)).flatMap(RailwayCLISignIn.init)
@@ -215,7 +225,10 @@ final class RailwayService {
     private static func storeToken(_ token: String) async -> Bool { RailwayTokenStore.save(token) }
 
     @concurrent
-    private static func deleteToken() async { RailwayTokenStore.delete() }
+    private static func deleteToken() async -> Bool {
+        RailwayTokenStore.delete()
+        return true
+    }
 }
 
 /// Railway as seen with one sign-in: the account's workspaces, what the widgets using it need, and the last answer.
@@ -244,27 +257,29 @@ final class RailwayConnection {
     private(set) var isFetching = false
     /// When the last request finished, successful or not.
     private(set) var lastAttempt: Date?
-    /// When the next request goes out, while one is scheduled.
+    /// When the next request goes out. Kept while nothing needs fetching, so showing a widget again (or the panels
+    /// after hiding them) doesn't ask sooner than the schedule, backoff or Railway's `Retry-After` allows.
     private(set) var nextFetch: Date?
 
     /// What the widgets using this sign-in need; `nil` while none does, which stops fetching.
     var needs: RailwayNeeds? {
         didSet {
             guard needs != oldValue else { return }
-            if needs == nil {
-                task?.cancel()
-                task = nil
-                nextFetch = nil
+            guard let needs else {
+                cancelFetching()
                 return
             }
             // Something newly shown is fetched soon; anything else keeps the schedule.
-            let gained = oldValue.map { old in needs.map { !$0.isCovered(by: old) } ?? false } ?? true
+            let gained = lastNeeds.map { !needs.isCovered(by: $0) } ?? true
+            lastNeeds = needs
             restart(soon: gained)
         }
     }
 
     @ObservationIgnored var credentials: () async -> Result<String, RailwayFetchProblem> = { .failure(.notSignedIn) }
-    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private let fetching = PacedTask()
+    /// What was needed last, including before fetching stopped.
+    @ObservationIgnored private var lastNeeds: RailwayNeeds?
     @ObservationIgnored private var accountFetchedAt: Date?
     /// When each workspace's bill was last asked for, whether or not Railway had one to show.
     @ObservationIgnored private var usageFetchedAt: [String: Date] = [:]
@@ -297,21 +312,18 @@ final class RailwayConnection {
         consecutiveFailures = 0
     }
 
-    /// Whether the last good data is old: a fetch has failed since, or it's missed more than two refreshes.
-    func isStale(at now: Date) -> Bool {
-        guard let snapshot else { return false }
-        if problem != nil { return true }
-        let interval = needs?.refreshMinutes.map { TimeInterval($0) * 60 } ?? RailwayPacing.idleInterval
-        return now.timeIntervalSince(snapshot.fetchedAt) > 2 * interval + 60
-    }
-
     func refreshNow() {
         guard needs != nil, !isFetching else { return }
         restart(soon: true)
     }
 
+    private func cancelFetching() {
+        fetching.stop()
+        isFetching = false
+    }
+
     private func restart(soon: Bool) {
-        task?.cancel()
+        cancelFetching()
         let sinceLast = lastAttempt.map { Date.now.timeIntervalSince($0) } ?? .infinity
         let delay =
             soon
@@ -322,20 +334,15 @@ final class RailwayConnection {
 
     private func schedule(after delay: TimeInterval) {
         nextFetch = Date.now.addingTimeInterval(delay)
-        task = Task { [weak self] in
-            var delay = delay
-            while true {
-                if delay > 0 {
-                    do { try await Task.sleep(for: .seconds(delay), tolerance: .seconds(min(delay / 10, 30))) } catch {
-                        return
-                    }
-                }
-                guard let self, !Task.isCancelled else { return }
-                delay = await fetch()
-                guard !Task.isCancelled else { return }
+        fetching.start(
+            after: .seconds(delay), tolerance: { min($0 / 10, .seconds(30)) },
+            run: { [weak self] in
+                guard let self else { return nil }
+                let delay = await fetch()
+                guard !Task.isCancelled else { return nil }
                 nextFetch = Date.now.addingTimeInterval(delay)
-            }
-        }
+                return .seconds(delay)
+            })
     }
 
     // MARK: Fetching
@@ -345,8 +352,11 @@ final class RailwayConnection {
         guard let needs else { return RailwayPacing.idleInterval }
         isFetching = true
         defer {
-            isFetching = false
-            lastAttempt = .now
+            // A cancelled fetch's replacement, if any, owns these now.
+            if !Task.isCancelled {
+                isFetching = false
+                lastAttempt = .now
+            }
         }
         let result = await fetchStatus(needs)
         guard !Task.isCancelled else { return RailwayPacing.idleInterval }
@@ -371,8 +381,10 @@ final class RailwayConnection {
             // Signing in happens on this Mac, so look again soon; it costs nothing until it works.
             if failure == .cliNotSignedIn || failure == .noToken || failure == .cliSignInExpired { return 60 }
             let base = needs.refreshMinutes.map { TimeInterval($0) * 60 } ?? RailwayPacing.idleInterval
-            let backoff = base * Double(1 << min(consecutiveFailures, 10))
-            return min(backoff, max(base, Self.maximumRetryDelay))
+            return UsageRefresh.retryDelay(
+                interval: .seconds(base), consecutiveFailures: consecutiveFailures,
+                maximum: .seconds(Self.maximumRetryDelay)
+            ).timeInterval
         }
     }
 
@@ -501,16 +513,16 @@ final class RailwayConnection {
         }
         incidentsFetchedAt = .now
         var request = URLRequest(url: RailwayAPI.statusPage, timeoutInterval: 20)
-        request.setValue(RailwayService.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(AppInfo.userAgent, forHTTPHeaderField: "User-Agent")
         guard case .success(let response) = await Self.send(request), response.status == 200 else { return previous }
         return RailwayStatusPage.incidents(from: response.body) ?? previous
     }
 
     private func send(
         _ document: String, variables: [String: String] = [:], token: String
-    ) async -> Result<Response, RailwayFetchProblem> {
+    ) async -> Result<HTTP.Response, RailwayFetchProblem> {
         let request = RailwayAPI.request(
-            document, variables: variables, token: token, userAgent: RailwayService.userAgent)
+            document, variables: variables, token: token, userAgent: AppInfo.userAgent)
         let result = await Self.send(request)
         if case .success(let response) = result {
             rateLimit = RailwayRateLimit(headers: response.headers, now: .now)
@@ -519,30 +531,9 @@ final class RailwayConnection {
         return result
     }
 
-    struct Response: Sendable {
-        var status: Int
-        var headers: [String: String]
-        var body: Data
-    }
-
-    private nonisolated static let urlSession: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpCookieStorage = nil
-        configuration.httpShouldSetCookies = false
-        configuration.urlCache = nil
-        return URLSession(configuration: configuration)
-    }()
-
-    @concurrent
-    static func send(_ request: URLRequest) async -> Result<Response, RailwayFetchProblem> {
+    static func send(_ request: URLRequest) async -> Result<HTTP.Response, RailwayFetchProblem> {
         do {
-            let (body, response) = try await urlSession.data(for: request)
-            let http = response as? HTTPURLResponse
-            var headers: [String: String] = [:]
-            for (key, value) in http?.allHeaderFields ?? [:] {
-                if let key = key as? String, let value = value as? String { headers[key] = value }
-            }
-            return .success(Response(status: http?.statusCode ?? 0, headers: headers, body: body))
+            return .success(try await HTTP.send(request))
         } catch {
             return .failure(.unreachable)
         }
