@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Synchronization
 
@@ -40,16 +41,7 @@ public enum ProcessRunner {
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
-                    let process = Process()
-                    let output = Pipe()
-                    let error = Pipe()
-                    process.executableURL = executable
-                    process.arguments = arguments
-                    process.standardOutput = output
-                    process.standardError = error
-                    // Foundation reaps the tool, then calls this: its process ID is never signalled after that.
-                    process.terminationHandler = { _ in running.finish() }
-                    guard running.launch(process) else {
+                    guard let pipes = running.launch(executable, arguments: arguments) else {
                         continuation.resume(returning: nil)
                         return
                     }
@@ -57,16 +49,14 @@ public enum ProcessRunner {
                     let errorData = Mutex(Data())
                     let readingError = DispatchGroup()
                     DispatchQueue.global(qos: .utility).async(group: readingError) {
-                        let data = error.fileHandleForReading.readDataToEndOfFile()
+                        let data = pipes.error.readDataToEndOfFile()
                         errorData.withLock { $0 = data }
                     }
-                    let outputData = output.fileHandleForReading.readDataToEndOfFile()
+                    let outputData = pipes.output.readDataToEndOfFile()
                     readingError.wait()
-                    process.waitUntilExit()
                     continuation.resume(
                         returning: Result(
-                            status: process.terminationStatus, output: outputData,
-                            error: errorData.withLock { $0 }))
+                            status: running.waitUntilExit(), output: outputData, error: errorData.withLock { $0 }))
                 }
             }
         } onCancel: {
@@ -76,6 +66,11 @@ public enum ProcessRunner {
 }
 
 /// A tool started by ``ProcessRunner/result(of:arguments:)``, by process ID, for cancelling it from another thread.
+///
+/// Spawned and reaped here rather than with `Process`: Foundation reaps a `Process` before telling us it exited, and
+/// once reaped its ID can go to an unrelated process at any moment. Reaping it ourselves under the lock that guards
+/// signals means a signal only ever reaches our own tool, alive or an exited one not yet reaped (whose ID stays
+/// reserved).
 private final class RunningTool: Sendable {
     private struct State {
         var pid: pid_t = 0
@@ -84,22 +79,38 @@ private final class RunningTool: Sendable {
 
     private let state = Mutex(State())
 
-    /// Starts `process` unless cancelled already.
-    func launch(_ process: Process) -> Bool {
+    /// Starts the tool unless cancelled already, returning the read ends of its standard output and error.
+    func launch(_ executable: URL, arguments: [String]) -> (output: FileHandle, error: FileHandle)? {
         state.withLock { state in
-            guard !state.isCancelled, (try? process.run()) != nil else { return false }
-            state.pid = process.processIdentifier
-            return true
+            guard !state.isCancelled, let (pid, output, error) = Self.spawn(executable, arguments: arguments) else {
+                return nil
+            }
+            state.pid = pid
+            return (output, error)
         }
     }
 
-    /// Called once the process has exited and been reaped, from its termination handler.
-    func finish() {
-        state.withLock { $0.pid = 0 }
+    /// Waits for the launched tool to exit, reaps it and returns its exit status, or the signal that ended it (`-1` if
+    /// it couldn't be reaped).
+    func waitUntilExit() -> Int32 {
+        let pid = state.withLock { $0.pid }
+        // Wait without reaping, so the process ID can't be reused while `cancel()` may still signal it.
+        var info = siginfo_t()
+        while waitid(P_PID, id_t(pid), &info, WEXITED | WNOWAIT) != 0, errno == EINTR {}
+        var status: Int32 = 0
+        let reaped = state.withLock { state in
+            state.pid = 0
+            var result: pid_t
+            repeat { result = waitpid(pid, &status, 0) } while result < 0 && errno == EINTR
+            return result == pid
+        }
+        guard reaped else { return -1 }
+        let signal = status & 0x7f
+        return signal == 0 ? (status >> 8) & 0xff : signal
     }
 
     /// Asks the tool to exit, and kills it if it's still running a moment later. Signals go out under the same lock
-    /// ``finish()`` takes, so never to a process ID that's been reaped.
+    /// ``waitUntilExit()`` reaps under, so never to a process ID that's been reaped.
     func cancel() {
         let pid = state.withLock { state in
             state.isCancelled = true
@@ -112,5 +123,57 @@ private final class RunningTool: Sendable {
                 if state.pid == pid { kill(pid, SIGKILL) }
             }
         }
+    }
+
+    /// Spawns `executable` with standard input from `/dev/null`, our environment and default signal handling, and
+    /// no descriptors of ours beyond the three standard ones.
+    private static func spawn(_ executable: URL, arguments: [String]) -> (pid_t, FileHandle, FileHandle)? {
+        var outputPipe: [Int32] = [-1, -1]
+        var errorPipe: [Int32] = [-1, -1]
+        guard pipe(&outputPipe) == 0 else { return nil }
+        guard pipe(&errorPipe) == 0 else {
+            close(outputPipe[0])
+            close(outputPipe[1])
+            return nil
+        }
+
+        var fileActions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&fileActions)
+        posix_spawn_file_actions_addopen(&fileActions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_adddup2(&fileActions, outputPipe[1], STDOUT_FILENO)
+        posix_spawn_file_actions_adddup2(&fileActions, errorPipe[1], STDERR_FILENO)
+
+        var attributes: posix_spawnattr_t?
+        posix_spawnattr_init(&attributes)
+        var noSignals = sigset_t()
+        var allSignals = sigset_t()
+        sigemptyset(&noSignals)
+        sigfillset(&allSignals)
+        posix_spawnattr_setsigmask(&attributes, &noSignals)
+        posix_spawnattr_setsigdefault(&attributes, &allSignals)
+        posix_spawnattr_setflags(
+            &attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
+
+        let path = executable.path(percentEncoded: false)
+        let argv: [UnsafeMutablePointer<CChar>?] = ([path] + arguments).map { strdup($0) } + [nil]
+        defer {
+            for pointer in argv { free(pointer) }
+            posix_spawn_file_actions_destroy(&fileActions)
+            posix_spawnattr_destroy(&attributes)
+        }
+
+        var pid: pid_t = 0
+        let result = posix_spawn(&pid, path, &fileActions, &attributes, argv, environ)
+        close(outputPipe[1])
+        close(errorPipe[1])
+        guard result == 0 else {
+            close(outputPipe[0])
+            close(errorPipe[0])
+            return nil
+        }
+        return (
+            pid, FileHandle(fileDescriptor: outputPipe[0], closeOnDealloc: true),
+            FileHandle(fileDescriptor: errorPipe[0], closeOnDealloc: true)
+        )
     }
 }
