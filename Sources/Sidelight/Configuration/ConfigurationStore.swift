@@ -106,10 +106,10 @@ final class ConfigurationStore {
         isApplyingFileChange = false
     }
 
-    /// Whether the file can be saved over: it is missing, holds what was last read or written, or something readable,
-    /// or an invalid file (found at launch, or a hand edit not yet fixed) has been kept aside first. So has a file
-    /// last read with values the configuration doesn't keep. A file that exists but can't be read can't be kept aside
-    /// either, so it is left alone.
+    /// Whether the file can be saved over: it is missing, or it holds what was last read or written or a readable edit
+    /// not reloaded yet, and every value it has would be kept. Otherwise it is kept aside first: an invalid file
+    /// (found at launch, or a hand edit not yet fixed), or one with values reading it changes or drops. A file that
+    /// exists but can't be read can't be kept aside either, so it is left alone.
     private func mayReplaceFile() -> Bool {
         let onDisk: Data
         do {
@@ -125,8 +125,8 @@ final class ConfigurationStore {
             lastFileHasUnkeptValues = !backUp(onDisk, as: "unsupported")
             return !lastFileHasUnkeptValues
         }
-        guard (try? AppConfiguration(json: onDisk)) == nil else { return true }
-        return backUp(onDisk, as: "invalid")
+        guard let edited = try? AppConfiguration(json: onDisk) else { return backUp(onDisk, as: "invalid") }
+        return Self.keepsEveryValue(of: onDisk, in: edited) || backUp(onDisk, as: "unsupported")
     }
 
     /// Keeps a file about to be replaced next to the configuration, named for why and when, so an earlier backup is

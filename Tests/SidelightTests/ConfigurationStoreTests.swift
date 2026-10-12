@@ -100,6 +100,44 @@ struct ConfigurationStoreTests {
         #expect(try backups(prefix: "config.unsupported-").map { try Data(contentsOf: $0) } == [outOfRange])
     }
 
+    @Test func `keeps an edit not read yet with a value moved into range before saving over it`() throws {
+        let store = ConfigurationStore(fileURL: file)
+        let outOfRange = try file(eventCount: 900)
+        try outOfRange.write(to: file)
+        store.configuration.windowAvoidance = .off
+        store.flush()
+        #expect(try backups(prefix: "config.unsupported-").map { try Data(contentsOf: $0) } == [outOfRange])
+        #expect(try AppConfiguration(json: Data(contentsOf: file)).windowAvoidance == .off)
+    }
+
+    @Test func `saves over an edit not read yet without a backup when nothing in it is lost`() throws {
+        let store = ConfigurationStore(fileURL: file)
+        try file(eventCount: 5).write(to: file)
+        store.configuration.windowAvoidance = .off
+        store.flush()
+        #expect(backups(prefix: "config.unsupported-").isEmpty && backups.isEmpty)
+        #expect(try AppConfiguration(json: Data(contentsOf: file)).windowAvoidance == .off)
+    }
+
+    @Test func `doesn't save over an edit with a value moved into range when it can't be kept`() throws {
+        let store = ConfigurationStore(fileURL: file)
+        // Every name a backup could take in the next few seconds is already used.
+        for offset in -2...10 {
+            let stamp = Date.now.addingTimeInterval(Double(offset))
+                .formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false))
+                .replacing(":", with: "-")
+            for attempt in 1...20 {
+                let name = attempt == 1 ? "unsupported-\(stamp)" : "unsupported-\(stamp)-\(attempt)"
+                try Data().write(to: file.deletingPathExtension().appendingPathExtension("\(name).json"))
+            }
+        }
+        let outOfRange = try file(eventCount: 900)
+        try outOfRange.write(to: file)
+        store.configuration.windowAvoidance = .off
+        store.flush()
+        #expect(try Data(contentsOf: file) == outOfRange)
+    }
+
     @Test func `saves over a file it keeps everything of without a backup`() throws {
         try file(eventCount: 5, windowAvoidance: .off).write(to: file)
         let store = ConfigurationStore(fileURL: file)
