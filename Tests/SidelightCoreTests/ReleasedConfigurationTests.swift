@@ -56,7 +56,9 @@ struct ReleasedConfigurationTests {
         case let object as [String: Any]:
             return object.reduce(into: [:]) { $0.merge(values(in: $1.value, at: child($1.key))) { $1 } }
         case let array as [Any]:
-            return array.enumerated().reduce(into: [:]) { result, element in
+            let ids = array.compactMap { ($0 as? [String: Any])?["id"] as? String }
+            let order: [String: NSObject] = ids.isEmpty ? [:] : [child("$order"): ids as NSArray]
+            return array.enumerated().reduce(into: order) { result, element in
                 let key = ((element.element as? [String: Any])?["id"] as? String) ?? "\(element.offset)"
                 result.merge(values(in: element.element, at: child(key))) { $1 }
             }
