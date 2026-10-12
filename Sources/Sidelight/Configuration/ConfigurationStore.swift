@@ -10,6 +10,8 @@ import os
 /// - An unreadable file is moved aside rather than overwritten, so a typo never loses the user's setup.
 /// - So is a file with values this version can't keep (out of range, unknown, from a newer version), before the
 ///   first save over it.
+/// - When the file is edited while a change made in the app isn't saved yet, the app's change is saved and the edit
+///   kept aside, rather than either silently replacing the other.
 @Observable
 final class ConfigurationStore {
     var configuration: AppConfiguration {
@@ -106,10 +108,10 @@ final class ConfigurationStore {
         isApplyingFileChange = false
     }
 
-    /// Whether the file can be saved over: it is missing, or it holds what was last read or written or a readable edit
-    /// not reloaded yet, and every value it has would be kept. Otherwise it is kept aside first: an invalid file
-    /// (found at launch, or a hand edit not yet fixed), or one with values reading it changes or drops. A file that
-    /// exists but can't be read can't be kept aside either, so it is left alone.
+    /// Whether the file can be saved over: it is missing, or it holds what was last read or written and every value it
+    /// has would be kept. Otherwise it is kept aside first: an invalid file (found at launch, or a hand edit not yet
+    /// fixed), one with values reading it changes or drops, or an edit not reloaded yet that the save would undo. A
+    /// file that exists but can't be read can't be kept aside either, so it is left alone.
     private func mayReplaceFile() -> Bool {
         let onDisk: Data
         do {
@@ -126,7 +128,11 @@ final class ConfigurationStore {
             return !lastFileHasUnkeptValues
         }
         guard let edited = try? AppConfiguration(json: onDisk) else { return backUp(onDisk, as: "invalid") }
-        return Self.keepsEveryValue(of: onDisk, in: edited) || backUp(onDisk, as: "unsupported")
+        guard Self.keepsEveryValue(of: onDisk, in: edited) else { return backUp(onDisk, as: "unsupported") }
+        // Only reformatted, or already what's being saved: replacing it loses nothing.
+        let lastRead = lastFileContents.flatMap { try? AppConfiguration(json: $0) }
+        guard edited != configuration, edited != lastRead else { return true }
+        return backUp(onDisk, as: "external-edit")
     }
 
     /// Keeps a file about to be replaced next to the configuration, named for why and when, so an earlier backup is
@@ -140,7 +146,7 @@ final class ConfigurationStore {
             do {
                 try data.write(to: backup, options: .withoutOverwriting)
                 Log.configuration.notice(
-                    "Moved the \(reason, privacy: .public) configuration to \(backup.lastPathComponent, privacy: .public)"
+                    "Kept the \(reason, privacy: .public) configuration as \(backup.lastPathComponent, privacy: .public)"
                 )
                 return true
             } catch CocoaError.fileWriteFileExists {
@@ -207,6 +213,13 @@ final class ConfigurationStore {
 
     private func reloadIfChangedExternally() {
         guard let data = try? Data(contentsOf: fileURL), data != lastFileContents else { return }
+        // Adopting the edit would drop a change made in the app and not saved yet: save that instead, which keeps the
+        // edit aside (see `mayReplaceFile()`).
+        guard !pendingSave.isPending else {
+            Log.configuration.notice("The configuration file was edited while a change in the app was unsaved")
+            flush()
+            return
+        }
         do {
             applyFromFile(try AppConfiguration(json: data), contents: data)
             Log.configuration.info("Reloaded the configuration file after an external edit")
