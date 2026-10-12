@@ -8,6 +8,8 @@ import os
 /// - Changes are saved atomically after a short debounce.
 /// - External edits to the file (it's meant to be hand-editable) are hot-reloaded.
 /// - An unreadable file is moved aside rather than overwritten, so a typo never loses the user's setup.
+/// - So is a file with values this version can't keep (out of range, unknown, from a newer version), before the
+///   first save over it.
 @Observable
 final class ConfigurationStore {
     var configuration: AppConfiguration {
@@ -21,6 +23,8 @@ final class ConfigurationStore {
 
     /// What the file held when last read or written.
     @ObservationIgnored private var lastFileContents: Data?
+    /// Whether ``lastFileContents`` says something ``configuration`` doesn't, so saving over it would lose it.
+    @ObservationIgnored private var lastFileHasUnkeptValues = false
     @ObservationIgnored private var isApplyingFileChange = false
     @ObservationIgnored private let pendingSave = DelayedTask()
     @ObservationIgnored private let pendingReload = DelayedTask()
@@ -93,14 +97,19 @@ final class ConfigurationStore {
     /// Adopts a configuration read from disk without scheduling a save of it.
     private func applyFromFile(_ configuration: AppConfiguration, contents: Data) {
         lastFileContents = contents
+        lastFileHasUnkeptValues = !Self.keepsEveryValue(of: contents, in: configuration)
+        if lastFileHasUnkeptValues {
+            Log.configuration.notice("The configuration file has values this version changes; kept aside on save")
+        }
         isApplyingFileChange = true
         self.configuration = configuration
         isApplyingFileChange = false
     }
 
     /// Whether the file can be saved over: it is missing, holds what was last read or written, or something readable,
-    /// or an invalid file (found at launch, or a hand edit not yet fixed) has been kept aside first. A file that
-    /// exists but can't be read can't be kept aside either, so it is left alone.
+    /// or an invalid file (found at launch, or a hand edit not yet fixed) has been kept aside first. So has a file
+    /// last read with values the configuration doesn't keep. A file that exists but can't be read can't be kept aside
+    /// either, so it is left alone.
     private func mayReplaceFile() -> Bool {
         let onDisk: Data
         do {
@@ -111,31 +120,65 @@ final class ConfigurationStore {
             Log.configuration.error("Not saving: can't read the existing configuration file to keep it safe: \(error)")
             return false
         }
-        guard onDisk != lastFileContents, (try? AppConfiguration(json: onDisk)) == nil else { return true }
-        return backUpInvalidFile(onDisk)
+        if onDisk == lastFileContents {
+            guard lastFileHasUnkeptValues else { return true }
+            lastFileHasUnkeptValues = !backUp(onDisk, as: "unsupported")
+            return !lastFileHasUnkeptValues
+        }
+        guard (try? AppConfiguration(json: onDisk)) == nil else { return true }
+        return backUp(onDisk, as: "invalid")
     }
 
-    /// Keeps an unreadable file next to the configuration, named for when it was found, so an earlier backup is
+    /// Keeps a file about to be replaced next to the configuration, named for why and when, so an earlier backup is
     /// never replaced. Returns whether it was kept.
-    private func backUpInvalidFile(_ data: Data) -> Bool {
+    private func backUp(_ data: Data, as reason: String) -> Bool {
         let stamp = Date.now.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false))
             .replacing(":", with: "-")
         for attempt in 1...20 {
-            let name = attempt == 1 ? "invalid-\(stamp)" : "invalid-\(stamp)-\(attempt)"
+            let name = attempt == 1 ? "\(reason)-\(stamp)" : "\(reason)-\(stamp)-\(attempt)"
             let backup = fileURL.deletingPathExtension().appendingPathExtension("\(name).json")
             do {
                 try data.write(to: backup, options: .withoutOverwriting)
                 Log.configuration.notice(
-                    "Moved the invalid configuration to \(backup.lastPathComponent, privacy: .public)")
+                    "Moved the \(reason, privacy: .public) configuration to \(backup.lastPathComponent, privacy: .public)"
+                )
                 return true
             } catch CocoaError.fileWriteFileExists {
                 continue
             } catch {
-                Log.configuration.fault("Can't back up the invalid configuration: \(error)")
+                Log.configuration.fault("Can't back up the \(reason, privacy: .public) configuration: \(error)")
                 return false
             }
         }
         return false
+    }
+
+    /// Whether saving `configuration`, read from `contents`, keeps every value the file has. Options it leaves out
+    /// take their defaults and don't count, nor do whitespace or key order; a value moved into range, one only a newer
+    /// version knows, or a retired widget does.
+    private static func keepsEveryValue(of contents: Data, in configuration: AppConfiguration) -> Bool {
+        guard let file = try? JSONSerialization.jsonObject(with: contents),
+            let saved = try? JSONSerialization.jsonObject(with: configuration.json())
+        else { return false }
+        let kept = values(in: saved)
+        return values(in: file).allSatisfy { path, value in value == NSNull() || kept[path] == value }
+    }
+
+    /// Every value in a JSON document, by its path, such as `sections.<id>.widgets.<id>.settings.style`. Elements
+    /// with an `id` are found by it, so a dropped widget doesn't move the ones after it.
+    private static func values(in json: Any, at path: String = "") -> [String: NSObject] {
+        func child(_ key: String) -> String { path.isEmpty ? key : "\(path).\(key)" }
+        switch json {
+        case let object as [String: Any]:
+            return object.reduce(into: [:]) { $0.merge(values(in: $1.value, at: child($1.key))) { $1 } }
+        case let array as [Any]:
+            return array.enumerated().reduce(into: [:]) { result, element in
+                let key = ((element.element as? [String: Any])?["id"] as? String) ?? "\(element.offset)"
+                result.merge(values(in: element.element, at: child(key))) { $1 }
+            }
+        default:
+            return [path: json as? NSObject ?? NSNull()]
+        }
     }
 
     // MARK: Saving
@@ -150,6 +193,7 @@ final class ConfigurationStore {
             guard data != lastFileContents, mayReplaceFile() else { return }
             try data.write(to: fileURL, options: .atomic)
             lastFileContents = data
+            lastFileHasUnkeptValues = false
         } catch {
             Log.configuration.error("Can't save the configuration: \(error)")
         }
