@@ -9,6 +9,9 @@ import SidelightCore
 ///   ``CodexSessionOpener`` decide.
 /// - Cursor can't be asked from outside to open one of its chats, so a Cursor chat asks Cursor to open its project
 ///   folder, or just opens Cursor, and says so.
+/// - OpenCode sessions aren't opened. No outside link to one session in its desktop app is known, and resuming one
+///   with its CLI can reach a server that keeps another database, or start a new session in its place: nothing
+///   Sidelight reads says which. Their ID and folder can be copied instead, as plain text.
 enum AgentSessionOpener {
     /// What a click on a session does.
     struct Route: Equatable {
@@ -69,6 +72,7 @@ enum AgentSessionOpener {
                     help: "Opens Cursor. \(project)'s folder isn't on this Mac anymore, and \(noChat.lowercasedFirst)")
             }
             return Route(kind: .project, title: "Open Cursor", help: "Opens Cursor. \(noChat)")
+        case .openCode: return nil
         }
     }
 
@@ -95,6 +99,7 @@ enum AgentSessionOpener {
             Task {
                 if await !openProject(of: chat) { NSSound.beep() }
             }
+        case .openCode: NSSound.beep()
         }
     }
 
@@ -104,6 +109,8 @@ enum AgentSessionOpener {
         case .claudeCode, .codex: true
         // `agent --resume` continues a Cursor CLI chat; nothing says an editor chat's ID is one.
         case .cursor: false
+        // Nothing says `opencode --session` reaches the database this session was read from.
+        case .openCode: false
         }
     }
 
@@ -111,7 +118,7 @@ enum AgentSessionOpener {
         switch session.source {
         case .claudeCode(let claude): ClaudeSessionOpener.copyResumeCommand(of: claude)
         case .codex(let codex): CodexSessionOpener.copyResumeCommand(of: codex)
-        case .cursor: break
+        case .cursor, .openCode: break
         }
     }
 
@@ -141,6 +148,45 @@ enum AgentSessionOpener {
             return true
         }
         return (try? await NSWorkspace.shared.openApplication(at: appURL, configuration: .init())) != nil
+    }
+
+    // MARK: Context
+
+    /// Plain text about a session to paste elsewhere, for sessions that can't be opened or resumed from here.
+    struct ContextCopy: Identifiable {
+        /// A menu item's title: `Copy Session ID`.
+        let title: String
+        let systemImage: String
+        let text: String
+        var id: String { title }
+    }
+
+    static func contextCopies(of session: AgentSession) -> [ContextCopy] {
+        switch session.source {
+        case .openCode(let openCode):
+            [
+                ContextCopy(title: "Copy Session ID", systemImage: "number", text: openCode.id),
+                ContextCopy(title: "Copy Folder Path", systemImage: "folder", text: openCode.directory),
+            ]
+        case .claudeCode, .codex, .cursor: []
+        }
+    }
+
+    static func copy(_ context: ContextCopy) {
+        SessionHost.copy(context.text)
+    }
+
+    /// Why a session without a route can't be opened, and what can be done instead.
+    static func unavailableHelp(for session: AgentSession) -> String {
+        switch session.source {
+        case .openCode:
+            "Can't be opened from here: Sidelight can't tell which OpenCode would show this session. "
+                + "Right-click to copy its session ID or folder."
+        case .claudeCode, .codex, .cursor:
+            canCopyResumeCommand(of: session)
+                ? "Can't be opened from here. Right-click to copy the command that resumes it."
+                : "Can't be opened from here"
+        }
     }
 }
 

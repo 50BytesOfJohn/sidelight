@@ -25,7 +25,11 @@ let package = Package(
         .executableTarget(
             name: "Sidelight",
             dependencies: ["SidelightCore", .product(name: "Sparkle", package: "Sparkle")],
-            resources: [.process("Widgets/AIUsage/ProviderLogos.xcassets")],
+            resources: [
+                .process("Widgets/AIUsage/ProviderLogos.xcassets"),
+                // The notice that comes with OpenCode's logo. See docs/BRAND_ASSETS.md.
+                .copy("Widgets/AgentSessions/Licenses"),
+            ],
             swiftSettings: approachableConcurrency + [.defaultIsolation(MainActor.self)]
         ),
         // UI-free domain logic: configuration schema, protocols, parsers, geometry. Nonisolated and Sendable.

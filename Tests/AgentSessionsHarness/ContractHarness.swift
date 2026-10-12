@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import SidelightCore
 import SwiftUI
 
@@ -182,7 +183,8 @@ struct ContractHarness {
 
         let cursorService = CursorChatsService()
         let sources = AgentSessionSources(
-            claudeCode: ClaudeSessionsService(), codex: CodexSessionsService(), cursor: cursorService)
+            claudeCode: ClaudeSessionsService(), codex: CodexSessionsService(), cursor: cursorService,
+            openCode: OpenCodeSessionsService())
         check("Cursor before initial read is loading", sources.state(of: .cursor) == .reading)
         let loadingContent = AgentSessionsContent(
             sources: sources, settings: AgentSessionsSettings(providers: [.cursor]), sessions: [], layout: .regular,
@@ -274,6 +276,243 @@ struct ContractHarness {
         await waitFor { cursorService.chats == [chat] }
         check("Held replacement still publishes after old completion", cursorService.chats == [chat])
         cursorService.stop()
+        // OpenCode publication uses the current production service body with only its async read controlled.
+        let openCodeService = sources.openCode
+        check("OpenCode initial source is reading", sources.state(of: .openCode) == .reading)
+        openCodeService.isEnabled = true
+        for (result, state) in [
+            (
+                Result<[OpenCodeSession], OpenCodeSessionIndex.Failure>.failure(.unreadable),
+                AgentSessionSources.State.unreadable(isStale: false)
+            ),
+            (.failure(.unsupported), .unsupported), (.failure(.noDatabase), .notFound),
+            (.success([]), .found(open: nil)),
+        ] {
+            ControlledOpenCodeRead.result = result
+            await openCodeService.reload(generation: openCodeService.reloadGeneration)
+            check("OpenCode completed source state \(state)", sources.state(of: .openCode) == state)
+            let content = AgentSessionsContent(
+                sources: sources, settings: AgentSessionsSettings(providers: [.openCode]), sessions: [],
+                layout: .regular, now: now)
+            let leaf = contentLeaf(content.body)
+            check(
+                "OpenCode source chooses actual content branch \(state)",
+                state == .found(open: nil) ? leaf.list != nil : leaf.message != nil)
+        }
+        let openCode = OpenCodeSession(
+            id: "ses_fixture", title: "Synthetic OpenCode", directory: directory.path, createdAt: now, updatedAt: now)
+        ControlledOpenCodeRead.result = .success([openCode])
+        await openCodeService.reload(generation: openCodeService.reloadGeneration)
+        ControlledOpenCodeRead.result = .failure(.unreadable)
+        await openCodeService.reload(generation: openCodeService.reloadGeneration)
+        check(
+            "OpenCode unreadable preserves stale rows",
+            openCodeService.sessions == [openCode] && sources.state(of: .openCode) == .unreadable(isStale: true))
+        check(
+            "OpenCode stale warning is explicit",
+            sources.state(of: .openCode).problem(of: .openCode)?.contains("out of date") == true)
+        check(
+            "OpenCode adaptation through shared source",
+            sources.sessions(for: AgentSessionsSettings(providers: [.openCode])).map(\.id) == [
+                AgentSession(openCode).id
+            ])
+        ControlledOpenCodeRead.result = .success([openCode])
+        await openCodeService.reload(generation: openCodeService.reloadGeneration)
+        check("OpenCode recovery clears warning", sources.state(of: .openCode) == .found(open: nil))
+        ControlledOpenCodeRead.result = .failure(.unsupported)
+        await openCodeService.reload(generation: openCodeService.reloadGeneration)
+        check("OpenCode incompatible replacement clears stale rows", openCodeService.sessions.isEmpty)
+        ControlledOpenCodeRead.result = .success([openCode])
+        await openCodeService.reload(generation: openCodeService.reloadGeneration)
+        ControlledOpenCodeRead.result = .failure(.noDatabase)
+        await openCodeService.reload(generation: openCodeService.reloadGeneration)
+        check(
+            "OpenCode removed source clears rows and starts missing sweep",
+            openCodeService.sessions.isEmpty && openCodeService.sweepTask != nil)
+        openCodeService.stop()
+        check(
+            "OpenCode stop cancels read and sweep",
+            openCodeService.reloadTask == nil && openCodeService.sweepTask == nil && openCodeService.watcher == nil)
+        ControlledOpenCodeRead.holdNext = true
+        openCodeService.start()
+        openCodeService.start()
+        await waitFor { ControlledOpenCodeRead.pending != nil }
+        let oldOpenCodeRead = ControlledOpenCodeRead.pending
+        ControlledOpenCodeRead.pending = nil
+        openCodeService.stop()
+        ControlledOpenCodeRead.holdNext = true
+        openCodeService.start()
+        await waitFor { ControlledOpenCodeRead.pending != nil }
+        let replacementOpenCodeRead = ControlledOpenCodeRead.pending
+        ControlledOpenCodeRead.pending = nil
+        oldOpenCodeRead?.resume(returning: .success([openCode]))
+        for _ in 0..<100 { await Task.yield() }
+        check(
+            "OpenCode old completion preserves replacement handle and does not publish",
+            openCodeService.reloadTask != nil && openCodeService.sessions.isEmpty)
+        replacementOpenCodeRead?.resume(returning: .success([openCode]))
+        await waitFor { openCodeService.sessions == [openCode] }
+        check(
+            "OpenCode replacement generation publishes",
+            openCodeService.hasLoaded && openCodeService.sessions == [openCode])
+        openCodeService.stop()
+        openCodeService.stop()
+
+        // Former command tests now assert conservative refusal for the same hostile inputs.
+        // Owned executable markers are never run; their presence must not change OpenCode policy.
+        let home = URL.homeDirectory
+        guard home.path.contains("/build/agent-sessions-harness/") else { fatalError("Isolated harness home required") }
+        let localBin = home.appending(path: ".local/bin")
+        try FileManager.default.createDirectory(at: localBin, withIntermediateDirectories: true)
+        let executable = localBin.appending(path: "opencode2")
+        let ambiguousV1 = localBin.appending(path: "opencode")
+        defer {
+            try? FileManager.default.removeItem(at: executable)
+            try? FileManager.default.removeItem(at: ambiguousV1)
+        }
+        func assertInert(_ name: String, _ value: OpenCodeSession) {
+            let session = AgentSession(value)
+            workspace.events = []
+            MockHost.events = []
+            MockHost.writes = []
+            MockProcessRunner.scripts = []
+            MockSound.beeps = 0
+            AgentSessionOpener.open(session)
+            AgentSessionOpener.copyResumeCommand(of: session)
+            check(
+                "OpenCode \(name) no route, command, dispatch or resume copy",
+                AgentSessionOpener.route(for: session) == nil
+                    && !AgentSessionOpener.canCopyResumeCommand(of: session)
+                    && workspace.events.isEmpty && MockHost.events.isEmpty
+                    && MockProcessRunner.scripts.isEmpty && MockHost.writes.isEmpty && MockSound.beeps == 1)
+            let copies = AgentSessionOpener.contextCopies(of: session)
+            check(
+                "OpenCode \(name) exactly two named plaintext copies",
+                copies.map(\.title) == ["Copy Session ID", "Copy Folder Path"]
+                    && copies.map(\.systemImage) == ["number", "folder"]
+                    && copies.map(\.text) == [value.id, value.directory])
+            for copy in copies { AgentSessionOpener.copy(copy) }
+            check(
+                "OpenCode \(name) clipboard writes are verbatim data",
+                MockHost.writes == [value.id, value.directory] && MockHost.copied == value.directory
+                    && workspace.events.isEmpty && MockHost.events.isEmpty && MockProcessRunner.scripts.isEmpty)
+        }
+        assertInert("no install", openCode)
+        try Data("#!/bin/sh\nexit 99\n".utf8).write(to: ambiguousV1)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: ambiguousV1.path)
+        assertInert("ambiguous V1 only", openCode)
+        try Data("#!/bin/sh\nexit 99\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        assertInert("named V2 executable present", openCode)
+        for (name, variable, value) in [
+            ("wrong store", "OPENCODE_DB", home.appending(path: "store-B.db").path),
+            ("default environment drift", "XDG_DATA_HOME", home.appending(path: "other-data").path),
+            ("underlying V1 binary override", "OPENCODE_BIN_PATH", ambiguousV1.path),
+        ] {
+            let original = getenv(variable).map { String(cString: $0) }
+            setenv(variable, value, 1)
+            assertInert(name, openCode)
+            if let original { setenv(variable, original, 1) } else { unsetenv(variable) }
+        }
+        var unavailable = openCode
+        for (name, path) in [
+            ("file folder", file.path), ("deleted folder", directory.appending(path: "absent").path),
+            ("empty folder", ""), ("root folder", "/"),
+            ("quoted shell syntax as data", "/synthetic/space ' $() `echo nope` \\\" ; folder"),
+            ("newline folder", "/synthetic/line\nbreak"),
+            ("CR folder", "/synthetic/line\rbreak"), ("NUL folder", "/synthetic/\u{0}folder"),
+            ("ESC folder", "/synthetic/\u{1b}folder"), ("Unicode separator", "/synthetic/\u{2028}folder"),
+        ] {
+            unavailable.directory = path
+            assertInert(name, unavailable)
+        }
+        for id in [
+            "ses_a", "ses_Z19_", "ses_" + String(repeating: "x", count: 96),
+            "", "ses_", "sess_a", "ses_ä", "ses_x;touch nope", "ses_x\n", "ses_x\r", "ses_x\u{0}",
+            "ses_" + String(repeating: "x", count: 97),
+        ] {
+            // Never include hostile data in a diagnostic log.
+            unavailable = OpenCodeSession(id: id, directory: directory.path, createdAt: now, updatedAt: now)
+            assertInert("ID adversary", unavailable)
+        }
+        let unavailableHelp =
+            "Can't be opened from here: Sidelight can't tell which OpenCode would show this session. "
+            + "Right-click to copy its session ID or folder."
+        let row = AgentSessionRow(session: AgentSession(openCode), isCompact: false, now: now)
+        check(
+            "OpenCode row help describes metadata and identical unavailable policy",
+            AgentSessionOpener.unavailableHelp(for: AgentSession(openCode)) == unavailableHelp
+                && row.help(nil) == "OpenCode's session list doesn't say whether a session is working or waiting\n"
+                    + unavailableHelp
+        )
+        for isBar in [true, false] {
+            let glance = AgentSessionsGlance(
+                sessions: [AgentSession(openCode), actionable], problems: ["Synthetic source warning"],
+                isBar: isBar, now: now)
+            check(
+                "OpenCode \(isBar ? "bar" : "minimal") remains informational with top identity",
+                glance.action == nil && !glance.helpText(glance.action).contains("Click:")
+                    && glance.helpText(nil).hasPrefix("OpenCode · \(AgentSession(openCode).title): Updated")
+                    && glance.helpText(nil).contains("Synthetic source warning"))
+        }
+        check(
+            "Existing Claude unavailable help unchanged",
+            AgentSessionOpener.unavailableHelp(for: AgentSession(claude))
+                == "Can't be opened from here. Right-click to copy the command that resumes it.")
+        check(
+            "Existing Codex unavailable help unchanged",
+            AgentSessionOpener.unavailableHelp(for: actionable)
+                == "Can't be opened from here. Right-click to copy the command that resumes it.")
+        check(
+            "Existing Cursor unavailable help unchanged",
+            AgentSessionOpener.unavailableHelp(for: cursor) == "Can't be opened from here")
+        check(
+            "Other providers acquire no context-copy menus",
+            [AgentSession(claude), actionable, cursor].allSatisfy { AgentSessionOpener.contextCopies(of: $0).isEmpty })
+        if let db = OpenCodeSessionsService.database {
+            try FileManager.default.createDirectory(
+                at: db.deletingLastPathComponent(), withIntermediateDirectories: true)
+            var writer: OpaquePointer?
+            precondition(sqlite3_open(db.path, &writer) == SQLITE_OK)
+            defer {
+                sqlite3_close(writer)
+                try? FileManager.default.removeItem(at: db)
+            }
+            precondition(
+                sqlite3_exec(
+                    writer,
+                    "CREATE TABLE IF NOT EXISTS session_v2(id TEXT, parent_id TEXT, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)",
+                    nil, nil, nil) == SQLITE_OK)
+            precondition(
+                sqlite3_exec(
+                    writer,
+                    "DELETE FROM session_v2; INSERT INTO session_v2 VALUES ('ses_fixture', NULL, '/synthetic/repo', NULL, 1800000000000, 1800000000000, NULL)",
+                    nil, nil, nil) == SQLITE_OK)
+            check(
+                "OpenCode selected ID initially exists in source store",
+                (try? OpenCodeSessionIndex.sessions(updatedSince: .distantPast, in: db).get().map(\.id)) == [
+                    "ses_fixture"
+                ])
+            precondition(sqlite3_exec(writer, "DELETE FROM session_v2", nil, nil, nil) == SQLITE_OK)
+            check(
+                "OpenCode deleted ID is absent before click",
+                (try? OpenCodeSessionIndex.sessions(updatedSince: .distantPast, in: db).get().isEmpty) == true)
+        }
+        assertInert("deleted ID / detached model", openCode)
+        assertInert("stale last-successful-read model", openCodeService.sessions.first ?? openCode)
+        try FileManager.default.removeItem(at: executable)
+        assertInert("executable removed before click", openCode)
+        check(
+            "Released three-agent summary stays explicit",
+            AgentSessionsSettings(providers: [.codex, .claudeCode, .cursor]).summary.hasPrefix("All agents") == false)
+        check("New four-agent summary is all agents", AgentSessionsSettings().summary.hasPrefix("All agents"))
+        let overview = WidgetMetadata.agentSessions.summary.lowercased()
+        check(
+            "OpenCode overview distinguishes metadata/context copies from opening",
+            overview.contains("opencode") && overview.contains("cop")
+                && (overview.contains("metadata") || overview.contains("aren't opened")
+                    || overview.contains("can't be opened") || overview.contains("not opened"))
+        )
         print("RESULT \(checks) checks, \(failures) failures; all dispatch mocked")
         if failures != 0 { exit(1) }
     }

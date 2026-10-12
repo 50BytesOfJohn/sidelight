@@ -47,17 +47,24 @@ enum MockHost {
         events.append("\(app.localizedName ?? "App"):\(opensFolder):\(cwd ?? "none")")
         return true
     }
-    static func copy(_ text: String) { fatalError("Clipboard is outside these tests") }
+    static var copied: String?
+    static var writes: [String] = []
+    static func copy(_ text: String) {
+        copied = text
+        writes.append(text)
+    }
 }
 
 enum MockSound {
-    static func beep() { fatalError("Unexpected beep") }
+    static var beeps = 0
+    static func beep() { beeps += 1 }
 }
 
 enum Log {
     static let codexSessions = Logger(subsystem: "app.getsidelight.harness", category: "codex")
     static let claudeSessions = Logger(subsystem: "app.getsidelight.harness", category: "claude")
     static let cursor = Logger(subsystem: "app.getsidelight.harness", category: "cursor")
+    static let openCode = Logger(subsystem: "app.getsidelight.harness", category: "openCode")
 }
 
 @Observable final class ClaudeSessionsService {
@@ -87,6 +94,19 @@ enum ControlledRead {
     }
 }
 
+enum ControlledOpenCodeRead {
+    static var result: Result<[OpenCodeSession], OpenCodeSessionIndex.Failure> = .success([])
+    static var holdNext = false
+    static var pending: CheckedContinuation<Result<[OpenCodeSession], OpenCodeSessionIndex.Failure>, Never>?
+    static func read(_ database: URL) async -> Result<[OpenCodeSession], OpenCodeSessionIndex.Failure> {
+        if holdNext {
+            holdNext = false
+            return await withCheckedContinuation { pending = $0 }
+        }
+        return result
+    }
+}
+
 struct ProviderLogo: View {
     let provider: AgentProvider
     let size: CGFloat
@@ -103,4 +123,24 @@ struct AgentSessionList: View {
     let problems: [String]
     var isCompact = false
     var body: some View { Text("Contract list") }
+}
+
+// A tripwire: no OpenCode path may reach command/script execution.
+// Contract dispatch never reaches Terminal or any provider app.
+enum MockProcessRunner {
+    static var scripts: [String] = []
+    static func output(of executable: URL, arguments: [String]) async -> Data? {
+        precondition(executable.path == "/usr/bin/osascript")
+        scripts.append(arguments.last ?? "")
+        return Data("ok".utf8)
+    }
+}
+
+// Metadata's actual production declaration is compiled; only the surrounding app type is a leaf stand-in.
+struct WidgetMetadata {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    let summary: String
+    let isBeta: Bool
 }

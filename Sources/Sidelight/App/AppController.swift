@@ -23,6 +23,7 @@ final class AppController {
         let claudeSessions = ClaudeSessionsService()
         let codexSessions = CodexSessionsService()
         let cursorChats = CursorChatsService()
+        let openCodeSessions = OpenCodeSessionsService()
         let environment = AppEnvironment(
             configurationStore: ConfigurationStore(),
             displays: DisplayMonitor(),
@@ -35,7 +36,9 @@ final class AppController {
             claudeSessions: claudeSessions,
             codexSessions: codexSessions,
             cursorChats: cursorChats,
-            agentSessions: AgentSessionSources(claudeCode: claudeSessions, codex: codexSessions, cursor: cursorChats),
+            openCodeSessions: openCodeSessions,
+            agentSessions: AgentSessionSources(
+                claudeCode: claudeSessions, codex: codexSessions, cursor: cursorChats, openCode: openCodeSessions),
             systemStats: SystemStatsService(),
             noodleComputer: NoodleComputerService(),
             railway: RailwayService(),
@@ -86,6 +89,7 @@ final class AppController {
         environment.claudeSessions.stop()
         environment.codexSessions.stop()
         environment.cursorChats.stop()
+        environment.openCodeSessions.stop()
         environment.calendar.stop()
         environment.systemStats.stop()
         environment.noodleComputer.stop()
@@ -177,6 +181,7 @@ final class AppController {
             case .claudeCode: isNeeded ? environment.claudeSessions.start() : environment.claudeSessions.stop()
             case .codex: isNeeded ? environment.codexSessions.start() : environment.codexSessions.stop()
             case .cursor: isNeeded ? environment.cursorChats.start() : environment.cursorChats.stop()
+            case .openCode: isNeeded ? environment.openCodeSessions.start() : environment.openCodeSessions.stop()
             }
         }
         for kind in WidgetKind.allCases {

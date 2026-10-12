@@ -11,11 +11,16 @@ final class AgentSessionSources {
     let claudeCode: ClaudeSessionsService
     let codex: CodexSessionsService
     let cursor: CursorChatsService
+    let openCode: OpenCodeSessionsService
 
-    init(claudeCode: ClaudeSessionsService, codex: CodexSessionsService, cursor: CursorChatsService) {
+    init(
+        claudeCode: ClaudeSessionsService, codex: CodexSessionsService, cursor: CursorChatsService,
+        openCode: OpenCodeSessionsService
+    ) {
         self.claudeCode = claudeCode
         self.codex = codex
         self.cursor = cursor
+        self.openCode = openCode
     }
 
     /// Whether an agent's sessions could be read.
@@ -49,6 +54,14 @@ final class AgentSessionSources {
             case .unsupported: .unsupported
             case .unreadable: .unreadable(isStale: !cursor.chats.isEmpty)
             }
+        case .openCode:
+            guard openCode.hasLoaded else { return .reading }
+            return switch openCode.availability {
+            case .found: .found(open: nil)
+            case .notFound: .notFound
+            case .unsupported: .unsupported
+            case .unreadable: .unreadable(isStale: !openCode.sessions.isEmpty)
+            }
         }
     }
 
@@ -58,6 +71,7 @@ final class AgentSessionSources {
         case .claudeCode: claudeCode.sessions.map(AgentSession.init)
         case .codex: codex.sessions.filter { includesCodexExec || !$0.isExec }.map(AgentSession.init)
         case .cursor: cursor.chats.map(AgentSession.init)
+        case .openCode: openCode.sessions.map(AgentSession.init)
         }
     }
 

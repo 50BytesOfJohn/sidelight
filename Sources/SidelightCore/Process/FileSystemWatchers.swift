@@ -104,9 +104,15 @@ public final class FileEventStream: Sendable {
             Unmanaged<Callback>.fromOpaque(context.info!).release()
             return nil
         }
-        self.stream = stream
         FSEventStreamSetDispatchQueue(stream, queue)
-        FSEventStreamStart(stream)
+        // A stream that doesn't start never reports anything: `nil`, so the caller falls back as it does for one that
+        // couldn't be made. Releasing it releases the callback too.
+        guard FSEventStreamStart(stream) else {
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            return nil
+        }
+        self.stream = stream
     }
 
     deinit {

@@ -12,6 +12,12 @@ Sources for `Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets`:
   preserved unchanged in its own `125 × 125` SVG view box.
 - **Cursor:** `CUBE_2D_LIGHT.svg` and `CUBE_2D_DARK.svg`, unchanged from the archive linked by
   [Cursor's brand guidelines](https://cursor.com/brand).
+- **OpenCode:** `AgentOpenCode` holds OpenCode's `Mark`: the path geometry of `packages/ui/src/components/logo.tsx`
+  at OpenCode `v2.0.27` (commit `1f4d07a4a519185955ae8ab2ea3607805509e386`), unchanged, with the fixed light
+  (`#171717`/`#dbdbdb`) and dark (`#ededed`/`#343434`) colors of that tag's `packages/core/src/oauth/page.ts`. The
+  artwork comes from MIT-licensed source; its full notice ships in the app as
+  `Widgets/AgentSessions/Licenses/OpenCode-LICENSE.txt` in the resource bundle. The license covers the code, not
+  OpenCode's name or marks.
 - **Railway:** `logo-light.svg` from [Railway's brand page](https://railway.com/brand), unchanged. The image set
   renders it as a template, so it takes the color of the text around it, like a symbol.
 

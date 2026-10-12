@@ -59,6 +59,7 @@ extension AgentProvider {
         case .codex: "AIUsageCodex"
         case .claudeCode: "AIUsageClaude"
         case .cursor: "AIUsageCursor"
+        case .openCode: "AgentOpenCode"
         }
     }
 }
