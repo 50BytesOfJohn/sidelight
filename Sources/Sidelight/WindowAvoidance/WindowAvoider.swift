@@ -47,6 +47,8 @@ final class WindowAvoider {
 
     @ObservationIgnored private var observers: [pid_t: AXObserver] = [:]
     @ObservationIgnored private var registrationAttempts: [pid_t: Int] = [:]
+    /// Delayed registrations (fresh launches and retries), cancelled when avoidance turns off or the app quits.
+    @ObservationIgnored private var pendingRegistrations: [pid_t: Task<Void, Never>] = [:]
     @ObservationIgnored private var windowsAwaitingMouseUp: [PendingWindow] = []
     @ObservationIgnored private var mouseUpTask: Task<Void, Never>?
     @ObservationIgnored private let trustPoll = PacedTask()
@@ -104,6 +106,8 @@ final class WindowAvoider {
         mouseUpTask?.cancel()
         mouseUpTask = nil
         windowsAwaitingMouseUp = []
+        for task in pendingRegistrations.values { task.cancel() }
+        pendingRegistrations = [:]
         for token in workspaceObservations { NSWorkspace.shared.notificationCenter.removeObserver(token) }
         workspaceObservations = []
         for pid in Array(observers.keys) { unregister(pid) }
@@ -130,10 +134,7 @@ final class WindowAvoider {
             center.addObserver(of: workspace, for: .didLaunchApplication) { [weak self] message in
                 let application = message.application
                 // Freshly launched apps usually aren't Accessibility-ready for a moment.
-                Task { [weak self] in
-                    try? await Task.sleep(for: .seconds(1))
-                    self?.register(application)
-                }
+                self?.scheduleRegistration(of: application, after: .seconds(1))
             },
             center.addObserver(of: workspace, for: .didActivateApplication) { [weak self] message in
                 self?.register(message.application)
@@ -153,7 +154,8 @@ final class WindowAvoider {
 
     private func register(_ application: NSRunningApplication) {
         let pid = application.processIdentifier
-        guard pid != ownProcessIdentifier, observers[pid] == nil, application.activationPolicy == .regular,
+        guard mode != .off, isStarted, pid != ownProcessIdentifier, observers[pid] == nil,
+            application.activationPolicy == .regular,
             AXIsProcessTrusted()
         else { return }
 
@@ -194,14 +196,23 @@ final class WindowAvoider {
         let attempts = registrationAttempts[pid, default: 0]
         guard attempts < Self.maximumRegistrationAttempts else { return }
         registrationAttempts[pid] = attempts + 1
-        Task { [weak self] in
-            try? await Task.sleep(for: Self.registrationRetryDelay)
-            self?.register(application)
+        scheduleRegistration(of: application, after: Self.registrationRetryDelay)
+    }
+
+    private func scheduleRegistration(of application: NSRunningApplication, after delay: Duration) {
+        let pid = application.processIdentifier
+        pendingRegistrations[pid]?.cancel()
+        pendingRegistrations[pid] = Task { [weak self] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self else { return }
+            pendingRegistrations[pid] = nil
+            register(application)
         }
     }
 
     private func unregister(_ pid: pid_t) {
         registrationAttempts[pid] = nil
+        pendingRegistrations.removeValue(forKey: pid)?.cancel()
         guard let observer = observers.removeValue(forKey: pid) else { return }
         CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
     }
