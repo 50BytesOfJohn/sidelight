@@ -50,9 +50,13 @@ final class CalendarService: DataService {
     @ObservationIgnored private let refreshes = RepeatingTask()
     @ObservationIgnored private let reload = CoalescedReload()
     @ObservationIgnored private var storeChangeObserver: (any NSObjectProtocol)?
+    /// Between `start()` and `stop()`. Only then does the service read or publish events; `access` is kept current
+    /// either way, since settings shows it while the service is stopped.
+    @ObservationIgnored private var isRunning = false
 
     func start() {
-        guard !refreshes.isRunning else { return }
+        guard !isRunning else { return }
+        isRunning = true
         refresh()
         // Any store's changes: `EventStore` keeps the app's only one to itself.
         storeChangeObserver = NotificationCenter.default.addObserver(
@@ -66,6 +70,7 @@ final class CalendarService: DataService {
     }
 
     func stop() {
+        isRunning = false
         refreshes.stop()
         reload.cancel()
         if let storeChangeObserver { NotificationCenter.default.removeObserver(storeChangeObserver) }
@@ -85,12 +90,15 @@ final class CalendarService: DataService {
         }
         NSApp.activate()
         await store.requestFullAccess()
+        // The permission prompt can outlast the service (a stop, or a stop and restart): `refresh()` then only
+        // updates `access` unless the service is running again.
         refresh()
     }
 
     private func refresh() {
         let access = Self.currentAccess
         if access != self.access { self.access = access }
+        guard isRunning else { return }
         guard access == .granted else {
             reload.cancel()
             if !upcomingEvents.isEmpty { upcomingEvents = [] }
@@ -101,7 +109,7 @@ final class CalendarService: DataService {
 
     private func reloadNow() async {
         let events = await store.upcomingEvents(from: .now)
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, isRunning else { return }
         // Only a real change redraws the widgets: the store notifies for every edit, in any calendar.
         if events != upcomingEvents { upcomingEvents = events }
     }
