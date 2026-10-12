@@ -234,6 +234,9 @@ enum CodexRolloutReducer {
         (Data(#""type":"task_started""#.utf8), .turnStarted),
         (Data(#""type":"task_complete""#.utf8), .turnCompleted),
         (Data(#""type":"turn_aborted""#.utf8), .turnAborted),
+        // The names Codex's protocol also accepts for a turn's start and end.
+        (Data(#""type":"turn_started""#.utf8), .turnStarted),
+        (Data(#""type":"turn_complete""#.utf8), .turnCompleted),
         (Data(#""type":"token_count""#.utf8), .tokenCount),
         (Data(#""type":"function_call_output""#.utf8), .callOutput),
         (Data(#""type":"custom_tool_call_output""#.utf8), .callOutput),
@@ -255,7 +258,7 @@ enum CodexRolloutReducer {
     /// Whether the line starts or ends a turn.
     static func isTurnEvent(_ line: Data) -> Bool {
         let header = line.prefix(headerLength)
-        return markers.prefix(3).contains { header.firstRange(of: $0.0) != nil }
+        return markers.prefix(5).contains { header.firstRange(of: $0.0) != nil }
     }
 
     static func apply(_ line: Data, to state: inout CodexRolloutState) {

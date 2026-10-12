@@ -77,7 +77,7 @@ extension WidgetSettings {
         switch self {
         case .railway, .codexSessions: true
         case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system,
-            .noodleComputer:
+            .noodleComputer, .agentSessions:
             false
         }
     }
@@ -112,7 +112,7 @@ struct WidgetBuilderWindow: View {
                 )
                 .id(id)
             case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system,
-                .noodleComputer:
+                .noodleComputer, .agentSessions:
                 ContentUnavailableView(
                     "No builder", systemImage: "square.stack.3d.up.slash",
                     description: Text("This widget's options are in the Widgets window."))

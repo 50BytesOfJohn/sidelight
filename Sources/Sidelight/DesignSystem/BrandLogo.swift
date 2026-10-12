@@ -1,3 +1,4 @@
+import SidelightCore
 import SwiftUI
 
 /// Logos of the services widgets read, bundled in `ProviderLogos.xcassets`. See docs/BRAND_ASSETS.md.
@@ -32,6 +33,32 @@ struct WidgetIcon: View {
             BrandLogos.template(logo, size: size * 1.15)
         } else {
             Image(systemName: metadata.systemImage).font(.system(size: size, weight: .semibold))
+        }
+    }
+}
+
+/// An agent's logo in its own colors, as bundled in `ProviderLogos.xcassets`: the asset catalog picks the light or
+/// dark artwork for the appearance.
+struct ProviderLogo: View {
+    let provider: AgentProvider
+    let size: CGFloat
+
+    var body: some View {
+        Image(provider.logoAsset, bundle: BrandLogos.bundle)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
+}
+
+extension AgentProvider {
+    /// The image set in `ProviderLogos.xcassets`; the same artwork the AI Usage widget shows.
+    var logoAsset: String {
+        switch self {
+        case .codex: "AIUsageCodex"
+        case .claudeCode: "AIUsageClaude"
+        case .cursor: "AIUsageCursor"
         }
     }
 }

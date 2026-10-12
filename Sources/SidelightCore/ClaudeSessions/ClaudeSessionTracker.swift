@@ -12,12 +12,14 @@ public struct ClaudeSession: Identifiable, Hashable, Sendable {
         case idle
         /// The process exited.
         case closed
+        /// Claude Code wrote a status this version doesn't know, so it may be working, waiting or done.
+        case unknown
 
         /// Needs the user or is still going: shown however long ago it started.
         public var isOngoing: Bool {
             switch self {
             case .needsInput, .working: true
-            case .finished, .idle, .closed: false
+            case .finished, .idle, .closed, .unknown: false
             }
         }
 
@@ -27,7 +29,7 @@ public struct ClaudeSession: Identifiable, Hashable, Sendable {
             case .needsInput: 0
             case .working: 1
             case .finished: 2
-            case .idle, .closed: 3
+            case .idle, .closed, .unknown: 3
             }
         }
     }
@@ -110,7 +112,11 @@ public struct ClaudeSessionTracker: Sendable {
             activity = .working
         case .waiting:
             activity = .needsInput(record.waitingFor)
-        case .idle, .unknown:
+        // A status that isn't one of the known ones doesn't say the session is idle or done, whatever ran before.
+        case .unknown:
+            activity = .unknown
+        // Without any status yet, the session has only just opened.
+        case .idle, .notWritten:
             let hasWorked =
                 workedSessionIDs.contains(record.sessionID)
                 || record.lastChange.timeIntervalSince(record.startedAt) > Self.startupGrace

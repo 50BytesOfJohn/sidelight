@@ -1,7 +1,7 @@
 # Provider logos
 
-The AI Usage and Railway widgets use locally bundled artwork to identify the services they read. The logos remain the
-property of their respective owners; they are not Sidelight branding or an indication of endorsement.
+The AI Usage, Agent sessions and Railway widgets use locally bundled artwork to identify the services they read. The
+logos remain the property of their respective owners; they are not Sidelight branding or an indication of endorsement.
 
 Sources for `Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets`:
 

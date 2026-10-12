@@ -26,7 +26,9 @@ public struct ClaudeSessionRecord: Hashable, Sendable {
         case waiting
         /// The turn is over, or nothing has run yet.
         case idle
-        /// Not written yet, or a value this version doesn't know.
+        /// No status written yet: the session has only just opened.
+        case notWritten
+        /// A status this version doesn't know.
         case unknown
     }
 
@@ -74,6 +76,8 @@ public struct ClaudeSessionRecord: Hashable, Sendable {
         var nameSource: String?
         var startedAt: Int64?
         var status: String?
+        /// Whether there's a status at all, so a value this version can't read isn't taken for none yet.
+        var hasStatus: Bool
         var waitingFor: String?
         var statusUpdatedAt: Int64?
         var kind: String?
@@ -90,6 +94,7 @@ public struct ClaudeSessionRecord: Hashable, Sendable {
             nameSource = container.lenient(String.self, "nameSource")
             startedAt = container.lenientInt64("startedAt")
             status = container.lenient(String.self, "status")
+            hasStatus = (try? container.decodeNil(forKey: AnyCodingKey("status"))) == false
             waitingFor = container.lenient(String.self, "waitingFor")
             statusUpdatedAt = container.lenientInt64("statusUpdatedAt")
             kind = container.lenient(String.self, "kind")
@@ -112,7 +117,7 @@ public struct ClaudeSessionRecord: Hashable, Sendable {
             name: payload.name.flatMap { $0.isEmpty ? nil : $0 },
             isNamed: payload.nameSource.map { $0 != "derived" } ?? false,
             startedAt: Self.date(milliseconds: startedAt),
-            status: Self.status(payload.status),
+            status: payload.hasStatus ? Self.status(payload.status) : .notWritten,
             waitingFor: payload.waitingFor,
             statusChangedAt: payload.statusUpdatedAt.map(Self.date(milliseconds:)),
             surface: Self.surface(kind: payload.kind, entrypoint: payload.entrypoint),

@@ -12,6 +12,9 @@ struct AppEnvironment {
     let nowPlaying: NowPlayingService
     let claudeSessions: ClaudeSessionsService
     let codexSessions: CodexSessionsService
+    let cursorChats: CursorChatsService
+    /// Every agent's sessions together, from the session services above.
+    let agentSessions: AgentSessionSources
     let systemStats: SystemStatsService
     let noodleComputer: NoodleComputerService
     let railway: RailwayService
@@ -34,6 +37,8 @@ extension View {
             .environment(app.nowPlaying)
             .environment(app.claudeSessions)
             .environment(app.codexSessions)
+            .environment(app.cursorChats)
+            .environment(app.agentSessions)
             .environment(app.systemStats)
             .environment(app.noodleComputer)
             .environment(app.railway)

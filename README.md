@@ -32,6 +32,7 @@ On first launch macOS asks for **Accessibility** access (needed to move other ap
 | Calendar             | Calendar access, requested from the widget                            |
 | Claude Code sessions | A recent Claude Code; to open terminal tabs, macOS asks once per app  |
 | Codex sessions       | A recent Codex (CLI, desktop app or IDE extension)                    |
+| Agent sessions       | Each agent it lists, as above, and Cursor 3 for its chats. It shares those widgets' reading, so they needn't be placed |
 
 Packaged releases use Developer ID signing and Apple notarization. Installed copies check for updates through
 Sparkle; update settings and a manual check are in **Settings → General → Updates**. The menu bar also has
@@ -61,7 +62,8 @@ Sources/
     Codex/                codex app-server JSON-RPC session, rollout-file parser, usage models
     ClaudeCode/           Claude plan limits from the status line, ~/.claude.json and the opt-in usage endpoint
     ClaudeSessions/       Claude Code's live session registry, transcript titles, links back into a session
-    Cursor/               Cursor's included-usage pools from its dashboard endpoint (opt-in), sign-in reading
+    AgentSessions/        One session shape for every agent, so one widget lists them together
+    Cursor/               Cursor's included-usage pools from its dashboard endpoint (opt-in), sign-in, chat list
     Usage/                Rate-limit windows: pace forecast, reset rollover; refresh backoff
     NowPlaying/           media-control stream state + diff merging
     System/               CPU/memory sampling

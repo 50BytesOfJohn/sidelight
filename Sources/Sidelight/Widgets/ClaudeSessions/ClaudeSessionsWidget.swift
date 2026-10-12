@@ -25,6 +25,7 @@ extension ClaudeSession.Activity {
         case .finished: "Done"
         case .idle: "Idle"
         case .closed: "Closed"
+        case .unknown: "Status unknown"
         }
     }
 
@@ -39,7 +40,7 @@ extension ClaudeSession.Activity {
         case .needsInput: .orange
         case .working: .blue
         case .finished: .green
-        case .idle, .closed: .secondary
+        case .idle, .closed, .unknown: .secondary
         }
     }
 
@@ -50,6 +51,7 @@ extension ClaudeSession.Activity {
         case .finished: "checkmark.circle.fill"
         case .idle: "circle.dashed"
         case .closed: "stop.circle"
+        case .unknown: "questionmark.circle"
         }
     }
 }
@@ -321,7 +323,7 @@ private struct SessionRow: View {
 
     @State private var isHovered = false
 
-    private var isQuiet: Bool { session.activity == .idle || session.activity == .closed }
+    private var isQuiet: Bool { [.idle, .closed, .unknown].contains(session.activity) }
     private var canOpen: Bool { ClaudeSessionOpener.canOpen(session) }
 
     var body: some View {

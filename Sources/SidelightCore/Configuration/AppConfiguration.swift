@@ -60,12 +60,12 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
             usage.providers = Set(AIUsageProvider.allCases)
             return ServiceDemand(
                 kinds: Set(WidgetKind.allCases), placedKinds: placed, usage: usage,
-                railway: ServiceDemand.railwayNeeds(of: widgets))
+                railway: ServiceDemand.railwayNeeds(of: widgets), sessions: Set(AgentProvider.allCases))
         }
         let visible = visibleWidgets(at: positions)
         return ServiceDemand(
             kinds: Set(visible.map(\.kind)), placedKinds: placed, usage: UsageServiceDemand(widgets: visible),
-            railway: ServiceDemand.railwayNeeds(of: visible))
+            railway: ServiceDemand.railwayNeeds(of: visible), sessions: ServiceDemand.sessionProviders(of: visible))
     }
 }
 
@@ -95,15 +95,40 @@ public struct ServiceDemand: Equatable, Sendable {
     /// while the Widgets window previews every kind: Sidelight doesn't read the Railway CLI's sign-in until a
     /// Railway widget is added.
     public var railway: [RailwayAccountChoice: RailwayNeeds]
+    /// The agents whose sessions are listed: each session service runs once for its own widget and every Agent
+    /// sessions widget showing that agent.
+    public var sessions: Set<AgentProvider>
 
     public init(
         kinds: Set<WidgetKind>, placedKinds: Set<WidgetKind>? = nil, usage: UsageServiceDemand,
-        railway: [RailwayAccountChoice: RailwayNeeds] = [:]
+        railway: [RailwayAccountChoice: RailwayNeeds] = [:], sessions: Set<AgentProvider>? = nil
     ) {
         self.kinds = kinds
         self.placedKinds = placedKinds ?? kinds
         self.usage = usage
         self.railway = railway
+        self.sessions = sessions ?? Self.sessionProviders(of: kinds)
+    }
+
+    /// The agents whose sessions `widgets` list.
+    public static func sessionProviders(of widgets: some Sequence<WidgetInstance>) -> Set<AgentProvider> {
+        var providers = Set<AgentProvider>()
+        for widget in widgets {
+            switch widget.settings {
+            case .claudeSessions: providers.insert(.claudeCode)
+            case .codexSessions: providers.insert(.codex)
+            case .agentSessions(let settings): providers.formUnion(settings.providers)
+            case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .system, .noodleComputer,
+                .railway:
+                break
+            }
+        }
+        return providers
+    }
+
+    /// The agents whose sessions widgets of `kinds` list, each with its default agents.
+    static func sessionProviders(of kinds: Set<WidgetKind>) -> Set<AgentProvider> {
+        sessionProviders(of: kinds.map(WidgetInstance.init(kind:)))
     }
 
     /// The needs of the Railway widgets among `widgets`, merged per sign-in.
@@ -152,7 +177,8 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 providers.formUnion(settings.providers)
                 claudeMinutes += [settings.claudeRefreshMinutesIfOptedIn].compactMap(\.self)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
-            case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway:
+            case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway,
+                .agentSessions:
                 break
             }
         }
