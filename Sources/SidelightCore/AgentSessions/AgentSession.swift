@@ -3,10 +3,11 @@ import Foundation
 /// A coding agent whose sessions the Agent sessions widget lists. The raw value is stored in `config.json`.
 ///
 /// Adding one: a case here, a reader that turns its sessions into ``AgentSession``s (a new ``AgentSession/Source``
-/// case), and in the app its service, logo and a way to open its sessions. The compiler flags every switch that
-/// needs it.
+/// case), and in the app its service, logo and a way to open its sessions, or what to offer instead. The compiler
+/// flags every switch that needs it. Append new agents: settings saved earlier list the agents they chose, so a new
+/// one isn't added to them.
 public enum AgentProvider: String, Codable, CaseIterable, Identifiable, Sendable {
-    case codex, claudeCode, cursor
+    case codex, claudeCode, cursor, openCode
 
     public var id: Self { self }
 }
@@ -15,7 +16,7 @@ public enum AgentProvider: String, Codable, CaseIterable, Identifiable, Sendable
 /// Each keeps the agent's own session, which says how to open it.
 public struct AgentSession: Identifiable, Hashable, Sendable {
     /// The agent and its own durable ID for the session: Claude Code's session ID, Codex's thread ID, Cursor's
-    /// chat (composer) ID. Never a process ID, which the next session may reuse.
+    /// chat (composer) ID, OpenCode's `ses_…` ID. Never a process ID, which the next session may reuse.
     public struct ID: Hashable, Sendable {
         public var provider: AgentProvider
         public var sessionID: String
@@ -44,7 +45,7 @@ public struct AgentSession: Identifiable, Hashable, Sendable {
         case closed
         /// The agent wrote a status this version of Sidelight doesn't know.
         case unknown
-        /// The agent keeps no live status for it, only when it last changed (Cursor's chats).
+        /// The agent keeps no live status for it, only when it last changed (Cursor's chats, OpenCode's sessions).
         case untracked
 
         /// Needs the user or is still going: shown however long ago it started.
@@ -95,6 +96,7 @@ public struct AgentSession: Identifiable, Hashable, Sendable {
         case claudeCode(ClaudeSession)
         case codex(CodexSession)
         case cursor(CursorChat)
+        case openCode(OpenCodeSession)
     }
 
     public let source: Source
@@ -112,6 +114,7 @@ public struct AgentSession: Identifiable, Hashable, Sendable {
         case .claudeCode(let session): ID(provider: .claudeCode, sessionID: session.id)
         case .codex(let session): ID(provider: .codex, sessionID: session.id)
         case .cursor(let chat): ID(provider: .cursor, sessionID: chat.id)
+        case .openCode(let session): ID(provider: .openCode, sessionID: session.id)
         }
     }
 
@@ -177,12 +180,25 @@ public struct AgentSession: Identifiable, Hashable, Sendable {
         since = chat.updatedAt
     }
 
+    /// OpenCode doesn't say which of its apps a session runs in: its terminal UI, desktop app and background service
+    /// share one session list.
+    public init(_ session: OpenCodeSession) {
+        source = .openCode(session)
+        title = session.title ?? "Untitled session"
+        project = session.project
+        branch = nil
+        surface = .other("OpenCode")
+        status = .untracked
+        since = session.updatedAt
+    }
+
     /// The working directory, where the agent says.
     public var cwd: String? {
         switch source {
         case .claudeCode(let session): session.cwd
         case .codex(let session): session.cwd
         case .cursor(let chat): chat.workspacePath
+        case .openCode(let session): session.directory
         }
     }
 
@@ -191,7 +207,7 @@ public struct AgentSession: Identifiable, Hashable, Sendable {
         switch source {
         case .claudeCode(let session): session.pid != nil
         case .codex(let session): session.pid != nil
-        case .cursor: nil
+        case .cursor, .openCode: nil
         }
     }
 

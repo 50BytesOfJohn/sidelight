@@ -6,8 +6,10 @@ extension WidgetMetadata {
         title: "Agent sessions",
         systemImage: "sparkles.rectangle.stack",
         tint: .indigo,
-        summary: "Codex, Claude Code and Cursor sessions in one list: what needs you, what's working, what just "
-            + "finished. Click one to open it, or its project in Cursor.",
+        summary: "Codex and Claude Code sessions, with recent Cursor chats and OpenCode sessions, in one list: what "
+            + "needs you, what's working, what just finished. Click a Codex or Claude Code session to open it, or a "
+            + "Cursor chat to open its project. OpenCode sessions can't be opened from here: right-click one to copy "
+            + "its ID or folder.",
         isBeta: true
     )
 }
@@ -27,6 +29,16 @@ extension AgentProvider {
         case .codex: "Codex"
         case .claudeCode: "Claude Code"
         case .cursor: "Cursor"
+        case .openCode: "OpenCode"
+        }
+    }
+
+    /// Why its sessions show when they last changed, for agents that keep no live status.
+    var untrackedReason: String? {
+        switch self {
+        case .cursor: "Cursor doesn't record whether a chat is working or waiting"
+        case .openCode: "OpenCode's session list doesn't say whether a session is working or waiting"
+        case .codex, .claudeCode: nil
         }
     }
 }
@@ -101,7 +113,7 @@ extension AgentSession {
         case .background:
             switch provider {
             case .codex: "codex exec"
-            case .claudeCode, .cursor: "Script or background"
+            case .claudeCode, .cursor, .openCode: "Script or background"
             }
         case .other(let name): name
         }
@@ -162,7 +174,8 @@ struct AgentSessionsSettingsEditor: View {
             }
             .pickerStyle(.segmented)
             caption(
-                "Sessions that are working or need you always show. Finished, idle and closed ones stay this long.")
+                "Sessions that are working or need you always show. Finished, idle and closed ones stay this long, "
+                    + "and so do chats and sessions shown only by when they last changed.")
             if settings.includes(.codex) {
                 Toggle("Include codex exec runs", isOn: $settings.includesCodexExec)
                 caption("Codex sessions started by scripts and CI. Codex's own session list leaves them out too.")
@@ -172,14 +185,23 @@ struct AgentSessionsSettingsEditor: View {
         VStack(alignment: .leading, spacing: 8) {
             caption(
                 "Reads what each agent keeps on this Mac, with nothing to set up and nothing sent anywhere: Claude "
-                    + "Code's session list in ~/.claude, Codex's in ~/.codex, and Cursor's chat list. The same "
-                    + "reading serves the Claude Code and Codex sessions widgets.")
+                    + "Code's session list in ~/.claude, Codex's in ~/.codex, Cursor's chat list, and OpenCode 2's "
+                    + "session list in ~/.local/share/opencode. The same reading serves the Claude Code and Codex "
+                    + "sessions widgets.")
             if settings.includes(.cursor) {
                 caption(
                     "Cursor doesn't record whether a chat is working or waiting, so its chats show when they last "
                         + "changed. Cursor can't be asked to open one particular chat either: clicking one asks Cursor "
                         + "to open the chat's project folder, or opens Cursor when the folder is gone. Cursor decides "
                         + "which window it shows.")
+            }
+            if settings.includes(.openCode) {
+                caption(
+                    "OpenCode doesn't record whether a session is working or waiting where other apps can read it, "
+                        + "so its sessions show when they last changed. Subagent and archived sessions are left out. "
+                        + "Sessions aren't opened from here: no way to open one particular session in OpenCode's app "
+                        + "from outside it is known, and Sidelight can't tell which OpenCode server would resume it. "
+                        + "Right-click one to copy its session ID or folder.")
             }
         }
     }
@@ -206,7 +228,7 @@ struct AgentSessionsSettingsEditor: View {
         if let problem = state.problem(of: provider) { return (.orange, problem) }
         return switch state {
         case .found(let open?): (.green, open == 1 ? "1 open session" : "\(open) open sessions")
-        case .found(nil): (.green, "Chat list found")
+        case .found(nil): (.green, provider == .cursor ? "Chat list found" : "Session list found")
         case .notFound: (.orange, "\(provider.title) not found on this Mac")
         case .reading, .unsupported, .unreadable: (.secondary, "Reading…")
         }
@@ -217,6 +239,8 @@ extension AgentSessionSources.State {
     /// What keeps an agent's sessions from being listed, or listed up to date, when that isn't a missing agent.
     func problem(of provider: AgentProvider) -> String? {
         switch self {
+        case .unsupported where provider == .openCode:
+            "This OpenCode keeps its sessions where Sidelight can't read them. Sidelight reads OpenCode 2's database."
         case .unsupported: "This \(provider.title) keeps its sessions where Sidelight can't read them"
         case .unreadable(let isStale):
             "Couldn't read \(provider.title)'s sessions"
@@ -415,20 +439,18 @@ private struct AgentSessionRow: View {
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .contextMenu { AgentSessionMenu(session: session, route: route) }
         .help(help(route))
-        .accessibilityHint(route?.help ?? "")
+        // Sessions that can only be copied from say so, as their tooltip does.
+        .accessibilityHint(
+            route?.help
+                ?? (AgentSessionOpener.contextCopies(of: session).isEmpty
+                    ? "" : AgentSessionOpener.unavailableHelp(for: session)))
     }
 
     private func help(_ route: AgentSessionOpener.Route?) -> String {
         var lines = [session.status.detail]
         if case .needsApproval(let reason?) = session.status, !reason.isEmpty { lines.append(reason) }
-        if session.status == .untracked { lines = ["Cursor doesn't record whether a chat is working or waiting"] }
-        if let route {
-            lines.append(route.help)
-        } else if AgentSessionOpener.canCopyResumeCommand(of: session) {
-            lines.append("Can't be opened from here. Right-click to copy the command that resumes it.")
-        } else {
-            lines.append("Can't be opened from here")
-        }
+        if session.status == .untracked, let reason = session.provider.untrackedReason { lines = [reason] }
+        lines.append(route?.help ?? AgentSessionOpener.unavailableHelp(for: session))
         return lines.joined(separator: "\n")
     }
 
@@ -479,7 +501,7 @@ private struct AgentSessionMenu: View {
 
     var body: some View {
         if let route {
-            Button(route.title, systemImage: route.kind == .project ? "folder" : "arrow.up.forward.app") {
+            Button(route.title, systemImage: route.systemImage) {
                 AgentSessionOpener.open(session)
             }
         }
@@ -491,6 +513,18 @@ private struct AgentSessionMenu: View {
             Button("Copy Resume Command", systemImage: "doc.on.doc") {
                 AgentSessionOpener.copyResumeCommand(of: session)
             }
+        }
+        ForEach(AgentSessionOpener.contextCopies(of: session)) { context in
+            Button(context.title, systemImage: context.systemImage) { AgentSessionOpener.copy(context) }
+        }
+    }
+}
+
+extension AgentSessionOpener.Route {
+    var systemImage: String {
+        switch kind {
+        case .session, .host: "arrow.up.forward.app"
+        case .project: "folder"
         }
     }
 }
@@ -563,9 +597,9 @@ private struct AgentSessionsGlance: View {
     /// What a click does: the most urgent session's route, the session the bar names, so a click never opens
     /// another one. Nothing when that session can't be opened, or would only open a project in its place.
     private var action: (session: AgentSession, route: AgentSessionOpener.Route)? {
-        guard let top = sessions.first, let route = AgentSessionOpener.route(for: top), route.kind != .project else {
-            return nil
-        }
+        guard let top = sessions.first, let route = AgentSessionOpener.route(for: top),
+            route.kind == .session || route.kind == .host
+        else { return nil }
         return (top, route)
     }
 

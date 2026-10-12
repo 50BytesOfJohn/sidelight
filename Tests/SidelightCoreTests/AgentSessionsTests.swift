@@ -136,6 +136,9 @@ struct AgentSessionsSettingsTests {
         var settings = AgentSessionsSettings(providers: [.cursor, .codex, .cursor])
         settings.set(.claudeCode, included: true)
         settings.set(.claudeCode, included: true)
+        #expect(settings.providers == [.codex, .claudeCode, .cursor])
+        settings.set(.openCode, included: true)
+        settings.set(.openCode, included: true)
         #expect(settings.providers == AgentProvider.allCases)
         for provider in AgentProvider.allCases { settings.set(provider, included: false) }
         #expect(settings.providers.isEmpty)
@@ -199,7 +202,7 @@ struct AgentSessionDemandTests {
             WidgetInstance(kind: .claudeSessions),
         ])
         #expect(
-            config.serviceDemand(at: [.left, .right, .top, .bottom, .left]).sessions == Set(AgentProvider.allCases))
+            config.serviceDemand(at: [.left, .right, .top, .bottom, .left]).sessions == [.codex, .claudeCode, .cursor])
         #expect(config.visibleWidgets(at: [.left, .right]).count == 4)
         #expect(config.serviceDemand(at: []).sessions.isEmpty)
     }

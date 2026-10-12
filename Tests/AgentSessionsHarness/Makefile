@@ -7,7 +7,7 @@ OUT := $(ROOT)/build/agent-sessions-harness
 .PHONY: config
 config:
 	mkdir -p $(OUT)
-	xcrun swiftc -swift-version 6 -warnings-as-errors -I $(PRODUCTS) Config.swift $(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/config
+	xcrun swiftc -module-cache-path $(abspath $(OUT)/module-cache) -swift-version 6 -warnings-as-errors -I $(PRODUCTS) Config.swift $(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/config
 
 # Package the real debug app without the root dev target's generic process termination.
 .PHONY: debug-app
@@ -27,7 +27,7 @@ measure:
 .PHONY: service
 service:
 	mkdir -p $(OUT)
-	xcrun swiftc -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
+	xcrun swiftc -module-cache-path $(abspath $(OUT)/module-cache) -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
 		-enable-upcoming-feature NonisolatedNonsendingByDefault -enable-upcoming-feature InferIsolatedConformances \
 		-I $(PRODUCTS) ServiceHarness.swift $(ROOT)/Sources/Sidelight/Widgets/AgentSessions/CursorChatsService.swift \
 		$(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/service
@@ -35,18 +35,19 @@ service:
 .PHONY: routes
 routes:
 	mkdir -p $(OUT)
-	xcrun swiftc -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
+	xcrun swiftc -module-cache-path $(abspath $(OUT)/module-cache) -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
 		-enable-upcoming-feature NonisolatedNonsendingByDefault -enable-upcoming-feature InferIsolatedConformances \
 		-I $(PRODUCTS) RouteHarness.swift $(ROOT)/Sources/Sidelight/Widgets/AgentSessions/AgentSessionOpener.swift \
 		$(ROOT)/Sources/Sidelight/Widgets/ClaudeSessions/ClaudeSessionOpener.swift \
 		$(ROOT)/Sources/Sidelight/Widgets/CodexSessions/CodexSessionOpener.swift $(ROOT)/Sources/Sidelight/Support/SessionHost.swift \
+		$(ROOT)/Sources/Sidelight/Widgets/AgentSessions/OpenCodeSessionsService.swift \
 		$(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/routes
 
 # Test-only copies expose private decisions and replace external dispatch; see README.
 .PHONY: contracts
 contracts:
 	python3 prepare-contracts.py
-	xcrun swiftc -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
+	xcrun swiftc -module-cache-path $(abspath $(OUT)/module-cache) -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
 		-enable-upcoming-feature NonisolatedNonsendingByDefault -enable-upcoming-feature InferIsolatedConformances \
 		-I $(PRODUCTS) ContractHarness.swift ContractSupport.swift $(OUT)/contracts/*.swift \
 		$(ROOT)/Sources/Sidelight/DesignSystem/CountBadge.swift $(ROOT)/Sources/Sidelight/DesignSystem/Motion.swift \
@@ -62,3 +63,48 @@ fsevents-probe:
 .PHONY: contracts-check
 contracts-check: contracts
 	cd $(ROOT) && CFFIXED_USER_HOME="$(abspath $(OUT)/final-contract-home)" build/agent-sessions-harness/contracts-runner
+
+.PHONY: opencode-service
+opencode-service:
+	mkdir -p $(OUT)
+	xcrun swiftc -module-cache-path $(abspath $(OUT)/module-cache) -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
+		-enable-upcoming-feature NonisolatedNonsendingByDefault -enable-upcoming-feature InferIsolatedConformances \
+		-I $(PRODUCTS) OpenCodeServiceHarness.swift $(ROOT)/Sources/Sidelight/Widgets/AgentSessions/OpenCodeSessionsService.swift \
+		$(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/opencode-service
+
+.PHONY: opencode-environment
+opencode-environment:
+	mkdir -p $(OUT)
+	xcrun swiftc -module-cache-path $(abspath $(OUT)/module-cache) -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
+		-enable-upcoming-feature NonisolatedNonsendingByDefault -enable-upcoming-feature InferIsolatedConformances \
+		-I $(PRODUCTS) OpenCodeEnvironmentHarness.swift $(ROOT)/Sources/Sidelight/Widgets/AgentSessions/OpenCodeSessionsService.swift \
+		$(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/opencode-environment
+
+.PHONY: fallback
+fallback:
+	python3 prepare-fallback.py
+	xcrun swiftc -module-cache-path $(abspath $(OUT)/module-cache) -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
+		-enable-upcoming-feature NonisolatedNonsendingByDefault -enable-upcoming-feature InferIsolatedConformances \
+		-I $(PRODUCTS) FallbackHarness.swift $(OUT)/fallback/*.swift \
+		$(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/fallback-runner
+
+.PHONY: clipboard
+clipboard:
+	mkdir -p $(OUT)
+	xcrun swiftc -module-cache-path $(abspath $(OUT)/module-cache) -swift-version 6 -warnings-as-errors \
+		ClipboardHarness.swift -lsqlite3 -o $(OUT)/clipboard
+
+.PHONY: policy-check environment-check
+policy-check:
+	python3 opencode-policy-checks.py
+
+environment-check: opencode-environment
+	python3 opencode-environment-checks.py
+
+.PHONY: fallback-asan
+fallback-asan:
+	python3 prepare-fallback.py
+	xcrun swiftc -module-cache-path $(abspath $(OUT)/module-cache) -parse-as-library -swift-version 6 -warnings-as-errors -default-isolation MainActor \
+		-enable-upcoming-feature NonisolatedNonsendingByDefault -enable-upcoming-feature InferIsolatedConformances -sanitize=address \
+		-I $(PRODUCTS) FallbackHarness.swift $(OUT)/fallback/*.swift \
+		$(PRODUCTS)/SidelightCore.o -lsqlite3 -o $(OUT)/fallback-asan

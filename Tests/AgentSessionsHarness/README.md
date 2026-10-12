@@ -1,77 +1,85 @@
-# Stage 3 test-only support
+# Agent session validation harnesses
 
-These helpers do not modify production Swift files. `service` and `routes` compile **the actual app sources** alongside small test entry points and the core object produced by root `make build`. They return nonzero on failed expectations. They are separate from the SwiftPM core tests because the executable app target is not a test dependency.
-
-Use Xcode 27/Swift 6.4 and a fresh home under this worktree's ignored `build/` directory. Run from the worktree root:
+These test-only helpers compile current app source with Xcode 27 / Swift 6.4, linking
+SidelightCore built by root `make`. No production source is patched. Run from the worktree root:
 
 ```sh
-make build
-make -C Tests/AgentSessionsHarness config fixture-host service routes measure
-build/agent-sessions-harness/config /tmp/agent-stage3-config.json
-python3 Tests/AgentSessionsHarness/fixtures.py build/agent-sessions-fixture-home
-CFFIXED_USER_HOME="$PWD/build/agent-sessions-fixture-home" build/agent-sessions-harness/routes
+make check
+make -C Tests/AgentSessionsHarness contracts-check opencode-environment opencode-service service fsevents-probe fallback
+python3 Tests/AgentSessionsHarness/opencode-policy-checks.py
+python3 Tests/AgentSessionsHarness/opencode-environment-checks.py
+CFFIXED_USER_HOME="$PWD/build/opencode-testing/fresh-opencode-home" build/agent-sessions-harness/opencode-service
 CFFIXED_USER_HOME="$PWD/build/agent-sessions-service-home-fresh" build/agent-sessions-harness/service
+build/agent-sessions-harness/fsevents-probe build/opencode-testing
+CFFIXED_USER_HOME="$PWD/build/opencode-testing/fresh-fallback-home" build/agent-sessions-harness/fallback-runner
+# Only when the same-context raw probe reports created=1, started=0:
+CFFIXED_USER_HOME="$PWD/build/opencode-testing/fresh-actual-fallback-home" build/agent-sessions-harness/fallback-runner --actual-fallback
 ```
 
-The service checks take approximately 2–3 minutes, including the real 120-second missing sweep. A fresh service home is required each run. The fixture seeder starts five inert `sleep` processes and an inert executable deliberately named `codex` for kernel-based writer-lock discovery. **This is not the vendor Codex CLI.** It only holds fixture files open/locked; it has no agent, network, prompt, credential or history operations. Their exact PIDs are stored in the fixture home's `fixture-processes.json`; terminate only those PIDs after testing.
+Use a fresh owned home each service/fallback run. Timed checks take several minutes.
+Service event timeouts remain failures when FSEvents cannot start; never widen permissions
+or disable a failure to manufacture event delivery. The fallback harness separately proves
+successful initial reads retain their real 120-second sweep and read later writes.
 
-`config` writes a session-only configuration to the explicit destination. Automatic updates and window avoidance are off. `--diagnose`, used with a fixture home, prints only fixture process/file metadata. `measure <exact-app-pid> <seconds>` reads CPU and wakeup counters; intervals are bounded to 60 seconds.
+`prepare-contracts.py` generates copies under ignored build/, with source hashes. It
+exposes private declarations, mocks named AppKit/host/sound/process boundaries and controls
+only the services' asynchronous reader calls. All actual decision/publication bodies stay.
+SwiftUI conditional leaves are reflected with small source-service/list/logo stand-ins;
+row/menu/help/glance bodies compile too. Layout and OS AX still require real app validation.
+
+OpenCode policy is metadata only. Exactly two verbatim plaintext copies are offered; no
+session-opening route, command, CLI discovery or Terminal transport. Former command-builder
+tests are replaced by refusal/clipboard contracts for wrong store/default environment,
+underlying V1 override, stale/deleted model, no installation, removed executable and hostile
+ID/path/control inputs. OpenCodeCommandHarness and its shell/Terminal driver are retired.
+The structural policy checker adds privacy, row/AX/menu and packaging tripwires. Existing
+Claude/Codex/Cursor routing and help contracts remain. Core metadata/schema/config/demand/WAL
+checks remain in Swift Testing.
+
+`prepare-fallback.py` copies the exact shared FileEventStream wrapper and both actual
+services, exposing private state and renaming the wrapper to avoid the core module symbol.
+Only C Start/Stop/Invalidate/Release calls are observed; allocation, context release callback,
+readers and timers are real. Start's Boolean is injected deterministically for lifecycle
+checks, with real C invalidation/release. CoreServices may release its callback asynchronously
+on the assigned queue; ownership checks allow that queue to drain. Success cleanup still
+requires Stop → Invalidate → Release once. In `--actual-fallback`, Start passes through to
+CoreServices for the service phase; this mode requires an environment where Start fails.
+The headless event delivery gap is distinct from mocked failure-branch coverage.
+`fallback-asan` builds the same wrapper boundary with AddressSanitizer; run its binary
+with `--lifecycle-only` and a fresh synthetic home for the seven short ownership checks.
+
+Synthetic licensed native DDL is packaged in `Tests/Fixtures/OpenCodeV2/`, with upstream
+pin, provenance and full MIT notice. Neither core tests nor UI fixture creation depend on
+research files. Include that directory in the intended commit.
 
 For real UI validation:
 
 ```sh
-make app
-make -C Tests/AgentSessionsHarness debug-app
+make -C Tests/AgentSessionsHarness debug-app config
+python3 Tests/AgentSessionsHarness/opencode-fixtures.py build/opencode-testing/fresh-ui-home
 ```
 
-The second target packages the genuine debug app using the repository build script, omitting `make dev`'s generic `pkill`. For synthetic UI/settings tests, use this task-local sandbox profile:
+`debug-app` packages the genuine DEBUG executable with the repository script, avoiding the
+root dev/run targets' generic pkill. Verify successful fresh packaging, debug build UUID and
+exact owned PID before binding Computer Use. Launch that exact executable with HOME and
+CFFIXED_USER_HOME set only in its child environment to the synthetic home. Clear inherited
+OPENCODE_DB/OPENCODE_BIN_PATH/XDG overrides. Use the seeder's `ui.sb` profile, denying network
+and vendor executables in /opt/homebrew and /usr/local. Usage widgets are absent, updates and
+window avoidance off. Gallery previews can request usage services, so keep the restrictive
+profile. No credentials, registration, vendor CLI, real session dispatch or new OS grants.
 
-```scheme
-(version 1)
-(allow default)
-(deny network*)
-(deny process-exec (subpath "/opt/homebrew") (subpath "/usr/local"))
-```
+Use Computer Use for menu/layout/screenshots, capturing only this synthetic app. The optional
+`clipboard` target compiles ClipboardHarness.swift; run it before copying in a context able
+to access the system pasteboard (`changeCount >= 0`). It snapshots all original types/data
+only in memory, compares `id`/`folder` commands against the fixture, and `restore` restores
+only if the clipboard has not changed externally. Never print/store private clipboard data.
+A negative changeCount means the shell sandbox cannot access the pasteboard: stop that helper
+before copying; don't mistake a nil read for a product copy failure.
 
-Then launch the **real app executable** with `CFFIXED_USER_HOME` set to the fixture home and `sandbox-exec -f <profile> build/Sidelight.app/Contents/MacOS/Sidelight`. Record its exact PID and quit only that PID. This prevents installed CLIs and network usage requests while opening the Widgets gallery, which normally requests all usage services as well as all session services. Do not grant new OS permissions for fixtures.
+`config` writes only the explicit destination. `fixture-host`, `measure`, and `routes` are
+legacy helpers: routes never dispatches, measure takes one exact PID, fixture-host is an
+inert file/lock holder, not a vendor CLI. Legacy fixtures.py starts owned inert processes;
+terminate only recorded exact PIDs. No OpenCode fixture seeder starts a process.
 
-`CFFIXED_USER_HOME` controls Foundation's home and application-support directories; setting `HOME` alone is not equivalent. Foundation normalizes `/private/tmp` to `/tmp`, while kernel file paths use `/private/tmp`. The existing Codex lock reader strips the unresolved prefix after matching resolved paths, so scratch homes under `/tmp` miss lock holders. A home under this worktree's `build/` avoids that existing path-alias limitation.
-
-Use Computer Use for UI interactions/screenshots. Capture only synthetic content. Never dispatch fabricated session IDs to vendor session routes. Read [TESTING.md](../../research/agent-sessions/TESTING.md) for observed results and cleanup.
-
-## Post-fix contracts and environment diagnosis
-
-After `make build`, run `make -C Tests/AgentSessionsHarness contracts fsevents-probe`.
-Run `contracts-runner` with `CFFIXED_USER_HOME` set to a fresh worktree `build/` home;
-run `fsevents-probe <empty-scratch-directory>` in the **same execution sandbox** as
-`service`. A probe reporting `stream_started=0` identifies an event-delivery limitation;
-it does not turn timed-out service assertions into passes. Do not widen the sandbox to
-manufacture an event result. Registration-dependent route checks print `NOT TESTED`
-when Launch Services registrations are unavailable in their execution context.
-
-`prepare-contracts.py` copies current production declarations into ignored
-`build/agent-sessions-harness/contracts/` and records source SHA-256 hashes. It changes
-only private access, the named AppKit/host/sound boundaries in the openers, and the
-Cursor service's asynchronous read call. Production files are never patched. The
-complete decision/publication/SwiftUI conditional bodies are compiled, rather than
-reimplemented in tests. Claude/Codex service fields and list/logo leaves have small
-stand-ins; real source readers, assets, layout, AX and destinations still need separate
-validation. SwiftUI conditional-leaf inspection uses reflection and may need harness
-maintenance with a future SwiftUI update.
-
-The contract runner covers missing/usable/deleted/file/empty/root Cursor paths,
-folder/app failure fallback, host/app routing, source availability and retained rows,
-both Claude unknown labels, bar visible-target/help identity, and controlled old/new
-read completion overlaps. Every external dispatch is mocked; no synthetic session ID
-reaches a vendor app. Controlled-read barriers have a three-second setup timeout.
-The genuine app is still built with `debug-app` and launched by its exact executable
-with the documented synthetic home/profile. `make app` leaves a RELEASE bundle;
-never infer its config directory from a previous test launch.
-
-For the final narrow verification, `make -C Tests/AgentSessionsHarness contracts-check`
-compiles and runs the current-source mocked contracts from the worktree root with an
-isolated home under ignored `build/agent-sessions-harness/`. This does not launch the
-packaged app or any vendor app. The editor-help matrix also checks absent/empty
-working directories for both Codex and Claude. See the dated final-validation report
-for the separate core timestamp-precision results; a passing mocked contract runner
-does not establish timestamp correctness or any real vendor destination.
+See [REVALIDATION.md](../../research/opencode-sessions/REVALIDATION.md) for dated results and
+honest runtime limitations. Earlier TESTING.md records the now-retired resume policy.

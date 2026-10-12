@@ -25,19 +25,26 @@ for path in ['AgentSessions/AgentSessionOpener.swift', 'CodexSessions/CodexSessi
     value = expose(source('Widgets/' + path))
     for old, new in [('NSWorkspace', 'MockWorkspace'), ('NSRunningApplication', 'MockApplication'), ('SessionHost.', 'MockHost.'), ('NSSound.', 'MockSound.')]:
         value = value.replace(old, new)
+    if path == 'AgentSessions/AgentSessionOpener.swift':
+        value = value.replace('ProcessRunner.output', 'MockProcessRunner.output')
     (out / Path(path).name).write_text(value)
 
 value = expose(source('Widgets/AgentSessions/CursorChatsService.swift'))
 assert value.count('await Self.read(now: .now)') == 1
 value = value.replace('await Self.read(now: .now)', 'await ControlledRead.read()')
 (out / 'CursorChatsService.swift').write_text(value)
+value = expose(source('Widgets/AgentSessions/OpenCodeSessionsService.swift'))
+assert value.count('await Self.read(database, now: .now)') == 1
+value = value.replace('await Self.read(database, now: .now)', 'await ControlledOpenCodeRead.read(database)')
+(out / 'OpenCodeSessionsService.swift').write_text(value)
 (out / 'AgentSessionSources.swift').write_text(source('Widgets/AgentSessions/AgentSessionSources.swift'))
 value = source('Widgets/AgentSessions/AgentSessionsWidget.swift')
 # Complete, verbatim declarations; the omitted top-level view needs the full app environment.
-parts = [value[value.index('extension AgentProvider {'):value.index('// MARK: - Settings')],
+parts = [value[value.index('extension WidgetMetadata {'):value.index('extension AgentSessionsSettings {')],
+         value[value.index('extension AgentSessionsSettings {'):value.index('// MARK: - Settings')],
          value[value.index('extension AgentSessionSources.State {'):value.index('private func caption')],
          value[value.index('private struct AgentSessionsContent:'):value.index('// MARK: - List')],
-         value[value.index('private struct AgentSessionsGlance:'):]]
+         value[value.index('private struct AgentSessionRow:'):]]
 claude = source('Widgets/ClaudeSessions/ClaudeSessionsWidget.swift')
 parts.append(claude[claude.index('extension ClaudeSession.Activity {'):claude.index('extension ClaudeSessionSurface {')])
 (out / 'Views.swift').write_text('import SidelightCore\nimport SwiftUI\n' + expose('\n'.join(parts)))
