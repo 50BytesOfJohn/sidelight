@@ -94,6 +94,16 @@ struct CursorChatIndexTests {
         #expect(try db.chats().map(\.id) == ["visible"])
     }
 
+    @Test func `hidden and undecodable rows do not use up the limit`() throws {
+        let db = try ChatDatabase()
+        try db.insert("visible", updated: "1800000000000")
+        for index in 1...5 {
+            try db.insert("draft-\(index)", header: #"{"isDraft":true}"#, updated: "\(1_800_000_000_000 + index)")
+            try db.insert("corrupt-\(index)", header: "[]", updated: "\(1_800_000_000_000 + index)")
+        }
+        #expect(try db.chats(limit: 1).map(\.id) == ["visible"])
+    }
+
     @Test func `archived and subagent columns exclude records even with clean JSON`() throws {
         let db = try ChatDatabase()
         try db.insert("archived", archived: 1)
@@ -112,6 +122,7 @@ struct CursorChatIndexTests {
         #expect(rows.first?.id == "row-1000")
         #expect(rows.last?.id == "row-994")
         #expect(try db.chats(limit: 0).isEmpty)
+        #expect(try db.chats(limit: -1).isEmpty)
         #expect(try db.chats(since: now.addingTimeInterval(1)).map(\.id) == ["row-1000"])
         #expect(try db.chats(since: now.addingTimeInterval(1.001)).isEmpty)
     }

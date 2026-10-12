@@ -18,7 +18,7 @@ final class CursorChatsService {
     /// FSEvents gathers a burst of writes for this long before telling us. A chat list without live status doesn't
     /// need to be any fresher.
     static let eventLatency: TimeInterval = 10
-    /// How often to look for Cursor while it isn't found.
+    /// How often to look for Cursor while it isn't found, or read its chats while its folder can't be watched.
     static let missingSweepInterval: Duration = .seconds(120)
 
     enum Availability: Equatable {
@@ -112,11 +112,11 @@ final class CursorChatsService {
             availability = .unsupported
             if !chats.isEmpty { chats = [] }
         }
-        updateSweep(needed: availability == .notFound)
+        updateSweep(needed: availability == .notFound || watcher == nil)
     }
 
     /// While Cursor isn't found, its folder is looked for now and then: FSEvents can't watch a folder that doesn't
-    /// exist yet.
+    /// exist yet. The same sweep stands in for a stream that couldn't be started, trying it again each time.
     private func updateSweep(needed: Bool) {
         guard needed else {
             sweepTask?.cancel()

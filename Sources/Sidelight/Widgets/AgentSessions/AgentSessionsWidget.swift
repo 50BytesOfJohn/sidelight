@@ -7,7 +7,7 @@ extension WidgetMetadata {
         systemImage: "sparkles.rectangle.stack",
         tint: .indigo,
         summary: "Codex, Claude Code and Cursor sessions in one list: what needs you, what's working, what just "
-            + "finished. Click one to open it.",
+            + "finished. Click one to open it, or its project in Cursor.",
         isBeta: true
     )
 }
@@ -301,7 +301,8 @@ private struct AgentSessionsContent: View {
                 title: "No agents found",
                 detail: "Sessions show here once \(Self.names(settings.providers)) runs on this Mac.",
                 systemImage: "terminal", layout: layout)
-        } else if states.allSatisfy({ $0 == .reading }) {
+        } else if recent.isEmpty, states.contains(.reading) {
+            // Another agent's empty list isn't the answer while one is still being read.
             AgentSessionsMessage(title: "Reading sessions…", detail: nil, systemImage: "hourglass", layout: layout)
         } else if recent.isEmpty, !problems.isEmpty, !states.contains(where: \.isReadable) {
             // Nothing could be read: an empty list would pass for no sessions.

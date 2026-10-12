@@ -77,10 +77,11 @@ public enum CursorChatIndex {
         let created = hasCreated ? ", \(milliseconds("createdAt"))" : ""
         let flags = ["isArchived", "isSubagent"].filter(available.contains).map { "COALESCE(\($0), 0) = 0 AND " }
         // The time is filtered, ordered and returned as the same value, so a row is never kept for one reading of
-        // its time and dated by another.
+        // its time and dated by another. No SQL `LIMIT`: rows hidden in their JSON or that don't decode are only
+        // skipped below, and mustn't take the place of chats that would be listed.
         let sql = """
             SELECT composerId, value, \(updated)\(created) FROM composerHeaders
-            WHERE \(flags.joined())\(updated) >= ?1 ORDER BY 3 DESC LIMIT ?2
+            WHERE \(flags.joined())\(updated) >= ?1 ORDER BY 3 DESC
             """
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
@@ -88,7 +89,6 @@ public enum CursorChatIndex {
             return .failure(.unreadable)
         }
         sqlite3_bind_double(statement, 1, cutoff(date))
-        sqlite3_bind_int64(statement, 2, Int64(limit))
 
         // As a double, so a fraction of a millisecond isn't dropped from a time SQL compared and ordered with it.
         func time(_ position: Int32) -> Double? {
@@ -98,9 +98,10 @@ public enum CursorChatIndex {
         }
 
         var chats: [CursorChat] = []
-        var step = sqlite3_step(statement)
-        while step == SQLITE_ROW {
-            defer { step = sqlite3_step(statement) }
+        var step = SQLITE_DONE
+        while chats.count < limit {
+            step = sqlite3_step(statement)
+            guard step == SQLITE_ROW else { break }
             guard let idBytes = sqlite3_column_text(statement, 0),
                 let valueBytes = sqlite3_column_blob(statement, 1),
                 let updatedAt = time(2)
@@ -119,7 +120,8 @@ public enum CursorChatIndex {
                     updatedAt: Self.date(milliseconds: updatedAt)
                 ))
         }
-        return step == SQLITE_DONE ? .success(chats) : .failure(.unreadable)
+        // A row still waiting means the limit was reached, not that the read failed.
+        return step == SQLITE_ROW || step == SQLITE_DONE ? .success(chats) : .failure(.unreadable)
     }
 
     /// One row's `value`: the chat's header as JSON.
