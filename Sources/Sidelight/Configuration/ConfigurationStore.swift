@@ -98,12 +98,20 @@ final class ConfigurationStore {
         isApplyingFileChange = false
     }
 
-    /// Whether the file can be saved over: it holds what was last read or written, or something readable, or an
-    /// unreadable file (found at launch, or a hand edit not yet fixed) has been kept aside first.
+    /// Whether the file can be saved over: it is missing, holds what was last read or written, or something readable,
+    /// or an invalid file (found at launch, or a hand edit not yet fixed) has been kept aside first. A file that
+    /// exists but can't be read can't be kept aside either, so it is left alone.
     private func mayReplaceFile() -> Bool {
-        guard let onDisk = try? Data(contentsOf: fileURL), onDisk != lastFileContents,
-            (try? AppConfiguration(json: onDisk)) == nil
-        else { return true }
+        let onDisk: Data
+        do {
+            onDisk = try Data(contentsOf: fileURL)
+        } catch CocoaError.fileReadNoSuchFile {
+            return true
+        } catch {
+            Log.configuration.error("Not saving: can't read the existing configuration file to keep it safe: \(error)")
+            return false
+        }
+        guard onDisk != lastFileContents, (try? AppConfiguration(json: onDisk)) == nil else { return true }
         return backUpInvalidFile(onDisk)
     }
 
