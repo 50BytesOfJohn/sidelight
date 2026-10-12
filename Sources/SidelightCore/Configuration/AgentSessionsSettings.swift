@@ -36,15 +36,12 @@ public struct AgentSessionsSettings: Codable, Hashable, Sendable {
         if let names = try? container.decodeIfPresent([String].self, forKey: .providers) {
             providers = Self.ordered(names.compactMap(AgentProvider.init(rawValue:)))
         }
-        sessionCount = min(
-            max(
-                (try? container.decodeIfPresent(Int.self, forKey: .sessionCount)) ?? defaults.sessionCount,
-                Self.sessionCountRange.lowerBound),
-            Self.sessionCountRange.upperBound)
+        sessionCount = container.decodeLeniently(.sessionCount, or: defaults.sessionCount).clamped(
+            to: Self.sessionCountRange)
         recentHours = max(
-            1, (try? container.decodeIfPresent(Int.self, forKey: .recentHours)) ?? defaults.recentHours)
+            1, container.decodeLeniently(.recentHours, or: defaults.recentHours))
         includesCodexExec =
-            (try? container.decodeIfPresent(Bool.self, forKey: .includesCodexExec)) ?? defaults.includesCodexExec
+            container.decodeLeniently(.includesCodexExec, or: defaults.includesCodexExec)
     }
 
     public func includes(_ provider: AgentProvider) -> Bool { providers.contains(provider) }

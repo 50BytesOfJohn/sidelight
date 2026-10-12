@@ -110,7 +110,7 @@ struct RailwayTests {
         #expect(deployment.id == "d1")
         #expect(deployment.status == .success)
         #expect(deployment.domain == "api.up.railway.app")
-        #expect(deployment.createdAt == Date(timeIntervalSince1970: 1_791_531_499))
+        #expect(abs((deployment.createdAt?.timeIntervalSince1970 ?? 0) - 1_791_531_499.231) < 0.001)
         #expect(project.services[1].instances[0].deployment?.createdAt == Date(timeIntervalSince1970: 1_790_840_299))
     }
 
@@ -313,7 +313,7 @@ struct RailwayTests {
         #expect(incidents.map(\.id) == ["i1", "m1"])
         #expect(incidents[0].title == "Builds are slow")
         #expect(incidents[0].components == ["Builds"])
-        #expect(incidents[0].startedAt == Date(timeIntervalSince1970: 1_791_596_096))
+        #expect(abs((incidents[0].startedAt?.timeIntervalSince1970 ?? 0) - 1_791_596_096.813) < 0.001)
         #expect(!incidents[0].isMaintenance)
         #expect(incidents[1].isMaintenance)
         #expect(RailwayStatusPage.incidents(from: Data("[]".utf8)) == nil)

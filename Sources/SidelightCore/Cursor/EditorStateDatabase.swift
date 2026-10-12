@@ -7,12 +7,8 @@ public enum EditorStateDatabase {
     /// The value stored under `key` as text; `nil` when the database, the table or the key is missing, or the
     /// database is busy.
     public static func value(forKey key: String, in database: URL) -> String? {
-        var connection: OpaquePointer?
+        guard let connection = SQLiteReader.open(database) else { return nil }
         defer { sqlite3_close(connection) }
-        guard
-            sqlite3_open_v2(database.path(percentEncoded: false), &connection, SQLITE_OPEN_READONLY, nil) == SQLITE_OK
-        else { return nil }
-        sqlite3_busy_timeout(connection, 500)
 
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }

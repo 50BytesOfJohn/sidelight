@@ -9,30 +9,22 @@ extension WidgetInstance: Codable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        // Settings missing (a kind that had none when it was saved) take their defaults.
         let settings: WidgetSettings =
             switch try container.decode(WidgetKind.self, forKey: .kind) {
-            case .clock: .clock(try container.decode(ClockSettings.self, forKey: .settings))
-            case .codex: .codex(try container.decode(CodexSettings.self, forKey: .settings))
-            case .claudeCode: .claudeCode(try container.decode(ClaudeCodeSettings.self, forKey: .settings))
-            case .cursor: .cursor(try container.decodeIfPresent(CursorSettings.self, forKey: .settings) ?? .init())
-            case .aiUsage:
-                .aiUsage(try container.decodeIfPresent(AIUsageSettings.self, forKey: .settings) ?? .init())
-            case .calendar: .calendar(try container.decode(CalendarSettings.self, forKey: .settings))
+            case .clock: .clock(try container.decode(.settings, or: .init()))
+            case .codex: .codex(try container.decode(.settings, or: .init()))
+            case .claudeCode: .claudeCode(try container.decode(.settings, or: .init()))
+            case .cursor: .cursor(try container.decode(.settings, or: .init()))
+            case .aiUsage: .aiUsage(try container.decode(.settings, or: .init()))
+            case .calendar: .calendar(try container.decode(.settings, or: .init()))
             case .nowPlaying: .nowPlaying
-            case .claudeSessions:
-                .claudeSessions(
-                    try container.decodeIfPresent(ClaudeSessionsSettings.self, forKey: .settings) ?? .init())
-            case .codexSessions:
-                .codexSessions(
-                    try container.decodeIfPresent(CodexSessionsSettings.self, forKey: .settings) ?? .init())
-            case .system: .system(try container.decode(SystemStatsSettings.self, forKey: .settings))
-            case .noodleComputer:
-                .noodleComputer(
-                    try container.decodeIfPresent(NoodleComputerSettings.self, forKey: .settings) ?? .init())
-            case .railway: .railway(try container.decodeIfPresent(RailwaySettings.self, forKey: .settings) ?? .init())
-            case .agentSessions:
-                .agentSessions(
-                    try container.decodeIfPresent(AgentSessionsSettings.self, forKey: .settings) ?? .init())
+            case .claudeSessions: .claudeSessions(try container.decode(.settings, or: .init()))
+            case .codexSessions: .codexSessions(try container.decode(.settings, or: .init()))
+            case .system: .system(try container.decode(.settings, or: .init()))
+            case .noodleComputer: .noodleComputer(try container.decode(.settings, or: .init()))
+            case .railway: .railway(try container.decode(.settings, or: .init()))
+            case .agentSessions: .agentSessions(try container.decode(.settings, or: .init()))
             }
         self.init(
             id: try container.decode(UUID.self, forKey: .id),

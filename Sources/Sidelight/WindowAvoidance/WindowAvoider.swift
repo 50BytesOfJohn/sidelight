@@ -16,9 +16,13 @@ struct PanelRegion {
 /// Watches every regular app for window creation, moves and resizes, and moves or shrinks any standard window
 /// that ends up overlapping the panel (see ``AvoidanceGeometry``). While the user is dragging, it waits for
 /// mouse-up instead of fighting the drag.
+///
+/// With avoidance off it watches nothing and asks for nothing, so it costs nothing.
 @Observable
 final class WindowAvoider {
+    /// While Accessibility access isn't granted, it's checked this often at first, then less and less often.
     static let trustPollInterval: Duration = .seconds(3)
+    static let maximumTrustPollInterval: Duration = .seconds(60)
     static let mouseUpPollInterval: Duration = .milliseconds(50)
     static let registrationRetryDelay: Duration = .milliseconds(500)
     static let maximumRegistrationAttempts = 10
@@ -26,7 +30,12 @@ final class WindowAvoider {
     /// Whether the user granted Accessibility access.
     private(set) var isTrusted = AXIsProcessTrusted()
 
-    @ObservationIgnored var mode: WindowAvoidanceMode = .smart
+    @ObservationIgnored var mode: WindowAvoidanceMode = .smart {
+        didSet {
+            guard (mode == .off) != (oldValue == .off), isStarted else { return }
+            if mode == .off { deactivate() } else { activate(promptingForAccess: false) }
+        }
+    }
     /// The panels to keep clear; empty while they're hidden.
     @ObservationIgnored var occupiedRegions: () -> [PanelRegion] = { [] }
 
@@ -38,29 +47,29 @@ final class WindowAvoider {
 
     @ObservationIgnored private var observers: [pid_t: AXObserver] = [:]
     @ObservationIgnored private var registrationAttempts: [pid_t: Int] = [:]
+    /// Delayed registrations (fresh launches and retries), cancelled when avoidance turns off or the app quits.
+    @ObservationIgnored private var pendingRegistrations: [pid_t: Task<Void, Never>] = [:]
     @ObservationIgnored private var windowsAwaitingMouseUp: [PendingWindow] = []
     @ObservationIgnored private var mouseUpTask: Task<Void, Never>?
-    @ObservationIgnored private var trustPollTask: Task<Void, Never>?
+    @ObservationIgnored private let trustPoll = PacedTask()
     @ObservationIgnored private var workspaceObservations: [NotificationCenter.ObservationToken] = []
+    @ObservationIgnored private var isStarted = false
 
     private let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
 
-    /// Starts observing apps. Without Accessibility access yet, polls until it's granted.
+    /// Starts observing apps while ``mode`` isn't off. Without Accessibility access yet, polls until it's granted.
     func start(promptingForAccess: Bool) {
-        if Self.checkTrust(prompting: promptingForAccess) {
-            isTrusted = true
-            registerAllApplications()
-        } else {
-            Log.avoidance.info("Accessibility access not granted yet; waiting for it")
-            pollForTrust()
-        }
-        observeWorkspace()
+        guard !isStarted else { return }
+        isStarted = true
+        if mode != .off { activate(promptingForAccess: promptingForAccess) }
     }
 
     /// Shows the system prompt and opens the Accessibility pane in System Settings.
     func requestAccess() {
         _ = Self.checkTrust(prompting: true)
         SystemSettingsPane.accessibilityPrivacy.open()
+        // The person is about to grant it: notice that soon.
+        if trustPoll.isRunning { pollForTrust() }
     }
 
     /// Moves every overlapping window right now. Returns how many were moved.
@@ -81,15 +90,40 @@ final class WindowAvoider {
         AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": prompting] as CFDictionary)
     }
 
+    private func activate(promptingForAccess: Bool) {
+        if Self.checkTrust(prompting: promptingForAccess) {
+            isTrusted = true
+            registerAllApplications()
+        } else {
+            Log.avoidance.info("Accessibility access not granted yet; waiting for it")
+            pollForTrust()
+        }
+        observeWorkspace()
+    }
+
+    private func deactivate() {
+        trustPoll.stop()
+        mouseUpTask?.cancel()
+        mouseUpTask = nil
+        windowsAwaitingMouseUp = []
+        for task in pendingRegistrations.values { task.cancel() }
+        pendingRegistrations = [:]
+        for token in workspaceObservations { NSWorkspace.shared.notificationCenter.removeObserver(token) }
+        workspaceObservations = []
+        for pid in Array(observers.keys) { unregister(pid) }
+        Log.avoidance.info("Window avoidance is off; stopped observing windows")
+    }
+
     private func pollForTrust() {
-        trustPollTask = Task { [weak self] in
-            while true {
-                do { try await Task.sleep(for: Self.trustPollInterval) } catch { return }
-                guard AXIsProcessTrusted() else { continue }
-                self?.isTrusted = true
-                self?.registerAllApplications()
-                return
+        var interval = Self.trustPollInterval
+        trustPoll.start(after: interval) { [weak self] in
+            guard AXIsProcessTrusted() else {
+                interval = min(interval * 2, Self.maximumTrustPollInterval)
+                return interval
             }
+            self?.isTrusted = true
+            self?.registerAllApplications()
+            return nil
         }
     }
 
@@ -100,10 +134,7 @@ final class WindowAvoider {
             center.addObserver(of: workspace, for: .didLaunchApplication) { [weak self] message in
                 let application = message.application
                 // Freshly launched apps usually aren't Accessibility-ready for a moment.
-                Task { [weak self] in
-                    try? await Task.sleep(for: .seconds(1))
-                    self?.register(application)
-                }
+                self?.scheduleRegistration(of: application, after: .seconds(1))
             },
             center.addObserver(of: workspace, for: .didActivateApplication) { [weak self] message in
                 self?.register(message.application)
@@ -123,7 +154,8 @@ final class WindowAvoider {
 
     private func register(_ application: NSRunningApplication) {
         let pid = application.processIdentifier
-        guard pid != ownProcessIdentifier, observers[pid] == nil, application.activationPolicy == .regular,
+        guard mode != .off, isStarted, pid != ownProcessIdentifier, observers[pid] == nil,
+            application.activationPolicy == .regular,
             AXIsProcessTrusted()
         else { return }
 
@@ -164,14 +196,23 @@ final class WindowAvoider {
         let attempts = registrationAttempts[pid, default: 0]
         guard attempts < Self.maximumRegistrationAttempts else { return }
         registrationAttempts[pid] = attempts + 1
-        Task { [weak self] in
-            try? await Task.sleep(for: Self.registrationRetryDelay)
-            self?.register(application)
+        scheduleRegistration(of: application, after: Self.registrationRetryDelay)
+    }
+
+    private func scheduleRegistration(of application: NSRunningApplication, after delay: Duration) {
+        let pid = application.processIdentifier
+        pendingRegistrations[pid]?.cancel()
+        pendingRegistrations[pid] = Task { [weak self] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self else { return }
+            pendingRegistrations[pid] = nil
+            register(application)
         }
     }
 
     private func unregister(_ pid: pid_t) {
         registrationAttempts[pid] = nil
+        pendingRegistrations.removeValue(forKey: pid)?.cancel()
         guard let observer = observers.removeValue(forKey: pid) else { return }
         CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
     }

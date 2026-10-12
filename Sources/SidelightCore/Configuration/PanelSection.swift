@@ -44,7 +44,10 @@ extension PanelSection {
             id: try container.decode(UUID.self, forKey: .id),
             name: try container.decodeIfPresent(String.self, forKey: .name),
             widgets: try container.decode([StoredWidget].self, forKey: .widgets).compactMap(\.widget),
-            share: try container.decodeIfPresent(Double.self, forKey: .share),
+            // Only a positive share means anything; another hand-edited one leaves the section at its natural length.
+            share: try container.decodeIfPresent(Double.self, forKey: .share).flatMap {
+                $0.isFinite && $0 > 0 ? $0 : nil
+            },
             alignment: try container.decode(PanelAlignment.self, forKey: .alignment)
         )
     }

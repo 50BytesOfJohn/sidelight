@@ -90,15 +90,12 @@ public enum CodexThreadIndex {
     public static func threads(
         updatedSince date: Date, including included: Set<String> = [], limit: Int = 500, in database: URL
     ) -> [CodexThreadRow]? {
-        var connection: OpaquePointer?
+        guard let connection = SQLiteReader.open(database) else { return nil }
         defer { sqlite3_close(connection) }
-        guard
-            sqlite3_open_v2(database.path(percentEncoded: false), &connection, SQLITE_OPEN_READONLY, nil) == SQLITE_OK
-        else { return nil }
-        sqlite3_busy_timeout(connection, 500)
 
-        let available = columns(of: "threads", in: connection)
-        guard ["id", "rollout_path", "updated_at", "source"].allSatisfy(available.contains) else { return nil }
+        guard let available = SQLiteReader.columns(of: "threads", in: connection),
+            ["id", "rollout_path", "updated_at", "source"].allSatisfy(available.contains)
+        else { return nil }
         let optional = [
             "cwd", "name", "title", "originator", "git_branch", "model", "reasoning_effort", "created_at",
             "updated_at_ms",
@@ -148,7 +145,9 @@ public enum CodexThreadIndex {
         }
 
         var rows: [CodexThreadRow] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
+        var step = sqlite3_step(statement)
+        while step == SQLITE_ROW {
+            defer { step = sqlite3_step(statement) }
             guard let id = text("id"), let rolloutPath = text("rollout_path") else { continue }
             let updatedAt = integer("updated_at_ms").map { Double($0) / 1000 } ?? Double(integer("updated_at") ?? 0)
             rows.append(
@@ -160,20 +159,8 @@ public enum CodexThreadIndex {
                     updatedAt: Date(timeIntervalSince1970: updatedAt)
                 ))
         }
-        return rows
-    }
-
-    private static func columns(of table: String, in connection: OpaquePointer?) -> Set<String> {
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
-        guard sqlite3_prepare_v2(connection, "PRAGMA table_info(\(table))", -1, &statement, nil) == SQLITE_OK else {
-            return []
-        }
-        var names = Set<String>()
-        while sqlite3_step(statement) == SQLITE_ROW {
-            if let name = sqlite3_column_text(statement, 1) { names.insert(String(cString: name)) }
-        }
-        return names
+        // Stopped partway, such as while Codex rewrites the file: an incomplete list would drop threads.
+        return step == SQLITE_DONE ? rows : nil
     }
 }
 

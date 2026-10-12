@@ -15,8 +15,8 @@ struct OpenCodeEnvironmentHarness {
         }
         var failures = actual == expected ? 0 : 1
         print("\(actual == expected ? "PASS" : "FAIL") service effective location")
-        if OpenCodeSessionsService.database == nil {
-            let service = OpenCodeSessionsService()
+        let service = OpenCodeSessionsService.openCode()
+        if service.database == nil {
             service.start()
             service.start()
             let valid = service.hasLoaded && service.availability == .unsupported && service.sessions.isEmpty
@@ -25,7 +25,7 @@ struct OpenCodeEnvironmentHarness {
             service.stop()
             service.stop()
         } else {
-            let valid = OpenCodeSessionsService.database?.path == expected
+            let valid = service.database?.path == expected
             failures += valid ? 0 : 1
             print("\(valid ? "PASS" : "FAIL") file database matches effective location")
         }

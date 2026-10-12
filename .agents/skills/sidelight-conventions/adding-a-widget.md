@@ -11,7 +11,7 @@
      view per style (`<Style><Name>Face.swift`). Describe each style as a `WidgetStyle` (title, summary,
      `StyleFamily`, search keywords) and add the kind to `WidgetKind.styles` and `WidgetSettings.styleID` in
      `Widgets/Framework/WidgetStyle.swift`; the inspector's picker and browser come for free. If the widget
-     shows the time, draw `@Environment(\.frozenDate)` when it's set so catalog previews don't tick. Widgets
+     shows the time, draw it through `WidgetClock` so catalog previews and hidden panels don't tick. Widgets
      with one look skip all of this.
    - Widgets with many pieces (several sources, lists, totals) are built from blocks instead of piling up
      options: a `WidgetBlockKind` enum and a `BlockLayout` in their settings (see `RailwaySettings`), and a
@@ -19,8 +19,11 @@
      than once. The builder window (`Builder/BlockBuilder.swift`) comes for free; add the kind to
      `WidgetSettings.hasBuilder` and `WidgetBuilderWindow`. Fetch only what the shown blocks need.
 3. Add the case to the switches in `Widgets/Framework/WidgetViews.swift` and `WidgetMetadata.swift`.
-4. If it has a service: create it in `AppController`, add it to `AppEnvironment`, and start/stop it in
-   `AppController.runServices(for:)`.
-5. `make check`, then look at it in all four sizes in the Widgets window (`make dev`).
+4. If it has a service: make it a `DataService`, create it in `AppController`, add it to `AppEnvironment` and its
+   `dataServices`, and start/stop it in `AppController.runServices(for:)`.
+5. Give it, and any option you add to a widget later, a non-default value in
+   `Tests/SidelightCoreTests/ReleasedConfigurationFixture.swift`, so the next release's saved configuration
+   covers it.
+6. `make check`, then look at it in all four sizes in the Widgets window (`make dev`).
 
 The compiler flags every switch that's missing the new case.

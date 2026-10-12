@@ -116,18 +116,14 @@ public struct ClaudeSessionRecord: Hashable, Sendable {
             cwd: payload.cwd,
             name: payload.name.flatMap { $0.isEmpty ? nil : $0 },
             isNamed: payload.nameSource.map { $0 != "derived" } ?? false,
-            startedAt: Self.date(milliseconds: startedAt),
+            startedAt: Date(millisecondsSince1970: Double(startedAt)),
             status: payload.hasStatus ? Self.status(payload.status) : .notWritten,
             waitingFor: payload.waitingFor,
-            statusChangedAt: payload.statusUpdatedAt.map(Self.date(milliseconds:)),
+            statusChangedAt: payload.statusUpdatedAt.map { Date(millisecondsSince1970: Double($0)) },
             surface: Self.surface(kind: payload.kind, entrypoint: payload.entrypoint),
             desktopSessionID: payload.hostSessionID.flatMap { $0.isEmpty ? nil : $0 },
             isSpare: payload.spare ?? false
         )
-    }
-
-    private static func date(milliseconds: Int64) -> Date {
-        Date(timeIntervalSince1970: Double(milliseconds) / 1000)
     }
 
     private static func status(_ value: String?) -> Status {

@@ -74,7 +74,7 @@ enum Rollout {
     }
 
     static func date(_ time: String) -> Date {
-        CodexRolloutReducer.parseDate("2026-10-11T\(time)Z")!
+        Date(iso8601: "2026-10-11T\(time)Z")!
     }
 }
 

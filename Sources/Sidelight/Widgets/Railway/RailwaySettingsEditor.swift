@@ -106,24 +106,9 @@ struct RailwaySettingsEditor: View {
     @Binding var settings: RailwaySettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Layout", selection: preset) {
-                ForEach(RailwaySettings.presets) { Text($0.title).tag(Optional($0.id)) }
-                if preset.wrappedValue == nil { Text("Custom").tag(String?.none) }
-            }
-            caption("Open the builder to arrange the blocks and set each one's options.")
-        }
+        BlockPresetPicker(settings: $settings)
         Divider()
         RailwayWidgetOptions(settings: $settings)
-    }
-
-    private var preset: Binding<String?> {
-        Binding {
-            RailwaySettings.presets.first { $0.matches(settings.blocks) }?.id
-        } set: { id in
-            guard let preset = RailwaySettings.presets.first(where: { $0.id == id }) else { return }
-            settings.blocks.showOnly(preset.blocks)
-        }
     }
 }
 
@@ -142,7 +127,7 @@ struct RailwayWidgetOptions: View {
             if service.resolved(settings.account) == .token || service.hasToken {
                 RailwayTokenField()
             }
-            caption(accountCaption)
+            SettingsCaption(accountCaption)
         }
         Divider()
         VStack(alignment: .leading, spacing: 8) {
@@ -158,7 +143,7 @@ struct RailwayWidgetOptions: View {
                 Text("Primary").tag(String?.none)
                 ForEach(environmentNames(connection), id: \.self) { Text($0).tag(Optional($0)) }
             }
-            caption("The primary environment is usually production.")
+            SettingsCaption("The primary environment is usually production.")
         }
         Divider()
         VStack(alignment: .leading, spacing: 8) {
@@ -168,7 +153,7 @@ struct RailwayWidgetOptions: View {
                     Text(minutes == 1 ? "Every minute" : "Every \(minutes) minutes").tag(Optional(minutes))
                 }
             }
-            caption(refreshCaption(connection))
+            SettingsCaption(refreshCaption(connection))
         }
         Divider()
         VStack(alignment: .leading, spacing: 8) {
@@ -181,9 +166,7 @@ struct RailwayWidgetOptions: View {
     @ViewBuilder
     private func signInStatus(_ connection: RailwayConnection) -> some View {
         let (text, color) = signInText(connection)
-        HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(text).font(.callout)
+        StatusRow(color: color, text: text) {
             Spacer(minLength: 0)
             if connection.problem != nil || connection.snapshot != nil {
                 Button("Refresh") { service.refreshNow() }
@@ -339,7 +322,7 @@ private struct RailwayBlockOptionsEditor: View {
         switch block {
         case .summary:
             Toggle("Show the workspace", isOn: $settings.blockOptions.summary.showsWorkspace)
-            caption("Next to the project's name, when the widget shows one project.")
+            SettingsCaption("Next to the project's name, when the widget shows one project.")
         case .services:
             Picker("Order", selection: $settings.blockOptions.services.order) {
                 ForEach(RailwayServiceOrder.allCases) { Text($0.title).tag($0) }
@@ -349,16 +332,16 @@ private struct RailwayBlockOptionsEditor: View {
             }
             Toggle("Show asleep services", isOn: $settings.blockOptions.services.showsSleeping)
             Toggle("Show commit messages", isOn: $settings.blockOptions.services.showsCommit)
-            caption(
+            SettingsCaption(
                 "The latest deploy's commit, or its image. Asked for once per new deploy, in the regular size only.")
         case .usage:
             Toggle("Show the estimate", isOn: $settings.blockOptions.usage.showsEstimate)
-            caption("Where the bill is heading by the end of the billing period, at the current rate.")
+            SettingsCaption("Where the bill is heading by the end of the billing period, at the current rate.")
             Toggle("Show the usage limit", isOn: $settings.blockOptions.usage.showsLimit)
-            caption("The bill against the hard limit, or the soft one, set in your workspace's usage settings.")
+            SettingsCaption("The bill against the hard limit, or the soft one, set in your workspace's usage settings.")
         case .incidents:
             Toggle("Include planned maintenance", isOn: $settings.blockOptions.incidents.showsMaintenance)
-            caption("From status.railway.com. The block shows only while Railway reports something.")
+            SettingsCaption("From status.railway.com. The block shows only while Railway reports something.")
         case .service(let id):
             RailwayServiceBlockEditor(id: id, settings: $settings)
         }
@@ -378,11 +361,11 @@ private struct RailwayServiceBlockEditor: View {
                 Text(choice.title).tag(Optional(choice.key))
             }
         }
-        caption("From the widget's projects, in its environment.")
+        SettingsCaption("From the widget's projects, in its environment.")
         Toggle("Show the commit", isOn: option(\.showsCommit))
         Toggle("Show CPU and memory", isOn: option(\.showsMetrics))
         Toggle("Show recent deploys", isOn: option(\.showsHistory))
-        caption("CPU, memory and deploys ride along with each refresh, in the same request.")
+        SettingsCaption("CPU, memory and deploys ride along with each refresh, in the same request.")
     }
 
     private struct Choice {
@@ -441,11 +424,4 @@ private struct RailwayServiceBlockEditor: View {
             settings.setServiceOptions(options, for: id)
         }
     }
-}
-
-private func caption(_ text: String) -> some View {
-    Text(text)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
 }

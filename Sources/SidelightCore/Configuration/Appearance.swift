@@ -41,9 +41,6 @@ public struct BackgroundSettings: Codable, Hashable, Sendable {
     public var grain: Double = 0
 
     public init() {}
-
-    /// Whether ``grain`` applies to the current kind.
-    public var showsGrain: Bool { kind == .blur || kind == .color || kind == .image }
 }
 
 public enum GlassVariant: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -162,7 +159,7 @@ public struct CardSettings: Codable, Hashable, Sendable {
         style = try container.decode(CardStyle.self, forKey: .style)
         tint = try container.decode(Tint.self, forKey: .tint)
         fill = try container.decode(Tint.self, forKey: .fill)
-        showsTitles = try container.decodeIfPresent(Bool.self, forKey: .showsTitles) ?? CardSettings().showsTitles
+        showsTitles = try container.decode(.showsTitles, or: CardSettings().showsTitles)
     }
 }
 

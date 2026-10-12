@@ -26,6 +26,14 @@ struct RateLimitWindowTests {
         #expect(session(0).pace(at: oneHourIn) == .lasts)
     }
 
+    @Test func `running out means used up or gone before the reset`() {
+        let oneHourIn = start.addingTimeInterval(3_600)
+        #expect(session(40).pace(at: oneHourIn).isRunningOut)
+        #expect(session(100).pace(at: oneHourIn).isRunningOut)
+        #expect(!session(20).pace(at: oneHourIn).isRunningOut)
+        #expect(!session(30).pace(at: start).isRunningOut)
+    }
+
     @Test func `pace waits for a tenth of the window`() {
         #expect(session(30).pace(at: start.addingTimeInterval(10 * 60)) == .unknown)
         #expect(RateLimitWindow(usedPercent: 30).pace(at: start) == .unknown)

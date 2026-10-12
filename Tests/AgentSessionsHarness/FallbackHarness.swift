@@ -111,45 +111,45 @@ struct FallbackHarness {
             precondition(sqlite3_exec(connection, sql, nil, nil, nil) == SQLITE_OK)
             return connection!
         }
+        let openCode = OpenCodeSessionsService.openCode()
+        let cursor = CursorChatsService.cursor()
         let openWriter = try setup(
-            OpenCodeSessionsService.database!,
+            openCode.database!,
             "CREATE TABLE session_v2(id TEXT, parent_id TEXT, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, time_archived INTEGER); INSERT INTO session_v2 VALUES ('ses_fixture',NULL,'/synthetic/repo','Initial',\(now),\(now),NULL)"
         )
         let cursorWriter = try setup(
-            CursorChatsService.database,
+            CursorChatIndex.defaultDatabase,
             "CREATE TABLE composerHeaders(composerId TEXT,value BLOB,lastUpdatedAt INTEGER); INSERT INTO composerHeaders VALUES ('synthetic','{\"name\":\"Initial\"}',\(now))"
         )
         defer {
             sqlite3_close(openWriter)
             sqlite3_close(cursorWriter)
         }
-        let openCode = OpenCodeSessionsService()
-        let cursor = CursorChatsService()
         openCode.start()
         cursor.start()
         await waitFor { openCode.hasLoaded && cursor.hasLoaded }
         check(
             "OpenCode successful initial read with unavailable watcher keeps sweep",
             openCode.sessions.first?.title == "Initial" && openCode.availability == .found && openCode.watcher == nil
-                && openCode.sweepTask != nil)
+                && openCode.sweep.isRunning)
         check(
             "Cursor successful initial read with unavailable watcher keeps sweep",
-            cursor.chats.first?.name == "Initial" && cursor.availability == .found && cursor.watcher == nil
-                && cursor.sweepTask != nil)
+            cursor.sessions.first?.name == "Initial" && cursor.availability == .found && cursor.watcher == nil
+                && cursor.sweep.isRunning)
         precondition(sqlite3_exec(openWriter, "UPDATE session_v2 SET title='Swept'", nil, nil, nil) == SQLITE_OK)
         precondition(
             sqlite3_exec(cursorWriter, "UPDATE composerHeaders SET value='{\"name\":\"Swept\"}'", nil, nil, nil)
                 == SQLITE_OK)
         let started = ContinuousClock.now
         await waitFor(
-            { openCode.sessions.first?.title == "Swept" && cursor.chats.first?.name == "Swept" }, seconds: 165)
+            { openCode.sessions.first?.title == "Swept" && cursor.sessions.first?.name == "Swept" }, seconds: 165)
         print("REAL_SWEEP_ELAPSED \(started.duration(to: .now))")
         check(
             "OpenCode real 120s fallback reads later write and remains active",
-            openCode.sessions.first?.title == "Swept" && openCode.sweepTask != nil && openCode.watcher == nil)
+            openCode.sessions.first?.title == "Swept" && openCode.sweep.isRunning && openCode.watcher == nil)
         check(
             "Cursor real 120s fallback reads later write and remains active",
-            cursor.chats.first?.name == "Swept" && cursor.sweepTask != nil && cursor.watcher == nil)
+            cursor.sessions.first?.name == "Swept" && cursor.sweep.isRunning && cursor.watcher == nil)
         check(
             "fallback retries failed wrapper startup",
             StartBoundary.state.withLock { $0.calls.filter { $0 == "start" }.count } >= 4)
@@ -157,8 +157,8 @@ struct FallbackHarness {
         cursor.stop()
         check(
             "both stops cancel fallback ownership",
-            openCode.sweepTask == nil && cursor.sweepTask == nil && openCode.reloadTask == nil
-                && cursor.reloadTask == nil)
+            !openCode.sweep.isRunning && !cursor.sweep.isRunning && !openCode.reload.isActive
+                && !cursor.reload.isActive)
         print(
             "RESULT \(checks) checks, \(failures) failures; injected C start, actual C ownership/readers/services/timers"
         )

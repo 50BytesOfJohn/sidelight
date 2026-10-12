@@ -250,10 +250,7 @@ private struct StyleBrowser: View {
     }
 
     private func sectionHeader(_ family: StyleFamily) -> some View {
-        Text(family.title.uppercased())
-            .font(.system(size: 10, weight: .semibold))
-            .tracking(0.8)
-            .foregroundStyle(.secondary)
+        SectionLabel(family.title)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 6)
             .background(.bar)

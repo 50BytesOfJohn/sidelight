@@ -16,7 +16,7 @@ import os
 /// looks for that. None of this is documented; if Codex moves it, the widget says it can't find Codex rather than
 /// showing anything wrong.
 @Observable
-final class CodexSessionsService {
+final class CodexSessionsService: DataService {
     nonisolated static let codexDirectory = CodexThreadIndex.defaultCodexDirectory
     nonisolated static let sessionsDirectory = codexDirectory.appending(path: "sessions", directoryHint: .isDirectory)
     nonisolated static let locksDirectory = CodexThreadLocks.defaultDirectory
@@ -54,16 +54,12 @@ final class CodexSessionsService {
     @ObservationIgnored private var state = ReadState()
     @ObservationIgnored private var isEnabled = false
     @ObservationIgnored private var watchers: [FileEventStream] = []
-    /// The watched folders that existed when they were watched. FSEvents may not report into a folder created
-    /// after its stream started, so the streams are made again once a missing one appears.
+    /// The folders being watched. FSEvents may not report into a folder created after its stream started, so the
+    /// streams are made again once a missing one appears, or one that couldn't be started can be.
     @ObservationIgnored private var watchedFolders: Set<URL> = []
-    @ObservationIgnored private var reloadTask: Task<Void, Never>?
-    /// Tells a reload task that a `stop()` or a newer task replaced it.
-    @ObservationIgnored private var reloadGeneration = 0
-    @ObservationIgnored private var needsReload = false
-    @ObservationIgnored private var indexRefreshTask: Task<Void, Never>?
-    @ObservationIgnored private var sweepTask: Task<Void, Never>?
-    @ObservationIgnored private var sweepInterval: Duration?
+    @ObservationIgnored private let reload = CoalescedReload()
+    @ObservationIgnored private let indexRefresh = DelayedTask()
+    @ObservationIgnored private let sweep = RepeatingTask()
 
     func start() {
         guard !isEnabled else { return }
@@ -76,44 +72,34 @@ final class CodexSessionsService {
         isEnabled = false
         watchers = []
         watchedFolders = []
-        reloadGeneration += 1
-        reloadTask?.cancel()
-        reloadTask = nil
-        indexRefreshTask?.cancel()
-        indexRefreshTask = nil
-        updateSweep(interval: nil)
+        reload.cancel()
+        indexRefresh.cancel()
+        sweep.stop()
     }
 
     private func watchFolders() {
         let folders = [Self.sessionsDirectory, Self.locksDirectory]
         let existing = Set(folders.filter { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) })
-        guard watchers.isEmpty || !existing.isSubset(of: watchedFolders) else { return }
+        guard !existing.isSubset(of: watchedFolders) else { return }
+        var watched: Set<URL> = []
         watchers = existing.compactMap { folder in
-            FileEventStream(directory: folder, latency: Self.eventLatency, queue: .main) { [weak self] in
-                MainActor.assumeIsolated { self?.scheduleReload() }
+            let stream = FileEventStream(directory: folder, latency: Self.eventLatency) { [weak self] in
+                self?.scheduleReload()
             }
+            if stream != nil { watched.insert(folder) }
+            return stream
         }
-        watchedFolders = existing
+        watchedFolders = watched
     }
 
-    /// Coalesces events that arrive during a read into one more read.
     private func scheduleReload() {
-        needsReload = true
-        guard reloadTask == nil else { return }
-        reloadGeneration += 1
-        let generation = reloadGeneration
-        reloadTask = Task { [weak self] in
-            while let self, needsReload, !Task.isCancelled, generation == reloadGeneration {
-                needsReload = false
-                await reload(generation: generation)
-            }
-            if let self, generation == reloadGeneration { reloadTask = nil }
-        }
+        guard isEnabled else { return }
+        reload.request { [weak self] in await self?.reloadNow() }
     }
 
-    private func reload(generation: Int) async {
+    private func reloadNow() async {
         let read = await Self.read(state, now: .now)
-        guard isEnabled, !Task.isCancelled, generation == reloadGeneration else { return }
+        guard !Task.isCancelled else { return }
         if read == nil, codexFound {
             Log.codexSessions.notice("No Codex state database or sessions folder in ~/.codex")
         }
@@ -123,7 +109,7 @@ final class CodexSessionsService {
         guard let read else {
             state = ReadState()
             if !sessions.isEmpty { sessions = [] }
-            updateSweep(interval: Self.sweepInterval)
+            scheduleSweep(every: Self.sweepInterval)
             return
         }
         state = read.state
@@ -133,19 +119,16 @@ final class CodexSessionsService {
             rateLimitsCapturedAt = read.rateLimits?.1
         }
         if read.reusedIndex { scheduleIndexRefresh(after: read.state.index?.readAt) }
-        updateSweep(interval: sweepInterval(for: read.sessions))
+        scheduleSweep(every: sweepInterval(for: read.sessions))
     }
 
     /// One more read once the thread index read at `readAt` is due again, so names and new threads that came while
     /// it was reused show even if Codex then goes quiet.
     private func scheduleIndexRefresh(after readAt: Date?) {
-        guard indexRefreshTask == nil, let readAt else { return }
+        guard !indexRefresh.isPending, let readAt else { return }
         let delay = max(0, readAt.addingTimeInterval(Self.indexInterval).timeIntervalSinceNow)
-        indexRefreshTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(delay), tolerance: .seconds(1))
-            guard let self, !Task.isCancelled else { return }
-            indexRefreshTask = nil
-            if isEnabled { scheduleReload() }
+        indexRefresh.schedule(after: .seconds(delay), tolerance: .seconds(1)) { [weak self] in
+            self?.scheduleReload()
         }
     }
 
@@ -157,19 +140,8 @@ final class CodexSessionsService {
         return Self.idleSweepInterval
     }
 
-    private func updateSweep(interval: Duration?) {
-        guard interval != sweepInterval || (interval != nil && sweepTask == nil) else { return }
-        sweepTask?.cancel()
-        sweepTask = nil
-        sweepInterval = interval
-        guard let interval else { return }
-        sweepTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: interval, tolerance: interval / 4) } catch { return }
-                guard let self, isEnabled else { return }
-                scheduleReload()
-            }
-        }
+    private func scheduleSweep(every interval: Duration) {
+        sweep.schedule(every: interval) { [weak self] in self?.scheduleReload() }
     }
 
     /// What one read hands the next: the rollout files as far as they were read, the thread index, and the
@@ -207,14 +179,24 @@ final class CodexSessionsService {
 
         let listed = Set(state.index?.threads.map(\.id) ?? [])
         let isDue = state.index.map { now.timeIntervalSince($0.readAt) >= indexInterval } ?? true
-        let reusedIndex = !isDue && state.holders.keys.allSatisfy(listed.contains)
+        var reusedIndex = !isDue && state.holders.keys.allSatisfy(listed.contains)
         if !reusedIndex {
             guard FileManager.default.fileExists(atPath: sessionsDirectory.path(percentEncoded: false)),
-                let database = CodexThreadIndex.databaseURL(in: codexDirectory),
-                let threads = CodexThreadIndex.threads(
-                    updatedSince: now.addingTimeInterval(-lookback), including: Set(state.holders.keys), in: database)
+                let database = CodexThreadIndex.databaseURL(in: codexDirectory)
             else { return nil }
-            state.index = ThreadIndex(threads: threads, readAt: now)
+            if let threads = CodexThreadIndex.threads(
+                updatedSince: now.addingTimeInterval(-lookback), including: Set(state.holders.keys), in: database)
+            {
+                state.index = ThreadIndex(threads: threads, readAt: now)
+            } else if var index = state.index {
+                // Most likely mid-write: the threads read last stay, rather than reading as no Codex at all, and
+                // the index is tried again once it's due.
+                index.readAt = now
+                state.index = index
+                reusedIndex = true
+            } else {
+                return nil
+            }
         }
         guard let threads = state.index?.threads else { return nil }
 

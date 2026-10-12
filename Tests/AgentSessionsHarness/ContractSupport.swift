@@ -79,13 +79,14 @@ enum Log {
     var hasLoaded = true
 }
 
-// One controlled read seam lets an old cancelled read finish after a newer generation.
-// The actual service's scheduling, cancellation and publication bodies are unchanged.
+// One controlled read seam lets an old cancelled read finish after a newer generation. It is passed to the actual
+// WatchedSessionIndex as its injected read closure, so the index's scheduling, cancellation and publication
+// bodies are unchanged.
 enum ControlledRead {
-    static var result: Result<[CursorChat], CursorChatIndex.Failure> = .success([])
+    static var result: Result<[CursorChat], SessionIndexFailure> = .success([])
     static var holdNext = false
-    static var pending: CheckedContinuation<Result<[CursorChat], CursorChatIndex.Failure>, Never>?
-    static func read() async -> Result<[CursorChat], CursorChatIndex.Failure> {
+    static var pending: CheckedContinuation<Result<[CursorChat], SessionIndexFailure>, Never>?
+    static func read() async -> Result<[CursorChat], SessionIndexFailure> {
         if holdNext {
             holdNext = false
             return await withCheckedContinuation { pending = $0 }
@@ -95,10 +96,10 @@ enum ControlledRead {
 }
 
 enum ControlledOpenCodeRead {
-    static var result: Result<[OpenCodeSession], OpenCodeSessionIndex.Failure> = .success([])
+    static var result: Result<[OpenCodeSession], SessionIndexFailure> = .success([])
     static var holdNext = false
-    static var pending: CheckedContinuation<Result<[OpenCodeSession], OpenCodeSessionIndex.Failure>, Never>?
-    static func read(_ database: URL) async -> Result<[OpenCodeSession], OpenCodeSessionIndex.Failure> {
+    static var pending: CheckedContinuation<Result<[OpenCodeSession], SessionIndexFailure>, Never>?
+    static func read(_ database: URL) async -> Result<[OpenCodeSession], SessionIndexFailure> {
         if holdNext {
             holdNext = false
             return await withCheckedContinuation { pending = $0 }
@@ -142,5 +143,6 @@ struct WidgetMetadata {
     let systemImage: String
     let tint: Color
     let summary: String
-    let isBeta: Bool
+    var logo: String?
+    var isBeta = false
 }

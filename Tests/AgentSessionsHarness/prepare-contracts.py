@@ -10,6 +10,8 @@ import json
 root = Path(__file__).resolve().parents[2]
 out = root / 'build/agent-sessions-harness/contracts'
 out.mkdir(parents=True, exist_ok=True)
+for stale in out.glob('*.swift'):  # copies of files that no longer exist must not be compiled
+    stale.unlink()
 manifest = {}
 
 def source(relative):
@@ -29,20 +31,22 @@ for path in ['AgentSessions/AgentSessionOpener.swift', 'CodexSessions/CodexSessi
         value = value.replace('ProcessRunner.output', 'MockProcessRunner.output')
     (out / Path(path).name).write_text(value)
 
-value = expose(source('Widgets/AgentSessions/CursorChatsService.swift'))
-assert value.count('await Self.read(now: .now)') == 1
-value = value.replace('await Self.read(now: .now)', 'await ControlledRead.read()')
-(out / 'CursorChatsService.swift').write_text(value)
-value = expose(source('Widgets/AgentSessions/OpenCodeSessionsService.swift'))
-assert value.count('await Self.read(database, now: .now)') == 1
-value = value.replace('await Self.read(database, now: .now)', 'await ControlledOpenCodeRead.read(database)')
-(out / 'OpenCodeSessionsService.swift').write_text(value)
+# One generic index serves Cursor and OpenCode; only private access is exposed. Its read is an injected closure, so
+# the harness controls the asynchronous read through the initializer and no body is rewritten.
+value = expose(source('Widgets/AgentSessions/WatchedSessionIndex.swift'))
+assert value.count('await read(database,') == 1
+(out / 'WatchedSessionIndex.swift').write_text(value)
+# Its collaborators are compiled as they are.
+for name in ['DataService', 'CoalescedReload', 'RepeatingTask']:
+    (out / f'{name}.swift').write_text(source(f'Services/{name}.swift'))
 (out / 'AgentSessionSources.swift').write_text(source('Widgets/AgentSessions/AgentSessionSources.swift'))
 value = source('Widgets/AgentSessions/AgentSessionsWidget.swift')
 # Complete, verbatim declarations; the omitted top-level view needs the full app environment.
 parts = [value[value.index('extension WidgetMetadata {'):value.index('extension AgentSessionsSettings {')],
          value[value.index('extension AgentSessionsSettings {'):value.index('// MARK: - Settings')],
-         value[value.index('extension AgentSessionSources.State {'):value.index('private func caption')],
+         # Skips the settings editor, whose environment and shared settings views the contracts don't need.
+         value[value.index('extension AgentSessionSources.State {'):value.index('// MARK: - Widget')],
+         # The content branches (empty and error states are the shared WidgetMessage) up to the list stand-in.
          value[value.index('private struct AgentSessionsContent:'):value.index('// MARK: - List')],
          value[value.index('private struct AgentSessionRow:'):]]
 claude = source('Widgets/ClaudeSessions/ClaudeSessionsWidget.swift')

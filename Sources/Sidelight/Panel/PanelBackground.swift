@@ -93,14 +93,18 @@ extension UnitPoint {
     }
 }
 
-/// The gradient as a mesh whose middle slowly drifts. Redraws at 30 fps, so it costs a few percent CPU.
+/// The gradient as a mesh whose middle slowly drifts. Redraws at 30 fps, so it costs a few percent CPU, and stands
+/// still while the panel can't be seen (hidden, or on a sleeping or locked screen) or the person asked for reduced
+/// motion.
 private struct AnimatedGradient: View {
     let colors: [RGBAColor]
     let angle: Double
+    @Environment(\.isPanelShown) private var isPanelShown
+    @Environment(\.accessibilityReduceMotion) private var reducesMotion
 
     var body: some View {
         let meshColors = meshColors
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPanelShown || reducesMotion)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
             let dx = Float(sin(time / 6) * 0.25)
             let dy = Float(cos(time / 8) * 0.25)

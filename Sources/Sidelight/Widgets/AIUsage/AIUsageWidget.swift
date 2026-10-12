@@ -24,6 +24,15 @@ extension AIUsageProvider {
 
     var title: String { kind.metadata.title }
 
+    /// The same agent, as the sessions widgets know it.
+    var agent: AgentProvider {
+        switch self {
+        case .codex: .codex
+        case .claudeCode: .claudeCode
+        case .cursor: .cursor
+        }
+    }
+
     /// For narrow cards.
     var shortTitle: String {
         switch self {
@@ -55,13 +64,13 @@ struct AIUsageSettingsEditor: View {
                     Label {
                         Text(provider.title)
                     } icon: {
-                        ProviderMark(provider: provider, size: 16)
+                        ProviderLogo(provider: provider.agent, size: 16)
                     }
                 }
                 // One agent at least: an empty card would only say so.
                 .disabled(settings.providers == [provider])
             }
-            caption(
+            SettingsCaption(
                 "Each agent's limit closest to running out, as that agent reports it. Agents measure different "
                     + "things over different windows, so nothing is added up across them.")
         }
@@ -70,7 +79,7 @@ struct AIUsageSettingsEditor: View {
                 ForEach(UsageReading.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
-            caption(
+            SettingsCaption(
                 settings.reading == .used
                     ? "Meters fill as you use each agent, and their tick moves with the window's time: a meter that "
                         + "passes its tick runs out before the reset."
@@ -80,7 +89,8 @@ struct AIUsageSettingsEditor: View {
         }
         VStack(alignment: .leading, spacing: 8) {
             Toggle("Show other limits", isOn: $settings.showsOtherLimits)
-            caption("Each agent's other windows or pools next to its main one, in the regular and compact sizes.")
+            SettingsCaption(
+                "Each agent's other windows or pools next to its main one, in the regular and compact sizes.")
         }
         ForEach(settings.providers) { provider in
             Divider()
@@ -88,7 +98,7 @@ struct AIUsageSettingsEditor: View {
                 Label {
                     Text(provider.title).font(.headline)
                 } icon: {
-                    ProviderMark(provider: provider, size: 18)
+                    ProviderLogo(provider: provider.agent, size: 18)
                 }
                 source(of: provider)
             }
@@ -118,13 +128,6 @@ struct AIUsageSettingsEditor: View {
             settings.set(provider, included: $0)
         }
     }
-
-    private func caption(_ text: String) -> some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
 }
 
 // MARK: - Widget
@@ -137,17 +140,11 @@ struct AIUsageWidgetView: View {
     @Environment(CodexService.self) private var codex
     @Environment(ClaudeCodeService.self) private var claude
     @Environment(CursorService.self) private var cursor
-    @Environment(\.frozenDate) private var frozenDate
 
     var body: some View {
-        if let frozenDate {
-            AIUsageView(summaries: summaries(at: frozenDate), settings: settings, layout: layout, now: frozenDate)
-        } else {
-            // Countdowns, the time tick, windows resetting and data ageing all move on with the clock.
-            TimelineView(.everyMinute) { context in
-                AIUsageView(
-                    summaries: summaries(at: context.date), settings: settings, layout: layout, now: context.date)
-            }
+        // Countdowns, the time tick, windows resetting and data ageing all move on with the clock.
+        WidgetClock { now in
+            AIUsageView(summaries: summaries(at: now), settings: settings, layout: layout, now: now)
         }
     }
 
@@ -156,7 +153,7 @@ struct AIUsageWidgetView: View {
         settings.providers.map { provider in
             switch provider {
             case .codex:
-                .codex(codex.state, plan: codex.state.plan.flatMap(CodexFormat.planTitle), now: now)
+                .codex(codex.state, plan: codex.state.plan.flatMap(UsageFormat.planTitle), now: now)
             case .claudeCode:
                 .claudeCode(
                     usage: claude.usage, plan: claude.plan, hasLoaded: claude.hasLoaded,
@@ -184,13 +181,9 @@ struct AIUsageView: View {
 
     var body: some View {
         if summaries.isEmpty {
-            if layout.isGlanceable {
-                Image(systemName: "gauge.with.dots.needle.0percent")
-                    .foregroundStyle(.secondary)
-                    .help("No agents chosen")
-            } else {
-                Text("Choose agents in this widget's settings.").font(.callout).foregroundStyle(.secondary)
-            }
+            WidgetMessage(
+                title: "Choose agents in this widget's settings.", systemImage: "gauge.with.dots.needle.0percent",
+                layout: layout, trimsCompact: false)
         } else {
             switch layout {
             case .regular: regular
@@ -207,7 +200,7 @@ struct AIUsageView: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(summaries.enumerated()), id: \.element.id) { index, summary in
                 if index > 0 {
-                    Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.5).padding(.vertical, 9)
+                    HairlineDivider().padding(.vertical, 9)
                 }
                 regularRow(summary)
             }
@@ -218,7 +211,7 @@ struct AIUsageView: View {
         let lead = summary.status == .limits ? summary.lead(at: now) : nil
         return VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .center, spacing: 6) {
-                ProviderMark(provider: summary.provider, size: 16)
+                ProviderLogo(provider: summary.provider.agent, size: 16)
                 // Shortens, then drops the window's name, then the age, before the agent's name gives way.
                 ViewThatFits(in: .horizontal) {
                     regularTitle(summary, window: lead?.title, showsAge: true)
@@ -321,7 +314,7 @@ struct AIUsageView: View {
         _ summary: AIUsageSummary, lead: AIUsageLimit?, title: String?, suffix: Bool
     ) -> some View {
         HStack(spacing: 5) {
-            ProviderMark(provider: summary.provider, size: 14)
+            ProviderLogo(provider: summary.provider.agent, size: 14)
             if let title {
                 Text(title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1)
             }
@@ -371,7 +364,7 @@ struct AIUsageView: View {
         let lead = summary.status == .limits ? summary.lead(at: now) : nil
         return VStack(spacing: 3) {
             HStack(spacing: 3) {
-                ProviderMark(provider: summary.provider, size: 13)
+                ProviderLogo(provider: summary.provider.agent, size: 13)
                     .opacity(lead == nil ? 0.6 : 1)
                 if let lead {
                     glancePercent(lead, summary: summary, size: 11.5)
@@ -402,7 +395,7 @@ struct AIUsageView: View {
     private func barItem(_ summary: AIUsageSummary) -> some View {
         let lead = summary.status == .limits ? summary.lead(at: now) : nil
         return HStack(spacing: 5) {
-            ProviderMark(provider: summary.provider, size: 16)
+            ProviderLogo(provider: summary.provider.agent, size: 16)
                 .opacity(lead == nil ? 0.6 : 1)
             if let lead {
                 VStack(alignment: .leading, spacing: 0) {
@@ -425,9 +418,6 @@ struct AIUsageView: View {
 
     // MARK: Numbers and meters
 
-    private var warningColor: Color { .usage(percent: 75) }
-    private var criticalColor: Color { .usage(percent: 100) }
-
     /// `34% used`, or `Reset` once the window has reset since the numbers were read.
     @ViewBuilder
     private func percentLabel(_ limit: AIUsageLimit, summary: AIUsageSummary, size: CGFloat, suffix: Bool) -> some View
@@ -441,7 +431,7 @@ struct AIUsageView: View {
                     .font(.system(size: size, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText(value: limit.percent(reading)))
-                    .foregroundStyle(limit.isUsedUp ? criticalColor : .primary)
+                    .foregroundStyle(limit.isUsedUp ? Color.usageCritical : .primary)
                 if suffix {
                     Text(reading.suffix).font(.system(size: max(9, size * 0.6))).foregroundStyle(.secondary)
                 }
@@ -461,7 +451,8 @@ struct AIUsageView: View {
             .foregroundStyle(
                 hasReset
                     ? AnyShapeStyle(.secondary)
-                    : limit.isUsedUp || isBlocked(summary) ? AnyShapeStyle(criticalColor) : AnyShapeStyle(.primary)
+                    : limit.isUsedUp || isBlocked(summary)
+                        ? AnyShapeStyle(Color.usageCritical) : AnyShapeStyle(.primary)
             )
             .opacity(summary.freshness == .stale ? 0.6 : 1)
     }
@@ -476,7 +467,9 @@ struct AIUsageView: View {
                     .font(.system(size: size, weight: .medium, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(
-                        isWarning ? warningColor : summary.freshness == .stale ? warningColor.opacity(0.8) : .secondary)
+                        isWarning
+                            ? Color.usageWarning
+                            : summary.freshness == .stale ? Color.usageWarning.opacity(0.8) : .secondary)
             }
         }
     }
@@ -522,7 +515,7 @@ struct AIUsageView: View {
                         Text("\(Int(limit.percent(reading).rounded()))%")
                             .fontWeight(.semibold)
                             .monospacedDigit()
-                            .foregroundStyle(limit.isUsedUp ? criticalColor : .primary)
+                            .foregroundStyle(limit.isUsedUp ? Color.usageCritical : .primary)
                     }
                 }
                 .opacity(summary.freshness == .stale ? 0.6 : 1)
@@ -553,7 +546,7 @@ struct AIUsageView: View {
             let text = length == .full ? notice.text : length == .short ? "Limit reached" : "Stopped"
             Label(text, systemImage: "hourglass")
                 .labelStyle(TightLabelStyle())
-                .foregroundStyle(criticalColor)
+                .foregroundStyle(Color.usageCritical)
         } else {
             switch summary.warning(for: lead, at: now) {
             case .usedUp?:
@@ -565,7 +558,7 @@ struct AIUsageView: View {
                     }
                 Label(text, systemImage: "hourglass")
                     .labelStyle(TightLabelStyle())
-                    .foregroundStyle(criticalColor)
+                    .foregroundStyle(Color.usageCritical)
             case .runsOut(let date)?:
                 let text =
                     switch length {
@@ -575,7 +568,7 @@ struct AIUsageView: View {
                     }
                 Label(text, systemImage: "exclamationmark.triangle.fill")
                     .labelStyle(TightLabelStyle())
-                    .foregroundStyle(warningColor)
+                    .foregroundStyle(Color.usageWarning)
             case nil:
                 let text = length == .tiny ? shortCountdown(lead) ?? "" : resetText(lead, short: length == .short)
                 Text(text).foregroundStyle(.secondary)
@@ -627,12 +620,12 @@ struct AIUsageView: View {
         {
             let isStale = summary.freshness == .stale
             Label {
-                if showsAge { Text(CodexFormat.age(of: capturedAt, now: now)) }
+                if showsAge { Text(UsageFormat.age(of: capturedAt, now: now)) }
             } icon: {
                 Image(systemName: isStale ? "clock.badge.exclamationmark" : "clock")
             }
             .labelStyle(TightLabelStyle())
-            .foregroundStyle(isStale ? AnyShapeStyle(warningColor) : AnyShapeStyle(.tertiary))
+            .foregroundStyle(isStale ? AnyShapeStyle(Color.usageWarning) : AnyShapeStyle(.tertiary))
         }
     }
 
@@ -643,7 +636,7 @@ struct AIUsageView: View {
         case .loading: Image(systemName: "hourglass").foregroundStyle(.secondary)
         case .setup: Image(systemName: "gearshape").foregroundStyle(.secondary)
         case .noLimits: Image(systemName: "minus.circle").foregroundStyle(.secondary)
-        case .failed: Image(systemName: "exclamationmark.circle").foregroundStyle(warningColor)
+        case .failed: Image(systemName: "exclamationmark.circle").foregroundStyle(Color.usageWarning)
         }
     }
 
@@ -685,7 +678,7 @@ struct AIUsageView: View {
             } else {
                 part += "\(Int(limit.percent(reading).rounded())) percent \(reading.suffix)"
                 if let resetsAt = limit.window.resetsAt {
-                    part += ", resets in \(CodexFormat.spokenDuration(until: resetsAt, now: now))"
+                    part += ", resets in \(UsageFormat.spokenDuration(until: resetsAt, now: now))"
                 }
             }
             switch summary.warning(for: limit, at: now) {
@@ -697,7 +690,7 @@ struct AIUsageView: View {
         }
         if let notice = summary.notice { parts.append(notice.text) }
         if summary.freshness != .live, let capturedAt = summary.capturedAt {
-            parts.append("As of \(CodexFormat.age(of: capturedAt, now: now))")
+            parts.append("As of \(UsageFormat.age(of: capturedAt, now: now))")
         }
         return parts.joined(separator: ". ")
     }
@@ -719,7 +712,7 @@ struct AIUsageView: View {
         }
         if let notice = summary.notice { lines.append(notice.text) }
         if let source = summary.source, let capturedAt = summary.capturedAt {
-            lines.append("From \(source) · \(CodexFormat.age(of: capturedAt, now: now))")
+            lines.append("From \(source) · \(UsageFormat.age(of: capturedAt, now: now))")
         }
         if summary.provider == .cursor, summary.status == .limits {
             lines.append("For the whole account: the editor, the CLI and cloud agents share these pools.")
@@ -729,36 +722,9 @@ struct AIUsageView: View {
 
     // MARK: Dates
 
-    private func moment(_ date: Date) -> String { CodexFormat.moment(date, now: now) }
+    private func moment(_ date: Date) -> String { UsageFormat.moment(date, now: now) }
 
-    /// `14:20` today, `Oct 28` on another day.
-    private func day(_ date: Date) -> String {
-        Calendar.autoupdatingCurrent.isDate(date, inSameDayAs: now)
-            ? date.formatted(date: .omitted, time: .shortened)
-            : date.formatted(.dateTime.month(.abbreviated).day())
-    }
-}
-
-/// Bundled provider artwork, with appearance variants selected by the asset catalog.
-private struct ProviderMark: View {
-    let provider: AIUsageProvider
-    let size: CGFloat
-
-    var body: some View {
-        Image(assetName, bundle: BrandLogos.bundle)
-            .resizable()
-            .scaledToFit()
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
-    }
-
-    private var assetName: String {
-        switch provider {
-        case .codex: "AIUsageCodex"
-        case .claudeCode: "AIUsageClaude"
-        case .cursor: "AIUsageCursor"
-        }
-    }
+    private func day(_ date: Date) -> String { UsageFormat.day(date, now: now) }
 }
 
 extension View {

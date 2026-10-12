@@ -105,10 +105,7 @@ public enum CodexRollout {
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: AnyCodingKey.self)
             payload = try container.decode(Payload.self, forKey: AnyCodingKey("payload"))
-            timestamp = container.lenient(String.self, "timestamp").flatMap { text in
-                (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(text))
-                    ?? (try? Date.ISO8601FormatStyle().parse(text))
-            }
+            timestamp = container.lenient(String.self, "timestamp").flatMap(Date.init(iso8601:))
         }
     }
 

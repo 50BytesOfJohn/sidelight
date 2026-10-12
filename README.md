@@ -42,7 +42,7 @@ Sparkle; update settings and a manual check are in **Settings → General → Up
 
 Everything is stored in `~/Library/Application Support/Sidelight/config.json`. Edits to the file are applied
 live. A file that doesn't decode (including one written by an older build with a different shape) is moved to
-`config.invalid.json` and replaced with defaults. Future updates preserve configurations from published releases.
+`config.invalid-<date>.json` and replaced with defaults. Future updates preserve configurations from published releases.
 
 Logs go to the unified log:
 

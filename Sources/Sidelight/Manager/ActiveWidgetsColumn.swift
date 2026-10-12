@@ -201,10 +201,7 @@ private struct SectionHeaderRow: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 0) {
-                Text(title.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.8)
-                    .foregroundStyle(.secondary)
+                SectionLabel(title)
                 Text(summary).font(.system(size: 10.5)).foregroundStyle(.tertiary).lineLimit(1)
             }
             Spacer(minLength: 0)

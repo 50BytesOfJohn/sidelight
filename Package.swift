@@ -38,8 +38,15 @@ let package = Package(
             swiftSettings: approachableConcurrency
         ),
         .testTarget(
+            name: "SidelightTests",
+            dependencies: ["Sidelight", "SidelightCore"],
+            swiftSettings: approachableConcurrency + [.defaultIsolation(MainActor.self)]
+        ),
+        .testTarget(
             name: "SidelightCoreTests",
             dependencies: ["SidelightCore"],
+            // A configuration saved by each published release, kept loading by ReleasedConfigurationTests.
+            resources: [.copy("ReleasedConfigurations")],
             swiftSettings: approachableConcurrency
         ),
     ],

@@ -51,14 +51,7 @@ public struct OpenCodeSession: Identifiable, Hashable, Sendable {
 /// OpenCode 1's `session` table and JSON files are a different format, which this doesn't read. Nothing here says
 /// which OpenCode server, if any, has a session open, or resumes one.
 public enum OpenCodeSessionIndex {
-    public enum Failure: Error, Sendable {
-        /// No database: OpenCode 2 isn't installed, hasn't run, or keeps it under a channel or path not looked at.
-        case noDatabase
-        /// The database has no session list this version can read: OpenCode 1, or a much newer OpenCode.
-        case unsupported
-        /// The database couldn't be read right now.
-        case unreadable
-    }
+    public typealias Failure = SessionIndexFailure
 
     /// Where the database is, as OpenCode's CLI decides it.
     public enum Location: Hashable, Sendable {
@@ -110,16 +103,14 @@ public enum OpenCodeSessionIndex {
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
             return .failure(.noDatabase)
         }
-        var connection: OpaquePointer?
+        guard let connection = SQLiteReader.open(database) else { return .failure(.unreadable) }
         defer { sqlite3_close(connection) }
-        guard sqlite3_open_v2(path, &connection, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            return .failure(.unreadable)
-        }
-        sqlite3_busy_timeout(connection, 500)
         sqlite3_exec(connection, "PRAGMA query_only = ON", nil, nil, nil)
 
         // A schema that can't be read is a database that can't be read, not one without a session list.
-        guard let available = columns(of: "session_v2", in: connection) else { return .failure(.unreadable) }
+        guard let available = SQLiteReader.columns(of: "session_v2", in: connection) else {
+            return .failure(.unreadable)
+        }
         let required = ["id", "parent_id", "directory", "title", "time_created", "time_updated", "time_archived"]
         guard required.allSatisfy(available.contains) else { return .failure(.unsupported) }
         let subpath = available.contains("path") ? "path" : "NULL"
@@ -161,8 +152,8 @@ public enum OpenCodeSessionIndex {
                     directory: directory,
                     subpath: text(3),
                     forkedFrom: text(4).flatMap { $0.isEmpty ? nil : $0 },
-                    createdAt: Self.date(milliseconds: created),
-                    updatedAt: Self.date(milliseconds: updated)
+                    createdAt: Date(millisecondsSince1970: Double(created)),
+                    updatedAt: Date(millisecondsSince1970: Double(updated))
                 ))
         }
         return step == SQLITE_DONE ? .success(sessions) : .failure(.unreadable)
@@ -174,29 +165,9 @@ public enum OpenCodeSessionIndex {
         return Int64(exactly: value) ?? (value < 0 ? .min : .max)
     }
 
-    private static func date(milliseconds: Int64) -> Date {
-        Date(timeIntervalSince1970: Double(milliseconds) / 1000)
-    }
-
     /// Runs of whitespace and line breaks as single spaces; `nil` when nothing's left.
     private static func oneLine(_ text: String) -> String? {
         let words = text.split(whereSeparator: \.isWhitespace)
         return words.isEmpty ? nil : words.joined(separator: " ")
-    }
-
-    /// `nil` when the schema couldn't be read; no columns when there's no such table.
-    private static func columns(of table: String, in connection: OpaquePointer?) -> Set<String>? {
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
-        guard sqlite3_prepare_v2(connection, "PRAGMA table_info(\(table))", -1, &statement, nil) == SQLITE_OK else {
-            return nil
-        }
-        var names = Set<String>()
-        var step = sqlite3_step(statement)
-        while step == SQLITE_ROW {
-            if let name = sqlite3_column_text(statement, 1) { names.insert(String(cString: name)) }
-            step = sqlite3_step(statement)
-        }
-        return step == SQLITE_DONE ? names : nil
     }
 }

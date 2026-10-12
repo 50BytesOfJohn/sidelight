@@ -17,23 +17,6 @@ extension CodexSettings {
     }
 }
 
-extension UsageReading {
-    var title: String {
-        switch self {
-        case .remaining: "What's left"
-        case .used: "What's used"
-        }
-    }
-
-    /// After a percentage: `66% left`.
-    var suffix: String {
-        switch self {
-        case .remaining: "left"
-        case .used: "used"
-        }
-    }
-}
-
 // MARK: - Settings
 
 struct CodexSettingsEditor: View {
@@ -45,7 +28,7 @@ struct CodexSettingsEditor: View {
                 ForEach(CodexSettings.LimitReading.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
-            caption(
+            SettingsCaption(
                 settings.limitReading == .remaining
                     ? "Like Codex's /status. Meters drain as you use Codex, and their tick drains with the window's "
                         + "time: a meter that falls short of its tick runs out before the reset."
@@ -55,21 +38,14 @@ struct CodexSettingsEditor: View {
         }
         VStack(alignment: .leading, spacing: 8) {
             Toggle("Show weekly limit", isOn: $settings.showsWeeklyLimit)
-            caption("A plan with a single limit always shows it.")
+            SettingsCaption("A plan with a single limit always shows it.")
         }
         VStack(alignment: .leading, spacing: 8) {
             Toggle("Show token history", isOn: $settings.showsTokenHistory)
-            caption("Tokens per day over two weeks and in total in the regular layout, and today's in compact.")
+            SettingsCaption("Tokens per day over two weeks and in total in the regular layout, and today's in compact.")
         }
         Divider()
         CodexSourceStatus()
-    }
-
-    private func caption(_ text: String) -> some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -80,32 +56,22 @@ struct CodexSourceStatus: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             status
-            Text(
+            SettingsCaption(
                 "Reads your plan's usage through the Codex CLI (codex app-server), signed in as Codex is, with "
                     + "read-only requests. Without it, the limits come from Codex's session logs on this Mac and "
                     + "update when Codex runs."
             )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var status: some View {
         let state = codex.state
-        return TimelineView(.everyMinute) { context in
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Circle()
-                    .fill(statusColor(state, now: context.date))
-                    .frame(width: 7, height: 7)
-                Text(statusText(state, now: context.date))
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
+        return WidgetClock { now in
+            StatusRow(
+                color: statusColor(state, now: now), text: statusText(state, now: now), alignment: .firstTextBaseline
+            ) {
                 Spacer(minLength: 4)
-                Button("Refresh", systemImage: "arrow.clockwise") { codex.refreshNow() }
-                    .labelStyle(.iconOnly)
-                    .disabled(state.source == .off)
-                    .help("Ask Codex now")
+                RefreshButton(help: "Ask Codex now", isDisabled: state.source == .off) { codex.refreshNow() }
             }
         }
     }
@@ -124,7 +90,7 @@ struct CodexSourceStatus: View {
         case .chatGPT?, nil: break
         }
         if let problem = state.problem { return "codex app-server: \(problem)" }
-        let age = state.limitsCapturedAt.map { " · \(CodexFormat.age(of: $0, now: now))" } ?? ""
+        let age = state.limitsCapturedAt.map { " · \(UsageFormat.age(of: $0, now: now))" } ?? ""
         return switch state.source {
         case .off: "Starts while a widget showing Codex is visible"
         case .starting where state.rateLimits != nil: "Reconnecting to codex app-server\(age)"
@@ -143,16 +109,11 @@ struct CodexWidgetView: View {
     let settings: CodexSettings
     let layout: WidgetLayout
     @Environment(CodexService.self) private var codex
-    @Environment(\.frozenDate) private var frozenDate
 
     var body: some View {
-        if let frozenDate {
-            CodexUsageView(state: codex.state, settings: settings, layout: layout, now: frozenDate)
-        } else {
-            // Countdowns, the time tick, windows resetting and data ageing all move on with the clock.
-            TimelineView(.everyMinute) { context in
-                CodexUsageView(state: codex.state, settings: settings, layout: layout, now: context.date)
-            }
+        // Countdowns, the time tick, windows resetting and data ageing all move on with the clock.
+        WidgetClock { now in
+            CodexUsageView(state: codex.state, settings: settings, layout: layout, now: now)
         }
     }
 }
@@ -241,23 +202,10 @@ struct CodexUsageView: View {
         }
     }
 
-    @ViewBuilder
     private func messageView(_ message: Message) -> some View {
-        if layout.isGlanceable {
-            Image(systemName: message.systemImage)
-                .foregroundStyle(.secondary)
-                .help([message.title, message.detail].compactMap(\.self).joined(separator: ". "))
-                .accessibilityLabel([message.title, message.detail].compactMap(\.self).joined(separator: ". "))
-        } else {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(message.title).font(.callout)
-                if let detail = message.detail {
-                    Text(detail).font(.caption).lineLimit(4).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .foregroundStyle(.secondary)
-            .accessibilityElement(children: .combine)
-        }
+        WidgetMessage(
+            title: message.title, detail: message.detail, systemImage: message.systemImage, layout: layout,
+            trimsCompact: false, detailLineLimit: 4)
     }
 
     /// Token usage without any limits, such as when only `account/usage/read` answered.
@@ -398,23 +346,16 @@ struct CodexUsageView: View {
     private var minimal: some View {
         if let lead = CodexLimit.tightest(limits, at: now) {
             VStack(spacing: 4) {
-                TickGauge(
+                PercentGauge(
                     percent: lead.hasReset(at: now) ? 0 : lead.window.usedPercent,
+                    shown: shownPercent(lead),
+                    isReset: lead.hasReset(at: now),
                     elapsedFraction: lead.hasReset(at: now) ? nil : lead.window.elapsedFraction(at: now),
                     diameter: 40,
-                    showsRemaining: !lead.hasReset(at: now) && reading == .remaining
+                    showsRemaining: !lead.hasReset(at: now) && reading == .remaining,
+                    labelWidth: 22,
+                    labelColor: lead.isUsedUp || isBlocked ? Color.usageCritical : nil
                 )
-                .overlay {
-                    Text(lead.hasReset(at: now) ? "–" : "\(Int(shownPercent(lead).rounded()))")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .frame(maxWidth: 22)
-                        .foregroundStyle(lead.isUsedUp || isBlocked ? Color.usage(percent: 100) : .primary)
-                        .contentTransition(.numericText(value: shownPercent(lead)))
-                        .animation(Motion.gentle, value: lead.window.usedPercent)
-                }
                 .opacity(isStale ? 0.55 : 1)
                 VStack(spacing: 0) {
                     if !lead.shortTitle.isEmpty {
@@ -424,7 +365,7 @@ struct CodexUsageView: View {
                         Text(countdown)
                             .font(.system(size: 9, weight: .medium, design: .rounded))
                             .monospacedDigit()
-                            .foregroundStyle(warning(for: lead) != nil ? warningColor : .secondary)
+                            .foregroundStyle(warning(for: lead) != nil ? Color.usageWarning : .secondary)
                     }
                 }
                 .lineLimit(1)
@@ -471,7 +412,7 @@ struct CodexUsageView: View {
                     Text(countdown)
                         .font(.system(size: 10.5, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(warning(for: lead) != nil || isStale ? warningColor : .secondary)
+                        .foregroundStyle(warning(for: lead) != nil || isStale ? Color.usageWarning : .secondary)
                 }
             }
         }
@@ -483,8 +424,6 @@ struct CodexUsageView: View {
     }
 
     // MARK: Limits
-
-    private var warningColor: Color { .usage(percent: 75) }
 
     /// Codex has stopped ordinary usage, whatever the percentages say.
     private var isBlocked: Bool { state.isBlocked }
@@ -509,7 +448,7 @@ struct CodexUsageView: View {
                 Label(text, systemImage: "hourglass").labelStyle(TightLabelStyle()).lineLimit(1)
             }
         }
-        .foregroundStyle(Color.usage(percent: 100))
+        .foregroundStyle(Color.usageCritical)
         .help(reason)
     }
 
@@ -558,7 +497,7 @@ struct CodexUsageView: View {
                     Text("%").font(.system(size: size * 0.5, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
-                .foregroundStyle(limit.isUsedUp ? Color.usage(percent: 100) : .primary)
+                .foregroundStyle(limit.isUsedUp ? Color.usageCritical : .primary)
                 Text(reading.suffix).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
             }
         }
@@ -577,7 +516,7 @@ struct CodexUsageView: View {
                     .font(.system(size: size, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText(value: shownPercent(limit)))
-                    .foregroundStyle(limit.isUsedUp ? Color.usage(percent: 100) : .primary)
+                    .foregroundStyle(limit.isUsedUp ? Color.usageCritical : .primary)
                 if withSuffix {
                     Text(reading.suffix).font(.system(size: size * 0.75)).foregroundStyle(.secondary)
                 }
@@ -610,13 +549,13 @@ struct CodexUsageView: View {
     private func warningLabel(_ warning: Warning) -> some View {
         let (texts, systemImage, color): ([String], String, Color) =
             switch warning {
-            case .usedUp: (["Used up until it resets", "Used up"], "hourglass", Color.usage(percent: 100))
+            case .usedUp: (["Used up until it resets", "Used up"], "hourglass", Color.usageCritical)
             case .runsOut(let date):
                 (
                     [
-                        "At this pace, runs out \(CodexFormat.moment(date, now: now))",
-                        "Runs out \(CodexFormat.moment(date, now: now))", "Runs out early",
-                    ], "exclamationmark.triangle.fill", warningColor
+                        "At this pace, runs out \(UsageFormat.moment(date, now: now))",
+                        "Runs out \(UsageFormat.moment(date, now: now))", "Runs out early",
+                    ], "exclamationmark.triangle.fill", Color.usageWarning
                 )
             }
         return ViewThatFits(in: .horizontal) {
@@ -633,12 +572,12 @@ struct CodexUsageView: View {
     private func resetText(_ limit: CodexLimit, short: Bool) -> some View {
         if let resetsAt = limit.window.resetsAt {
             if resetsAt <= now {
-                Text(short ? "Awaiting update" : "Reset \(CodexFormat.moment(resetsAt, now: now)), awaiting update")
+                Text(short ? "Awaiting update" : "Reset \(UsageFormat.moment(resetsAt, now: now)), awaiting update")
             } else if resetsAt.timeIntervalSince(now) < 86_400 {
                 let countdown = Formatting.countdown(to: resetsAt, now: now)
                 Text(short ? "in \(countdown)" : "Resets in \(countdown)").monospacedDigit()
             } else {
-                let moment = CodexFormat.moment(resetsAt, now: now)
+                let moment = UsageFormat.moment(resetsAt, now: now)
                 Text(short ? moment : "Resets \(moment)")
             }
         }
@@ -662,7 +601,7 @@ struct CodexUsageView: View {
     /// Neutral colors, apart from the limits above: today's tokens, the lifetime total and two weeks of days.
     private var tokenHistory: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.5)
+            HairlineDivider()
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 1) {
                     if let usage = state.usage {
@@ -747,11 +686,11 @@ struct CodexUsageView: View {
 
     private var footerExtras: [String] {
         var extras: [String] = []
-        if let plan = state.plan.flatMap(CodexFormat.planTitle) { extras.append(plan) }
+        if let plan = state.plan.flatMap(UsageFormat.planTitle) { extras.append(plan) }
         if let credits = state.rateLimits?.credits, credits.hasCredits || credits.isUnlimited {
             if credits.isUnlimited {
                 extras.append("Unlimited credits")
-            } else if let balance = credits.balance.flatMap(CodexFormat.credits) {
+            } else if let balance = credits.balance.flatMap(UsageFormat.credits) {
                 extras.append("\(balance) credits")
             }
         }
@@ -766,11 +705,11 @@ struct CodexUsageView: View {
     /// `3h ago` when the numbers aren't live.
     private var staleAge: String? {
         guard !isLive, let capturedAt = state.limitsCapturedAt else { return nil }
-        return CodexFormat.age(of: capturedAt, now: now)
+        return UsageFormat.age(of: capturedAt, now: now)
     }
 
     private var freshnessStyle: AnyShapeStyle {
-        isStale ? AnyShapeStyle(warningColor) : AnyShapeStyle(.secondary)
+        isStale ? AnyShapeStyle(Color.usageWarning) : AnyShapeStyle(.secondary)
     }
 
     private var freshnessHelp: String {
@@ -792,13 +731,13 @@ struct CodexUsageView: View {
         } else {
             parts.append("\(Int(shownPercent(limit).rounded())) percent \(reading.suffix)")
             if let resetsAt = limit.window.resetsAt {
-                parts.append("resets in \(CodexFormat.spokenDuration(until: resetsAt, now: now))")
+                parts.append("resets in \(UsageFormat.spokenDuration(until: resetsAt, now: now))")
             }
         }
         var value = parts.joined(separator: ", ")
         switch warning(for: limit) {
         case .usedUp?: value += ". Used up until it resets"
-        case .runsOut(let date)?: value += ". Runs out \(CodexFormat.moment(date, now: now)) at this pace"
+        case .runsOut(let date)?: value += ". Runs out \(UsageFormat.moment(date, now: now)) at this pace"
         case nil: break
         }
         if let reason = blockedReason { value += ". \(reason)" }
@@ -821,45 +760,5 @@ struct CodexUsageView: View {
         if let reason = blockedReason { lines.insert(reason, at: 0) }
         if let age = staleAge { lines.append("As of \(age)") }
         return lines.joined(separator: "\n")
-    }
-}
-
-/// Text formats the Codex widget and its settings share.
-enum CodexFormat {
-    /// `14:20` today, `Fri 06:00` on another day.
-    static func moment(_ date: Date, now: Date) -> String {
-        Calendar.autoupdatingCurrent.isDate(date, inSameDayAs: now)
-            ? date.formatted(date: .omitted, time: .shortened)
-            : date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
-    }
-
-    /// `just now`, `3m ago`, `2h ago`.
-    static func age(of date: Date, now: Date) -> String {
-        now.timeIntervalSince(date) < 60
-            ? "just now" : "\(Formatting.countdownLeadingUnit(to: now, now: date)) ago"
-    }
-
-    /// `2 hours, 14 minutes`, for VoiceOver.
-    static func spokenDuration(until date: Date, now: Date) -> String {
-        let seconds = max(60, (date.timeIntervalSince(now) / 60).rounded() * 60)
-        return Duration.seconds(seconds).formatted(
-            .units(allowed: [.days, .hours, .minutes], width: .wide, maximumUnitCount: 2))
-    }
-
-    /// Codex's plan identifiers as people know them: `plus` → `Plus`, `prolite` → `Pro Lite`. `nil` for `unknown`.
-    static func planTitle(_ plan: String) -> String? {
-        switch plan.lowercased() {
-        case "", "unknown": nil
-        case "prolite": "Pro Lite"
-        case "promax": "Pro Max"
-        case "edu": "Edu"
-        default: plan.split(separator: "_").map(\.capitalized).joined(separator: " ")
-        }
-    }
-
-    /// A credit balance (sent as a decimal string) as a whole number: `1,250`.
-    static func credits(_ balance: String) -> String? {
-        guard let value = Double(balance), value.isFinite else { return nil }
-        return value.rounded(.down).formatted(.number.precision(.fractionLength(0)))
     }
 }

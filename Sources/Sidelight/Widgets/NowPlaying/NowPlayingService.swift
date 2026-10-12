@@ -6,7 +6,7 @@ import os
 /// What's playing system-wide, streamed from the `media-control` CLI
 /// (`brew install ungive/media-control/media-control`).
 @Observable
-final class NowPlayingService {
+final class NowPlayingService: DataService {
     static let toolName = "media-control"
 
     enum Availability: Equatable {
@@ -45,6 +45,8 @@ final class NowPlayingService {
         readingTask = Task { [weak self] in
             for await line in process.lines {
                 guard let update = await Self.decode(line) else { continue }
+                // Decoded while `stop()` ran: the update is from the process just stopped.
+                guard !Task.isCancelled else { return }
                 self?.apply(update)
             }
             self?.processDidExit(process)

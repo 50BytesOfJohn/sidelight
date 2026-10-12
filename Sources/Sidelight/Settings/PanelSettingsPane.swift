@@ -448,10 +448,3 @@ private struct PositionMiniature: View {
         .frame(width: size.width, height: size.height)
     }
 }
-
-extension View {
-    /// Secondary explanatory text under a settings section.
-    func settingsFootnote() -> some View {
-        font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-    }
-}

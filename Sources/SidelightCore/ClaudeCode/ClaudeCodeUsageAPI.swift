@@ -92,6 +92,6 @@ private struct CredentialsFile: Decodable {
         let root = try decoder.container(keyedBy: AnyCodingKey.self)
         let oauth = try root.nestedContainer(keyedBy: AnyCodingKey.self, forKey: AnyCodingKey("claudeAiOauth"))
         accessToken = oauth.lenient(String.self, "accessToken")
-        expiresAt = oauth.lenientDouble("expiresAt").map { Date(timeIntervalSince1970: $0 / 1000) }
+        expiresAt = oauth.lenientDouble("expiresAt").map(Date.init(millisecondsSince1970:))
     }
 }

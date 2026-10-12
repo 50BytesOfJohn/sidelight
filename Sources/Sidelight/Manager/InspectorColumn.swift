@@ -411,10 +411,7 @@ struct InspectorSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(.secondary)
+            SectionLabel(title)
             VStack(alignment: .leading, spacing: 8) { content }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)

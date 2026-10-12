@@ -40,10 +40,7 @@ struct CursorSettingsEditor: View {
         Divider()
         VStack(alignment: .leading, spacing: 8) {
             Toggle("Show on-demand spending", isOn: $settings.showsOnDemand)
-            Text("Pay-as-you-go usage past the included pools, as a share of your spending limit.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            SettingsCaption("Pay-as-you-go usage past the included pools, as a share of your spending limit.")
         }
     }
 }
@@ -55,19 +52,12 @@ struct CursorFetchSettings: View {
     @Binding var minutes: Int
     @Environment(CursorService.self) private var cursor
 
-    /// The offered intervals, plus one set by hand in `config.json`, so the picker always shows the real value.
-    private var minuteChoices: [Int] {
-        Set(CursorSettings.refreshMinuteChoices + [minutes]).sorted()
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Fetch usage from Cursor", isOn: $isOn)
-            Picker("Every", selection: $minutes) {
-                ForEach(minuteChoices, id: \.self) { Text("\($0) min").tag($0) }
-            }
-            .disabled(!isOn)
-            caption(
+            RefreshIntervalPicker(
+                title: "Fetch usage from Cursor", isOn: $isOn, minutes: $minutes,
+                choices: CursorSettings.refreshMinuteChoices)
+            SettingsCaption(
                 "Asks cursor.com for your plan's usage the way its Spending dashboard does, signed in as the Cursor "
                     + "app is (or the Cursor CLI, if the app isn't). The sign-in is read for each request and never "
                     + "stored or renewed. Cursor has no public usage API for individual plans, so this uses the "
@@ -76,41 +66,27 @@ struct CursorFetchSettings: View {
             if isOn {
                 status
             }
-            caption("The editor, the CLI and cloud agents share the same pools; Cursor doesn't split usage by tool.")
+            SettingsCaption(
+                "The editor, the CLI and cloud agents share the same pools; Cursor doesn't split usage by tool.")
         }
     }
 
-    private func caption(_ text: String) -> some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
     private var status: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Circle()
-                .fill(cursor.problem != nil ? Color.orange : cursor.usage != nil ? .green : .secondary)
-                .frame(width: 7, height: 7)
-            Group {
-                if let problem = cursor.problem {
-                    Text("\(problem.title). \(problem.advice)")
-                } else if let usage = cursor.usage {
-                    let signIn = cursor.signInSource == .cli ? "Cursor CLI's" : "Cursor app's"
-                    Text(
-                        "Fetched \(usage.fetchedAt, format: .relative(presentation: .named)) with the \(signIn) sign-in"
-                    )
-                } else {
-                    Text(cursor.isFetching ? "Fetching…" : "Waiting for the first fetch")
-                }
+        StatusRow(
+            color: cursor.problem != nil ? Color.orange : cursor.usage != nil ? .green : .secondary,
+            alignment: .firstTextBaseline
+        ) {
+            if let problem = cursor.problem {
+                Text("\(problem.title). \(problem.advice)")
+            } else if let usage = cursor.usage {
+                let signIn = cursor.signInSource == .cli ? "Cursor CLI's" : "Cursor app's"
+                Text("Fetched \(usage.fetchedAt, format: .relative(presentation: .named)) with the \(signIn) sign-in")
+            } else {
+                Text(cursor.isFetching ? "Fetching…" : "Waiting for the first fetch")
             }
-            .font(.callout)
-            .fixedSize(horizontal: false, vertical: true)
+        } trailing: {
             Spacer(minLength: 4)
-            Button("Refresh", systemImage: "arrow.clockwise") { cursor.refreshNow() }
-                .labelStyle(.iconOnly)
-                .disabled(cursor.isFetching)
-                .help("Fetch now")
+            RefreshButton(help: "Fetch now", isDisabled: cursor.isFetching) { cursor.refreshNow() }
         }
     }
 }
@@ -130,16 +106,16 @@ struct CursorWidgetView: View {
             setup
         } else if let usage = cursor.usage {
             // Countdowns, the time tick, staleness and the cycle rolling over all move on with the clock.
-            TimelineView(.everyMinute) { context in
-                let current = usage.current(at: context.date)
+            WidgetClock { now in
+                let current = usage.current(at: now)
                 if current.pools.isEmpty {
-                    unlimited(current, now: context.date)
+                    unlimited(current, now: now)
                 } else {
                     switch layout {
-                    case .regular: regular(current, now: context.date)
-                    case .compact: compact(current, now: context.date)
-                    case .minimal: minimal(current, now: context.date)
-                    case .bar: bar(current, now: context.date)
+                    case .regular: regular(current, now: now)
+                    case .compact: compact(current, now: now)
+                    case .minimal: minimal(current, now: now)
+                    case .bar: bar(current, now: now)
                     }
                 }
             }
@@ -160,21 +136,10 @@ struct CursorWidgetView: View {
         )
     }
 
-    @ViewBuilder
     private func message(_ title: String, detail: String? = nil, systemImage: String) -> some View {
-        if layout.isGlanceable {
-            Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
-                .help([title, detail].compactMap(\.self).joined(separator: ". "))
-        } else {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.callout)
-                if let detail {
-                    Text(detail).font(.caption).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .foregroundStyle(.secondary)
-        }
+        WidgetMessage(
+            title: title, detail: detail, systemImage: systemImage, layout: layout, trimsCompact: false,
+            detailLineLimit: nil)
     }
 
     @ViewBuilder
@@ -207,10 +172,10 @@ struct CursorWidgetView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(pool.kind.title).font(.system(size: 11.5, weight: .medium))
                         Spacer(minLength: 0)
-                        percentText(pool.window.usedPercent, size: 20)
+                        PercentText(percent: pool.window.usedPercent, size: 20)
                     }
                     meter(pool.window, now: now, height: 6)
-                    if isRunningOut(pool.window, now: now) {
+                    if pool.window.pace(at: now).isRunningOut {
                         forecast(pool.window, now: now).font(.system(size: 10.5)).lineLimit(1)
                     }
                 }
@@ -230,11 +195,11 @@ struct CursorWidgetView: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text(pool.kind.title).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
                         Spacer(minLength: 4)
-                        percentText(pool.window.usedPercent, size: 13)
+                        PercentText(percent: pool.window.usedPercent, size: 13)
                     }
                     meter(pool.window, now: now, height: 5)
                     // Only a pool in trouble speaks up here.
-                    if isRunningOut(pool.window, now: now) {
+                    if pool.window.pace(at: now).isRunningOut {
                         forecast(pool.window, now: now).font(.system(size: 9.5)).lineLimit(1)
                     }
                 }
@@ -243,7 +208,7 @@ struct CursorWidgetView: View {
             if settings.showsOnDemand, let percent = usage.onDemand?.usedPercent, usage.onDemand?.isEnabled == true {
                 Text("On-demand \(Int(percent.rounded()))% of limit")
                     .font(.system(size: 9.5))
-                    .foregroundStyle(percent >= Color.usageWarningThreshold ? warningColor : .secondary)
+                    .foregroundStyle(percent >= Color.usageWarningThreshold ? Color.usageWarning : .secondary)
                     .lineLimit(1)
             }
             HStack(spacing: 4) {
@@ -251,7 +216,7 @@ struct CursorWidgetView: View {
                 if cursor.isStale(at: now) {
                     Spacer(minLength: 4)
                     Image(systemName: "clock.badge.exclamationmark")
-                        .foregroundStyle(warningColor)
+                        .foregroundStyle(Color.usageWarning)
                         .help(staleHelp(usage, now: now))
                 }
             }
@@ -267,17 +232,7 @@ struct CursorWidgetView: View {
     private func minimal(_ usage: CursorUsage, now: Date) -> some View {
         if let lead = usage.tightestPool {
             VStack(spacing: 4) {
-                TickGauge(percent: lead.window.usedPercent, elapsedFraction: lead.window.elapsedFraction(at: now))
-                    .overlay {
-                        Text("\(Int(lead.window.usedPercent.rounded()))")
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .frame(maxWidth: 24)
-                            .contentTransition(.numericText(value: lead.window.usedPercent))
-                            .animation(Motion.gentle, value: lead.window.usedPercent)
-                    }
+                PercentGauge(percent: lead.window.usedPercent, elapsedFraction: lead.window.elapsedFraction(at: now))
                     .opacity(cursor.isStale(at: now) ? 0.55 : 1)
                 Text(lead.kind.shortTitle)
                     .font(.system(size: 8.5, weight: .semibold))
@@ -285,7 +240,7 @@ struct CursorWidgetView: View {
                 Text(shortReset(lead.window, now: now))
                     .font(.system(size: 9, weight: .medium, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(isRunningOut(lead.window, now: now) ? warningColor : .secondary)
+                    .foregroundStyle(lead.window.pace(at: now).isRunningOut ? Color.usageWarning : .secondary)
                 ForEach(usage.pools.filter { $0.kind != lead.kind }) { other in
                     SegmentedMeter(percent: other.window.usedPercent, segments: 4, height: 3, spacing: 1.5)
                         .frame(width: 36)
@@ -303,13 +258,13 @@ struct CursorWidgetView: View {
                     percent: lead.window.usedPercent, elapsedFraction: lead.window.elapsedFraction(at: now),
                     diameter: 22, ticks: 24, innerFraction: 0.5)
                 VStack(alignment: .leading, spacing: 0) {
-                    percentText(lead.window.usedPercent, size: 13)
+                    PercentText(percent: lead.window.usedPercent, size: 13)
                     Text(lead.kind.shortTitle).font(.system(size: 8, weight: .semibold)).foregroundStyle(.secondary)
                 }
                 .help(help(for: lead))
                 ForEach(usage.pools.filter { $0.kind != lead.kind }) { other in
                     VStack(spacing: 3) {
-                        percentText(other.window.usedPercent, size: 10.5).foregroundStyle(.secondary)
+                        PercentText(percent: other.window.usedPercent, size: 10.5).foregroundStyle(.secondary)
                         SegmentedMeter(percent: other.window.usedPercent, segments: 4, height: 2.5, spacing: 1)
                     }
                     .frame(width: 30)
@@ -318,15 +273,13 @@ struct CursorWidgetView: View {
                 Text(shortReset(lead.window, now: now))
                     .font(.system(size: 10.5, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(cursor.isStale(at: now) ? warningColor : .secondary)
+                    .foregroundStyle(cursor.isStale(at: now) ? Color.usageWarning : .secondary)
                     .help(cursor.isStale(at: now) ? staleHelp(usage, now: now) : "Until the billing cycle resets")
             }
         }
     }
 
     // MARK: Parts
-
-    private var warningColor: Color { .usage(percent: 75) }
 
     /// One segment per week of the billing cycle.
     private func meter(_ window: RateLimitWindow, now: Date, height: CGFloat) -> some View {
@@ -340,22 +293,18 @@ struct CursorWidgetView: View {
         )
     }
 
-    private func isRunningOut(_ window: RateLimitWindow, now: Date) -> Bool {
-        switch window.pace(at: now) {
-        case .runsOut, .reached: true
-        case .lasts, .unknown: false
-        }
-    }
-
     @ViewBuilder
     private func forecast(_ window: RateLimitWindow, now: Date) -> some View {
         switch window.pace(at: now) {
         case .unknown, .lasts:
             EmptyView()
         case .runsOut(let date):
-            Label("At this pace, runs out \(day(date, now: now))", systemImage: "exclamationmark.triangle.fill")
-                .labelStyle(TightLabelStyle())
-                .foregroundStyle(warningColor)
+            Label(
+                "At this pace, runs out \(UsageFormat.day(date, now: now))",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .labelStyle(TightLabelStyle())
+            .foregroundStyle(Color.usageWarning)
         case .reached:
             Label(
                 settings.showsOnDemand && cursor.usage?.onDemand?.isEnabled == true
@@ -363,7 +312,7 @@ struct CursorWidgetView: View {
                 systemImage: "hourglass"
             )
             .labelStyle(TightLabelStyle())
-            .foregroundStyle(Color.usage(percent: 100))
+            .foregroundStyle(Color.usageCritical)
         }
     }
 
@@ -395,10 +344,10 @@ struct CursorWidgetView: View {
             if isStale {
                 Image(systemName: "clock.badge.exclamationmark")
             }
-            Text("cursor.com · \(age(of: usage, now: now))")
+            Text("cursor.com · \(UsageFormat.age(of: usage.fetchedAt, now: now))")
         }
         .font(.system(size: 8.5, weight: .medium, design: .monospaced))
-        .foregroundStyle(isStale ? AnyShapeStyle(warningColor) : AnyShapeStyle(.tertiary))
+        .foregroundStyle(isStale ? AnyShapeStyle(Color.usageWarning) : AnyShapeStyle(.tertiary))
         .help(isStale ? staleHelp(usage, now: now) : sourceHelp)
     }
 
@@ -408,14 +357,9 @@ struct CursorWidgetView: View {
     }
 
     private func staleHelp(_ usage: CursorUsage, now: Date) -> String {
-        let fetched = "Last fetched \(age(of: usage, now: now))"
+        let fetched = "Last fetched \(UsageFormat.age(of: usage.fetchedAt, now: now))"
         guard let problem = cursor.problem else { return fetched }
         return "\(fetched). \(problem.title). \(problem.advice)"
-    }
-
-    private func age(of usage: CursorUsage, now: Date) -> String {
-        now.timeIntervalSince(usage.fetchedAt) < 60
-            ? "just now" : "\(Formatting.countdownLeadingUnit(to: now, now: usage.fetchedAt)) ago"
     }
 
     private func help(for pool: CursorUsagePool) -> String {
@@ -427,7 +371,7 @@ struct CursorWidgetView: View {
         if usage.cycleHasEnded(at: now) { return "New billing cycle" }
         guard let end = usage.billingCycle?.end else { return "Monthly" }
         let countdown = "Resets in \(Formatting.countdownLeadingUnit(to: end, now: now))"
-        return withDate ? "\(countdown) · \(day(end, now: now))" : countdown
+        return withDate ? "\(countdown) · \(UsageFormat.day(end, now: now))" : countdown
     }
 
     /// `18d`, or `new` once the cycle has rolled over.
@@ -436,31 +380,10 @@ struct CursorWidgetView: View {
         return Formatting.countdownLeadingUnit(to: resetsAt, now: now)
     }
 
-    /// `14:20` today, `Oct 28` on another day.
-    private func day(_ date: Date, now: Date) -> String {
-        Calendar.autoupdatingCurrent.isDate(date, inSameDayAs: now)
-            ? date.formatted(date: .omitted, time: .shortened)
-            : date.formatted(.dateTime.month(.abbreviated).day())
-    }
-
-    private func percentText(_ percent: Double, size: CGFloat) -> some View {
-        Text("\(Int(percent.rounded()))%")
-            .font(.system(size: size, weight: .semibold, design: .rounded))
-            .monospacedDigit()
-            .contentTransition(.numericText(value: percent))
-            .animation(Motion.gentle, value: percent)
-    }
-
     @ViewBuilder
     private func planBadge(_ usage: CursorUsage) -> some View {
         if let plan = usage.planName {
-            Text(plan.uppercased())
-                .font(.system(size: 9, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(Color.cursor)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(Color.cursor.opacity(0.16)))
+            PlanBadge(name: plan, tint: .cursor)
                 .help(usage.limitType == "team" ? "Usage from your team plan" : "Your Cursor plan")
         }
     }

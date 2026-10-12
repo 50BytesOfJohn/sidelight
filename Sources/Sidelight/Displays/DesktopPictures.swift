@@ -13,7 +13,7 @@ final class DesktopPictures {
 
     @ObservationIgnored private var observers: [any NSObjectProtocol] = []
     @ObservationIgnored private var storeWatcher: FileWatcher?
-    @ObservationIgnored private var pendingRefresh: Task<Void, Never>?
+    @ObservationIgnored private let pendingRefresh = DelayedTask()
 
     /// Long enough for the store to be fully written and the new picture applied.
     static let refreshDelay: Duration = .milliseconds(500)
@@ -49,11 +49,7 @@ final class DesktopPictures {
     }
 
     private func scheduleRefresh() {
-        pendingRefresh?.cancel()
-        pendingRefresh = Task { [weak self] in
-            do { try await Task.sleep(for: Self.refreshDelay) } catch { return }
-            self?.refresh()
-        }
+        pendingRefresh.schedule(after: Self.refreshDelay) { [weak self] in self?.refresh() }
     }
 
     private func refresh() {

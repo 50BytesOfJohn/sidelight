@@ -66,4 +66,8 @@ extension EnvironmentValues {
     /// When set, widgets that show the time draw this instant instead of the live time, and stop redrawing.
     /// Catalogs of many previews set it so they cost nothing while open.
     @Entry var frozenDate: Date?
+
+    /// Whether the panel drawing this can be seen: not hidden with the shortcut, and not on a sleeping or locked
+    /// screen. Previews and settings are always shown.
+    @Entry var isPanelShown = true
 }

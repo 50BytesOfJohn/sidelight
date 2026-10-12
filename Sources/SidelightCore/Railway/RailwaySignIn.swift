@@ -107,7 +107,7 @@ public enum RailwayStatusPage {
         func incident(isMaintenance: Bool) -> Railway.Incident {
             Railway.Incident(
                 id: id, title: title ?? name ?? "Railway incident", status: status, isMaintenance: isMaintenance,
-                startedAt: (startsAt ?? createdAt).flatMap(RailwayDate.parse),
+                startedAt: (startsAt ?? createdAt).flatMap(Date.init(iso8601:)),
                 components: (components ?? []).compactMap(\.name))
         }
     }

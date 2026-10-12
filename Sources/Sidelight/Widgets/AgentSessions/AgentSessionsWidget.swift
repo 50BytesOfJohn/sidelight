@@ -43,7 +43,7 @@ extension AgentProvider {
     }
 }
 
-extension AgentSession.Status {
+extension AgentSession.Status: SessionStatusDisplay {
     var title: String {
         switch self {
         case .needsApproval: "Needs approval"
@@ -91,7 +91,6 @@ extension AgentSession.Status {
         }
     }
 
-    /// Nothing to act on or watch: drawn quietly.
     var isQuiet: Bool {
         switch self {
         case .needsApproval, .needsInput, .working, .finished: false
@@ -166,37 +165,33 @@ struct AgentSessionsSettingsEditor: View {
             }
         }
         VStack(alignment: .leading, spacing: 8) {
-            Stepper(
-                "Sessions listed: \(settings.sessionCount)", value: $settings.sessionCount,
-                in: AgentSessionsSettings.sessionCountRange)
-            Picker("Keep finished for", selection: $settings.recentHours) {
-                ForEach(AgentSessionsSettings.recentHourChoices, id: \.self) { Text("\($0) h").tag($0) }
-            }
-            .pickerStyle(.segmented)
-            caption(
+            SessionsListedStepper(count: $settings.sessionCount, range: AgentSessionsSettings.sessionCountRange)
+            KeepFinishedPicker(hours: $settings.recentHours, choices: AgentSessionsSettings.recentHourChoices)
+            SettingsCaption(
                 "Sessions that are working or need you always show. Finished, idle and closed ones stay this long, "
                     + "and so do chats and sessions shown only by when they last changed.")
             if settings.includes(.codex) {
                 Toggle("Include codex exec runs", isOn: $settings.includesCodexExec)
-                caption("Codex sessions started by scripts and CI. Codex's own session list leaves them out too.")
+                SettingsCaption(
+                    "Codex sessions started by scripts and CI. Codex's own session list leaves them out too.")
             }
         }
         Divider()
         VStack(alignment: .leading, spacing: 8) {
-            caption(
+            SettingsCaption(
                 "Reads what each agent keeps on this Mac, with nothing to set up and nothing sent anywhere: Claude "
                     + "Code's session list in ~/.claude, Codex's in ~/.codex, Cursor's chat list, and OpenCode 2's "
                     + "session list in ~/.local/share/opencode. The same reading serves the Claude Code and Codex "
                     + "sessions widgets.")
             if settings.includes(.cursor) {
-                caption(
+                SettingsCaption(
                     "Cursor doesn't record whether a chat is working or waiting, so its chats show when they last "
                         + "changed. Cursor can't be asked to open one particular chat either: clicking one asks Cursor "
                         + "to open the chat's project folder, or opens Cursor when the folder is gone. Cursor decides "
                         + "which window it shows.")
             }
             if settings.includes(.openCode) {
-                caption(
+                SettingsCaption(
                     "OpenCode doesn't record whether a session is working or waiting where other apps can read it, "
                         + "so its sessions show when they last changed. Subagent and archived sessions are left out. "
                         + "Sessions aren't opened from here: no way to open one particular session in OpenCode's app "
@@ -217,8 +212,7 @@ struct AgentSessionsSettingsEditor: View {
     @ViewBuilder
     private func sourceStatus(of provider: AgentProvider) -> some View {
         let (color, text) = describe(sources.state(of: provider), of: provider)
-        HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 6, height: 6)
+        StatusRow(color: color, dotSize: 6) {
             Text(text).font(.caption).foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
@@ -250,34 +244,18 @@ extension AgentSessionSources.State {
     }
 }
 
-private func caption(_ text: String) -> some View {
-    Text(text)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: false, vertical: true)
-}
-
 // MARK: - Widget
 
 struct AgentSessionsWidgetView: View {
     let settings: AgentSessionsSettings
     let layout: WidgetLayout
     @Environment(AgentSessionSources.self) private var sources
-    @Environment(\.frozenDate) private var frozenDate
 
     var body: some View {
         let sessions = sources.sessions(for: settings)
-        Group {
-            if let frozenDate {
-                AgentSessionsContent(
-                    sources: sources, settings: settings, sessions: sessions, layout: layout, now: frozenDate)
-            } else {
-                // Ages and the recent window move on with the clock; status changes redraw on their own.
-                TimelineView(.everyMinute) { context in
-                    AgentSessionsContent(
-                        sources: sources, settings: settings, sessions: sessions, layout: layout, now: context.date)
-                }
-            }
+        // Ages and the recent window move on with the clock; status changes redraw on their own.
+        WidgetClock { now in
+            AgentSessionsContent(sources: sources, settings: settings, sessions: sessions, layout: layout, now: now)
         }
         .shimmer(on: latestAlert(in: sessions), cornerRadius: 12)
     }
@@ -317,20 +295,20 @@ private struct AgentSessionsContent: View {
         let recent = recent
         let problems = problems
         if settings.providers.isEmpty {
-            AgentSessionsMessage(
+            WidgetMessage(
                 title: "No agents chosen", detail: "Choose the agents to list in this widget's settings.",
                 systemImage: "sparkles.rectangle.stack", layout: layout)
         } else if states.allSatisfy({ $0 == .notFound }) {
-            AgentSessionsMessage(
+            WidgetMessage(
                 title: "No agents found",
                 detail: "Sessions show here once \(Self.names(settings.providers)) runs on this Mac.",
                 systemImage: "terminal", layout: layout)
         } else if recent.isEmpty, states.contains(.reading) {
             // Another agent's empty list isn't the answer while one is still being read.
-            AgentSessionsMessage(title: "Reading sessions…", detail: nil, systemImage: "hourglass", layout: layout)
+            WidgetMessage(title: "Reading sessions…", detail: nil, systemImage: "hourglass", layout: layout)
         } else if recent.isEmpty, !problems.isEmpty, !states.contains(where: \.isReadable) {
             // Nothing could be read: an empty list would pass for no sessions.
-            AgentSessionsMessage(
+            WidgetMessage(
                 title: "Can't read sessions", detail: problems.joined(separator: "\n"),
                 systemImage: "exclamationmark.triangle", layout: layout)
         } else {
@@ -390,26 +368,12 @@ private struct AgentSessionList: View {
         }
     }
 
-    @ViewBuilder
     private var rows: some View {
-        if sessions.isEmpty {
-            Text(isCompact ? "No sessions" : "No sessions in the last \(settings.recentHours)h")
-                .font(.system(size: isCompact ? 10.5 : 11))
-                .foregroundStyle(.secondary)
-        } else {
-            VStack(alignment: .leading, spacing: isCompact ? 5 : 8) {
-                ForEach(sessions.prefix(limit)) { session in
-                    AgentSessionRow(session: session, isCompact: isCompact, now: now)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-                if sessions.count > limit {
-                    Text("\(sessions.count - limit) more")
-                        .font(.system(size: isCompact ? 9.5 : 10.5))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .animation(Motion.gentle, value: sessions.prefix(limit).map(\.id))
-            .animation(Motion.snappy, value: sessions.prefix(limit).map(\.status))
+        SessionList(
+            sessions: sessions, limit: limit, isCompact: isCompact,
+            emptyText: "No sessions in the last \(settings.recentHours)h", status: \.status
+        ) { session in
+            AgentSessionRow(session: session, isCompact: isCompact, now: now)
         }
     }
 }
@@ -419,31 +383,27 @@ private struct AgentSessionRow: View {
     let isCompact: Bool
     let now: Date
 
-    @State private var isHovered = false
-
     var body: some View {
         let route = AgentSessionOpener.route(for: session)
-        Button {
-            if route != nil { AgentSessionOpener.open(session) }
-        } label: {
-            content.contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .background {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(.primary.opacity(isHovered && route != nil ? 0.08 : 0))
-                .padding(.horizontal, -5)
-                .padding(.vertical, isCompact ? -2 : -4)
-        }
-        .onHover { isHovered = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
-        .contextMenu { AgentSessionMenu(session: session, route: route) }
-        .help(help(route))
-        // Sessions that can only be copied from say so, as their tooltip does.
-        .accessibilityHint(
-            route?.help
+        let place = [session.project, session.branch].compactMap(\.self)
+        SessionRow(
+            title: session.title, status: session.status,
+            place: place.isEmpty ? nil : place.joined(separator: " · "),
+            surfaceTitle: session.surfaceTitle, surfaceSystemImage: session.surfaceSystemImage,
+            since: session.since, isCompact: isCompact, now: now,
+            open: route.map { _ in { AgentSessionOpener.open(session) } },
+            help: help(route),
+            accessibilityLabel: session.spokenDescription(now: now),
+            // Sessions that can only be copied from say so, as their tooltip does.
+            accessibilityHint: route?.help
                 ?? (AgentSessionOpener.contextCopies(of: session).isEmpty
-                    ? "" : AgentSessionOpener.unavailableHelp(for: session)))
+                    ? "" : AgentSessionOpener.unavailableHelp(for: session))
+        ) {
+            AgentMark(provider: session.provider, status: session.status, size: isCompact ? 13 : 16)
+                .padding(.top, isCompact ? 0 : 1)
+        } menu: {
+            AgentSessionMenu(session: session, route: route)
+        }
     }
 
     private func help(_ route: AgentSessionOpener.Route?) -> String {
@@ -452,45 +412,6 @@ private struct AgentSessionRow: View {
         if session.status == .untracked, let reason = session.provider.untrackedReason { lines = [reason] }
         lines.append(route?.help ?? AgentSessionOpener.unavailableHelp(for: session))
         return lines.joined(separator: "\n")
-    }
-
-    private var content: some View {
-        HStack(alignment: isCompact ? .center : .top, spacing: isCompact ? 6 : 8) {
-            AgentMark(provider: session.provider, status: session.status, size: isCompact ? 13 : 16)
-                .padding(.top, isCompact ? 0 : 1)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(session.title)
-                    .font(.system(size: isCompact ? 11 : 12.5, weight: .medium))
-                    .foregroundStyle(session.status.isQuiet ? .secondary : .primary)
-                    .lineLimit(1)
-                if !isCompact {
-                    detail
-                }
-            }
-            Spacer(minLength: 2)
-            HStack(spacing: 4) {
-                if !isCompact {
-                    Image(systemName: session.surfaceSystemImage)
-                        .help(session.surfaceTitle)
-                }
-                Text(Formatting.shortAge(since: session.since, now: now))
-                    .monospacedDigit()
-            }
-            .font(.system(size: isCompact ? 9.5 : 10))
-            .foregroundStyle(.tertiary)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(session.spokenDescription(now: now))
-    }
-
-    private var detail: some View {
-        let status = Text(session.status.detail)
-            .foregroundStyle(session.status.isQuiet ? Color.secondary : session.status.color)
-        let place = Text([session.project, session.branch].compactMap(\.self).map { " · \($0)" }.joined())
-            .foregroundStyle(.secondary)
-        return Text("\(status)\(place)")
-            .font(.system(size: 11))
-            .lineLimit(1)
     }
 }
 
@@ -579,17 +500,11 @@ private struct AgentSessionsGlance: View {
     let isBar: Bool
     let now: Date
 
-    private struct Tally: Identifiable {
-        let status: AgentSession.Status
-        let count: Int
-        var id: String { status.title }
-    }
-
-    private var tallies: [Tally] {
+    private var tallies: [SessionTally] {
         [
-            Tally(status: .needsInput(nil), count: sessions.count { $0.status.needsUser }),
-            Tally(status: .working(nil), count: sessions.count { $0.status.isWorking }),
-            Tally(status: .finished, count: sessions.count { $0.status == .finished }),
+            SessionTally(AgentSession.Status.needsInput(nil), count: sessions.count { $0.status.needsUser }),
+            SessionTally(AgentSession.Status.working(nil), count: sessions.count { $0.status.isWorking }),
+            SessionTally(AgentSession.Status.finished, count: sessions.count { $0.status == .finished }),
         ]
         .filter { $0.count > 0 }
     }
@@ -629,32 +544,13 @@ private struct AgentSessionsGlance: View {
     }
 
     private var minimal: some View {
-        let top = tallies.first
-        return Image(systemName: top?.status.systemImage ?? "sparkles.rectangle.stack")
-            .font(.system(size: 18, weight: .medium))
-            .foregroundStyle(top?.status.color ?? .secondary)
-            .frame(width: 28, height: 26)
-            .overlay(alignment: .topTrailing) {
-                if let top {
-                    CountBadge(count: top.count, color: top.status.color)
-                        .offset(x: 6, y: -5)
-                        .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .animation(Motion.snappy, value: top?.count)
+        SessionTallyBadge(top: tallies.first, emptySystemImage: "sparkles.rectangle.stack")
     }
 
     private var bar: some View {
-        HStack(spacing: 8) {
-            if tallies.isEmpty {
-                Image(systemName: "sparkles.rectangle.stack").foregroundStyle(.secondary)
-            }
-            ForEach(tallies) { tally in
-                HStack(spacing: 3) {
-                    Image(systemName: tally.status.systemImage).foregroundStyle(tally.status.color)
-                    Text("\(tally.count)").monospacedDigit().contentTransition(.numericText(value: Double(tally.count)))
-                }
-            }
+        let tallies = tallies
+        return HStack(spacing: 8) {
+            SessionTallyCounts(tallies: tallies, emptySystemImage: "sparkles.rectangle.stack")
             if !problems.isEmpty {
                 Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary)
             }
@@ -670,30 +566,5 @@ private struct AgentSessionsGlance: View {
         }
         .font(.system(size: 11, weight: .medium))
         .animation(Motion.snappy, value: tallies.map(\.count))
-    }
-}
-
-private struct AgentSessionsMessage: View {
-    let title: String
-    let detail: String?
-    let systemImage: String
-    let layout: WidgetLayout
-
-    var body: some View {
-        if layout.isGlanceable {
-            Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
-                .help([title, detail].compactMap(\.self).joined(separator: ". "))
-                .accessibilityLabel([title, detail].compactMap(\.self).joined(separator: ". "))
-        } else {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(layout == .compact ? .system(size: 11) : .callout)
-                if let detail, layout == .regular {
-                    Text(detail).font(.caption).lineLimit(3).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .foregroundStyle(.secondary)
-            .accessibilityElement(children: .combine)
-        }
     }
 }

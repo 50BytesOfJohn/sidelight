@@ -4,6 +4,11 @@ extension Color {
     /// Usage above this percentage is highlighted as "hot".
     static let usageWarningThreshold = 80.0
 
+    /// The amber of a limit that will run out before it resets.
+    static let usageWarning = Color.usage(percent: 75)
+    /// The red of a limit that is used up.
+    static let usageCritical = Color.usage(percent: 100)
+
     /// Green → amber → red as usage (0–100 %) grows.
     static func usage(percent: Double) -> Color {
         let fraction = min(max(percent / 100, 0), 1)

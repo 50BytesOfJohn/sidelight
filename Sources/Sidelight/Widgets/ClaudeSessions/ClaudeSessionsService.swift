@@ -11,7 +11,7 @@ import os
 /// second, and nothing runs while sessions sit still. The registry is undocumented; if a Claude Code update moves it,
 /// the widget says it can't find it rather than showing anything wrong.
 @Observable
-final class ClaudeSessionsService {
+final class ClaudeSessionsService: DataService {
     nonisolated static let registryDirectory = URL.homeDirectory.appending(
         path: ".claude/sessions", directoryHint: .isDirectory)
     /// FSEvents gathers a burst of writes for this long before telling us.
@@ -33,11 +33,8 @@ final class ClaudeSessionsService {
     @ObservationIgnored private var titles: [String: TranscriptTitle] = [:]
     @ObservationIgnored private var isEnabled = false
     @ObservationIgnored private var watcher: FileEventStream?
-    @ObservationIgnored private var reloadTask: Task<Void, Never>?
-    /// Tells a reload task that a `stop()` or a newer task replaced it.
-    @ObservationIgnored private var reloadGeneration = 0
-    @ObservationIgnored private var needsReload = false
-    @ObservationIgnored private var sweepTask: Task<Void, Never>?
+    @ObservationIgnored private let reload = CoalescedReload()
+    @ObservationIgnored private let sweep = RepeatingTask()
 
     /// A session's title from its transcript, and the status change it was read after.
     private struct TranscriptTitle {
@@ -55,40 +52,25 @@ final class ClaudeSessionsService {
     func stop() {
         isEnabled = false
         watcher = nil
-        reloadGeneration += 1
-        reloadTask?.cancel()
-        reloadTask = nil
-        sweepTask?.cancel()
-        sweepTask = nil
+        reload.cancel()
+        sweep.stop()
     }
 
     private func watchRegistry() {
         guard watcher == nil else { return }
-        watcher = FileEventStream(directory: Self.registryDirectory, latency: Self.eventLatency, queue: .main) {
-            [weak self] in
-            MainActor.assumeIsolated { self?.scheduleReload() }
+        watcher = FileEventStream(directory: Self.registryDirectory, latency: Self.eventLatency) { [weak self] in
+            self?.scheduleReload()
         }
     }
 
-    /// Coalesces events that arrive during a read into one more read.
     private func scheduleReload() {
-        needsReload = true
-        guard reloadTask == nil else { return }
-        reloadGeneration += 1
-        let generation = reloadGeneration
-        reloadTask = Task { [weak self] in
-            while let self, needsReload, !Task.isCancelled, generation == reloadGeneration {
-                needsReload = false
-                await reload(generation: generation)
-            }
-            // A task replaced while it read mustn't drop its replacement's handle.
-            if let self, generation == reloadGeneration { reloadTask = nil }
-        }
+        guard isEnabled else { return }
+        reload.request { [weak self] in await self?.reloadNow() }
     }
 
-    private func reload(generation: Int) async {
+    private func reloadNow() async {
         let read = await Self.readRegistry(Self.registryDirectory, previous: records)
-        guard isEnabled, !Task.isCancelled, generation == reloadGeneration else { return }
+        guard !Task.isCancelled else { return }
         if read == nil, registryExists {
             Log.claudeSessions.notice("No Claude Code session registry at \(Self.registryPath, privacy: .public)")
         }
@@ -100,7 +82,7 @@ final class ClaudeSessionsService {
         let stale = live.filter { !$0.isNamed && titles[$0.sessionID]?.readAfter != $0.lastChange }
         if !stale.isEmpty {
             let fresh = await Self.readTitles(of: stale.map { ($0.sessionID, $0.cwd) })
-            guard isEnabled, !Task.isCancelled, generation == reloadGeneration else { return }
+            guard !Task.isCancelled else { return }
             for record in stale {
                 let title = fresh[record.sessionID] ?? titles[record.sessionID]?.title
                 titles[record.sessionID] = TranscriptTitle(title: title, readAfter: record.lastChange)
@@ -112,28 +94,20 @@ final class ClaudeSessionsService {
         titles = titles.filter { known.contains($0.key) }
         if tracker.sessions != sessions { sessions = tracker.sessions }
         hasLoaded = true
-        updateSweep(needed: read == nil || live.contains { $0.status == .busy || $0.status == .waiting })
+        // The sweep also stands in for a stream that couldn't be started, trying it again each time.
+        let needsSweep = read == nil || watcher == nil || live.contains { $0.status == .busy || $0.status == .waiting }
+        sweep.schedule(every: needsSweep ? Self.sweepInterval : nil, tolerance: .seconds(10)) { [weak self] in
+            self?.sweepNow()
+        }
     }
 
-    private func updateSweep(needed: Bool) {
-        guard needed else {
-            sweepTask?.cancel()
-            sweepTask = nil
-            return
+    private func sweepNow() {
+        if !registryExists || watcher == nil, FileManager.default.fileExists(atPath: Self.registryPath) {
+            // FSEvents may not report into a folder created after the stream started.
+            watcher = nil
+            watchRegistry()
         }
-        guard sweepTask == nil else { return }
-        sweepTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: Self.sweepInterval, tolerance: .seconds(10)) } catch { return }
-                guard let self, isEnabled else { return }
-                if !registryExists, FileManager.default.fileExists(atPath: Self.registryPath) {
-                    // FSEvents may not report into a folder created after the stream started.
-                    watcher = nil
-                    watchRegistry()
-                }
-                scheduleReload()
-            }
-        }
+        scheduleReload()
     }
 
     private nonisolated static var registryPath: String { registryDirectory.path(percentEncoded: false) }

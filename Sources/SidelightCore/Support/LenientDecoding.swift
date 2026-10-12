@@ -38,3 +38,25 @@ extension KeyedDecodingContainer where Key == AnyCodingKey {
         return nil
     }
 }
+
+/// Settings that older versions saved without some options: a missing option takes its default instead of making
+/// the whole configuration unreadable.
+extension KeyedDecodingContainer {
+    /// The value under `key`, or `fallback` when there's none.
+    public func decode<Value: Decodable>(_ key: Key, or fallback: @autoclosure () -> Value) throws -> Value {
+        try decodeIfPresent(Value.self, forKey: key) ?? fallback()
+    }
+
+    /// The value under `key`, or `fallback` when there's none or it can't be read, such as an option only a newer
+    /// version offers.
+    public func decodeLeniently<Value: Decodable>(_ key: Key, or fallback: @autoclosure () -> Value) -> Value {
+        (try? decodeIfPresent(Value.self, forKey: key)) ?? fallback()
+    }
+}
+
+extension Comparable {
+    /// This value, moved into `range` if it's outside it.
+    public func clamped(to range: ClosedRange<Self>) -> Self {
+        min(max(self, range.lowerBound), range.upperBound)
+    }
+}

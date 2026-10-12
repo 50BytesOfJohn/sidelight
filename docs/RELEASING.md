@@ -21,7 +21,16 @@ Installed copies update themselves with [Sparkle](https://sparkle-project.org).
 
 ## Cutting a release
 
-1. Start from up-to-date `main`, pick the next version, then tag and push:
+1. If this release changes what `config.json` can hold, record a configuration it saves, so later versions are
+   tested to keep loading it (see `Tests/SidelightCoreTests/ReleasedConfigurationFixture.swift`):
+
+   ```sh
+   SIDELIGHT_RELEASE_FIXTURE=v0.5.0 make test
+   ```
+
+   Add the version to `ReleasedConfigurationTests.releases`, and merge both before tagging.
+
+2. Start from up-to-date `main`, pick the next version, then tag and push:
 
    ```sh
    git switch main
@@ -30,7 +39,7 @@ Installed copies update themselves with [Sparkle](https://sparkle-project.org).
    git push origin v0.2.0
    ```
 
-2. The [Release workflow](../.github/workflows/release.yml) does the rest automatically:
+3. The [Release workflow](../.github/workflows/release.yml) does the rest automatically:
 
    - Validates the tag and runs `make check` before the signing job can access the `release` environment.
    - Generates a changelog from merged pull requests since the previous published release, using the categories in

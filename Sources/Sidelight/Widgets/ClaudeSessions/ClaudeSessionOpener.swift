@@ -21,9 +21,9 @@ enum ClaudeSessionOpener {
         return .host(app, pid: pid)
     }
 
-    /// Whether there's anything to bring forward: a desktop session, or a process still running.
+    /// Whether a click brings anything forward, so a row never offers what it can't do.
     static func canOpen(_ session: ClaudeSession) -> Bool {
-        desktopURL(of: session) != nil || session.pid != nil
+        destination(of: session) != nil
     }
 
     /// Beeps when nothing could be brought forward, such as a session running in tmux.

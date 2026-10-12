@@ -10,34 +10,32 @@ import os
 /// behind Cursor's web dashboard (``CursorUsageAPI``), signed in as the Cursor app or, failing that, the Cursor CLI
 /// is. Without the opt-in, or while no Cursor widget is visible, nothing runs at all.
 @Observable
-final class CursorService {
-    /// After failed fetches, the wait doubles up to this.
-    static let maximumRetryDelay: Duration = .seconds(60 * 60)
-    /// "Refresh now" waits at least this long after the last fetch, so it can't hammer Cursor.
-    static let minimumManualRefreshGap: TimeInterval = 30
-
+final class CursorService: DataService {
     /// The last usage fetched; kept through later failures, which ``problem`` reports.
     private(set) var usage: CursorUsage?
     /// Why the last fetch failed; `nil` after a success.
     private(set) var problem: CursorFetchProblem?
     /// Whose sign-in the last successful fetch used.
     private(set) var signInSource: CursorSignIn.Source?
-    private(set) var isFetching = false
+
+    /// "Refresh now" waits at least 30 seconds after the last fetch, so it can't hammer Cursor.
+    private let schedule = FetchSchedule(minimumManualGap: .seconds(30), tolerance: .seconds(30))
+
+    var isFetching: Bool { schedule.isFetching }
     /// When the last fetch finished, successful or not.
-    private(set) var lastAttempt: Date?
+    var lastAttempt: Date? { schedule.lastAttempt }
 
     /// How often to fetch; `nil` not to. Set from the widgets' settings.
     var refreshInterval: Duration? {
-        didSet {
-            guard refreshInterval != oldValue else { return }
-            if refreshInterval == nil {
+        get { schedule.interval }
+        set {
+            guard newValue != schedule.interval else { return }
+            if newValue == nil {
                 usage = nil
                 problem = nil
                 signInSource = nil
-                lastAttempt = nil
-                consecutiveFailures = 0
             }
-            restartRefreshing()
+            schedule.interval = newValue
         }
     }
 
@@ -46,84 +44,39 @@ final class CursorService {
         guard let usage else { return false }
         if problem != nil { return true }
         guard let refreshInterval else { return false }
-        return now.timeIntervalSince(usage.fetchedAt) > 2 * Double(refreshInterval.components.seconds) + 60
+        return now.timeIntervalSince(usage.fetchedAt) > 2 * refreshInterval.timeInterval + 60
     }
 
-    @ObservationIgnored private var isEnabled = false
-    @ObservationIgnored private var refreshTask: Task<Void, Never>?
-    @ObservationIgnored private var consecutiveFailures = 0
-
     func start() {
-        guard !isEnabled else { return }
-        isEnabled = true
-        restartRefreshing()
+        schedule.start { [weak self] in await self?.fetch() }
     }
 
     func stop() {
-        isEnabled = false
-        refreshTask?.cancel()
-        refreshTask = nil
+        schedule.stop()
     }
 
     /// Fetches now, then carries on at the interval. Ignored right after another fetch.
     func refreshNow() {
-        guard !isFetching else { return }
-        if let lastAttempt, Date.now.timeIntervalSince(lastAttempt) < Self.minimumManualRefreshGap { return }
-        restartRefreshing(immediately: true)
+        schedule.refreshNow()
     }
 
-    private func restartRefreshing(immediately: Bool = false) {
-        refreshTask?.cancel()
-        refreshTask = nil
-        guard isEnabled, let interval = refreshInterval else { return }
-        // Hiding and showing the widget, or opening the Widgets window, restarts this: don't ask sooner than the
-        // interval (or the backoff) because of it.
-        let wait = UsageRefresh.retryDelay(
-            interval: interval, consecutiveFailures: consecutiveFailures, maximum: Self.maximumRetryDelay)
-        var delay = immediately ? .zero : lastAttempt.map { wait - .seconds(Date.now.timeIntervalSince($0)) } ?? .zero
-        refreshTask = Task { [weak self] in
-            while true {
-                if delay > .zero {
-                    do { try await Task.sleep(for: delay, tolerance: .seconds(30)) } catch { return }
-                }
-                guard let self, !Task.isCancelled else { return }
-                delay = await fetch(interval: interval)
-            }
-        }
-    }
-
-    /// Returns how long to wait before the next fetch.
-    private func fetch(interval: Duration) async -> Duration {
-        isFetching = true
-        defer { isFetching = false }
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        let result = await Self.fetchUsage(userAgent: "Sidelight/\(version)")
-        guard isEnabled, refreshInterval != nil, !Task.isCancelled else { return interval }
-        lastAttempt = .now
+    private func fetch() async -> FetchSchedule.Outcome? {
+        let result = await Self.fetchUsage(userAgent: AppInfo.userAgent)
+        guard !Task.isCancelled else { return nil }
         switch result {
         case .success(let fetched):
             usage = fetched.usage
             signInSource = fetched.source
             problem = nil
-            consecutiveFailures = 0
+            return .succeeded
         case .failure(let failure):
             if failure != problem {
                 Log.cursor.notice("Can't fetch Cursor usage: \(String(describing: failure))")
             }
             problem = failure
-            consecutiveFailures += 1
+            return .failed
         }
-        return UsageRefresh.retryDelay(
-            interval: interval, consecutiveFailures: consecutiveFailures, maximum: Self.maximumRetryDelay)
     }
-
-    private nonisolated static let urlSession: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpCookieStorage = nil
-        configuration.httpShouldSetCookies = false
-        configuration.urlCache = nil
-        return URLSession(configuration: configuration)
-    }()
 
     private struct Fetched: Sendable {
         var usage: CursorUsage
@@ -145,9 +98,8 @@ final class CursorService {
             let request = CursorUsageAPI.request(signIn: signIn, userAgent: userAgent)
             let result: Result<CursorUsage, CursorFetchProblem>
             do {
-                let (body, response) = try await urlSession.data(for: request)
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                result = CursorUsageAPI.result(status: status, body: body, receivedAt: .now)
+                let response = try await HTTP.send(request)
+                result = CursorUsageAPI.result(status: response.status, body: response.body, receivedAt: .now)
             } catch {
                 result = .failure(.unreachable)
             }
@@ -167,13 +119,8 @@ final class CursorService {
                 .flatMap { CursorSignIn(accessToken: $0, source: .app) }
         case .cli:
             // Through the `security` tool, so macOS's "Always Allow" covers the item even after the CLI rewrites it.
-            let keychain = await ProcessRunner.output(
-                of: URL(filePath: "/usr/bin/security"),
-                arguments: [
-                    "find-generic-password", "-s", CursorSignIn.cliKeychainService, "-a",
-                    CursorSignIn.cliKeychainAccount, "-w",
-                ]
-            )
+            let keychain = await Keychain.genericPassword(
+                service: CursorSignIn.cliKeychainService, account: CursorSignIn.cliKeychainAccount)
             return keychain.flatMap { String(data: $0, encoding: .utf8) }
                 .flatMap { CursorSignIn(accessToken: $0, source: .cli) }
         }

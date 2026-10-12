@@ -14,7 +14,7 @@ import os
 ///
 /// Both files are watched, so without the opt-in nothing runs while Claude Code is idle.
 @Observable
-final class ClaudeCodeService {
+final class ClaudeCodeService: DataService {
     static let statusLineFileURL = URL.applicationSupportDirectory.appending(
         path: "Sidelight/Claude Code/status-line.json", directoryHint: .notDirectory)
     static let stateFileURL = URL.homeDirectory.appending(path: ".claude.json", directoryHint: .notDirectory)
@@ -36,13 +36,14 @@ final class ClaudeCodeService {
 
     /// How often to fetch usage from Anthropic; `nil` not to. Set from the widgets' settings.
     var refreshInterval: Duration? {
-        didSet {
-            guard refreshInterval != oldValue else { return }
-            if refreshInterval == nil {
+        get { schedule.interval }
+        set {
+            guard newValue != schedule.interval else { return }
+            if newValue == nil {
                 anthropicUsage = nil
                 anthropicProblem = nil
             }
-            restartRefreshing()
+            schedule.interval = newValue
         }
     }
 
@@ -53,12 +54,9 @@ final class ClaudeCodeService {
 
     @ObservationIgnored private var isEnabled = false
     @ObservationIgnored private var watchers: [FileWatcher] = []
-    @ObservationIgnored private var reloadTask: Task<Void, Never>?
-    @ObservationIgnored private var needsReload = false
+    @ObservationIgnored private let reload = CoalescedReload()
     @ObservationIgnored private var stateFileModificationDate: Date?
-    @ObservationIgnored private var refreshTask: Task<Void, Never>?
-    @ObservationIgnored private var lastFetchAttempt: Date?
-    @ObservationIgnored private var consecutiveFailures = 0
+    @ObservationIgnored private let schedule = FetchSchedule(minimumManualGap: .seconds(30), tolerance: .seconds(10))
 
     func start() {
         guard !isEnabled else { return }
@@ -71,45 +69,32 @@ final class ClaudeCodeService {
             Log.claudeCode.error("Can't create the status line directory: \(error)")
         }
         watchers = [Self.statusLineFileURL, Self.stateFileURL].compactMap { url in
-            FileWatcher(file: url, queue: .main) { [weak self] in
-                MainActor.assumeIsolated { self?.scheduleReload() }
-            }
+            FileWatcher(file: url) { [weak self] in self?.scheduleReload() }
         }
         scheduleReload(after: .zero)
-        restartRefreshing()
+        schedule.start { [weak self] in await self?.fetchFromAnthropic() }
     }
 
     func stop() {
         isEnabled = false
         watchers = []
-        reloadTask?.cancel()
-        reloadTask = nil
-        refreshTask?.cancel()
-        refreshTask = nil
+        reload.cancel()
+        schedule.stop()
     }
 
     /// Coalesces bursts of file events into one read; a change during a read triggers another.
     private func scheduleReload(after delay: Duration = reloadDelay) {
-        needsReload = true
-        guard reloadTask == nil else { return }
-        reloadTask = Task { [weak self] in
-            do { try await Task.sleep(for: delay) } catch { return }
-            while let self, needsReload {
-                needsReload = false
-                await reload()
-                if Task.isCancelled { return }
-            }
-            self?.reloadTask = nil
-        }
+        guard isEnabled else { return }
+        reload.request(after: delay) { [weak self] in await self?.reloadNow() }
     }
 
-    private func reload() async {
+    private func reloadNow() async {
         let files = await Self.read(
             statusLine: Self.statusLineFileURL,
             state: Self.stateFileURL,
             unlessStateModifiedAt: stateFileModificationDate
         )
-        guard isEnabled else { return }
+        guard !Task.isCancelled else { return }
         statusLineUsage = files.statusLine
         if let state = files.state {
             accountState = state.contents
@@ -154,50 +139,22 @@ final class ClaudeCodeService {
 
     // MARK: Fetching from Anthropic
 
-    /// After failed fetches, the wait doubles up to this.
-    static let maximumRetryDelay: Duration = .seconds(60 * 60)
-
-    private func restartRefreshing() {
-        refreshTask?.cancel()
-        refreshTask = nil
-        guard isEnabled, let interval = refreshInterval else { return }
-        // Hiding and showing the widget, or opening the Widgets window, restarts this: don't ask sooner than the
-        // interval because of it.
-        var delay = lastFetchAttempt.map { interval - .seconds(Date.now.timeIntervalSince($0)) } ?? .zero
-        refreshTask = Task { [weak self] in
-            while true {
-                if delay > .zero {
-                    do { try await Task.sleep(for: delay, tolerance: .seconds(10)) } catch { return }
-                }
-                guard let self, !Task.isCancelled else { return }
-                delay = await fetchFromAnthropic(interval: interval)
-            }
-        }
-    }
-
-    /// Returns how long to wait before the next fetch.
-    private func fetchFromAnthropic(interval: Duration) async -> Duration {
-        lastFetchAttempt = .now
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        let result = await Self.fetchUsage(userAgent: "Sidelight/\(version)")
-        guard isEnabled, refreshInterval != nil, !Task.isCancelled else { return interval }
+    private func fetchFromAnthropic() async -> FetchSchedule.Outcome? {
+        let result = await Self.fetchUsage(userAgent: AppInfo.userAgent)
+        guard !Task.isCancelled else { return nil }
         switch result {
         case .success(let usage):
             anthropicUsage = usage
             anthropicProblem = nil
-            consecutiveFailures = 0
+            return .succeeded
         case .failure(let problem):
             if problem != anthropicProblem {
                 Log.claudeCode.notice("Can't fetch Claude usage from Anthropic: \(String(describing: problem))")
             }
             anthropicProblem = problem
-            consecutiveFailures += 1
+            return .failed
         }
-        return UsageRefresh.retryDelay(
-            interval: interval, consecutiveFailures: consecutiveFailures, maximum: Self.maximumRetryDelay)
     }
-
-    private nonisolated static let urlSession = URLSession(configuration: .ephemeral)
 
     /// Reads Claude Code's sign-in afresh each time, since Claude Code renews it every few hours, and holds it only
     /// for this one request. It's never stored or logged.
@@ -207,9 +164,8 @@ final class ClaudeCodeService {
         guard !credentials.isExpired(at: .now) else { return .failure(.signInExpired) }
         let request = ClaudeCodeUsageAPI.request(accessToken: credentials.accessToken, userAgent: userAgent)
         do {
-            let (body, response) = try await urlSession.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            return ClaudeCodeUsageAPI.result(status: status, body: body, receivedAt: .now)
+            let response = try await HTTP.send(request)
+            return ClaudeCodeUsageAPI.result(status: response.status, body: response.body, receivedAt: .now)
         } catch {
             return .failure(.unreachable)
         }
@@ -218,10 +174,7 @@ final class ClaudeCodeService {
     /// Through the `security` tool, the way Claude Code saves the item itself, so macOS doesn't ask the user to let
     /// Sidelight in again every time Claude Code renews its sign-in.
     private nonisolated static func readCredentials() async -> ClaudeCodeCredentials? {
-        let keychain = await ProcessRunner.output(
-            of: URL(filePath: "/usr/bin/security"),
-            arguments: ["find-generic-password", "-s", ClaudeCodeCredentials.keychainService, "-w"]
-        )
+        let keychain = await Keychain.genericPassword(service: ClaudeCodeCredentials.keychainService)
         if let keychain, let credentials = try? ClaudeCodeCredentials(data: keychain) { return credentials }
         let file = URL.homeDirectory.appending(path: ".claude/.credentials.json", directoryHint: .notDirectory)
         return (try? Data(contentsOf: file)).flatMap { try? ClaudeCodeCredentials(data: $0) }
