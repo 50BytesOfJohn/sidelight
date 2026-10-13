@@ -83,7 +83,7 @@ struct ReleasedConfigurationFixture {
             for: OpenRouterPreset.balanceID)
         credits.blocks.add(.balance(Self.id(503)))
         credits.setBalanceOptions(.init(title: "Personal", usesOwnKey: true), for: Self.id(503))
-        c.details = DetailsPanelSettings(usesCustomStyle: true, customBackground: BackgroundSettings())
+        c.details = DetailsPanelSettings(usesCustomStyle: true, customBackground: c.appearance.background)
         c.details.closeHotkey = Hotkey(keyCode: 49, modifiers: [.control, .command], key: "Space")
         c.sections = [
             PanelSection(
