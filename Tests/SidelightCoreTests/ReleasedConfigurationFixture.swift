@@ -62,6 +62,24 @@ struct ReleasedConfigurationFixture {
             showsPlan: false, showsDetails: false, showsLastMessage: false)
         codexSessions.blockOptions.sessions = CodexSessionListOptions(maximumRows: 3, showsBranch: false)
         codexSessions.blockOptions.limits = CodexSessionLimitsOptions(reading: .used, showsWeeklyLimit: false)
+        var models = OpenRouterModelsSettings(sync: .manual, glance: .count, preset: .textOnly)
+        models.summary.filter = .textOnly
+        models.setListOptions(
+            .init(
+                title: "Price watch", sort: .outputPrice, filter: .all, density: .detail,
+                maximumRows: 12, showsRetiring: false),
+            for: OpenRouterModelsPreset.textOnly.listID)
+        models.blocks.add(.list(Self.id(502)))
+        models.setListOptions(
+            .init(title: "Small", sort: .context, filter: .textOnly, density: .lean, maximumRows: 3),
+            for: Self.id(502))
+        let credits = OpenRouterCreditsSettings(
+            refresh: .manual,
+            chart: .init(
+                isShown: false, days: 30, scope: .key,
+                keyHash: String(repeating: "a", count: 64), keyName: "Build fixture"))
+        c.details = DetailsPanelSettings(usesCustomStyle: true, customBackground: BackgroundSettings())
+        c.details.closeHotkey = Hotkey(keyCode: 49, modifiers: [.control, .command], key: "Space")
         c.sections = [
             PanelSection(
                 id: Self.id(901), name: "Work",
@@ -113,6 +131,8 @@ struct ReleasedConfigurationFixture {
                             AgentSessionsSettings(
                                 providers: [.codex, .cursor, .openCode], sessionCount: 8, recentHours: 24,
                                 includesCodexExec: true))),
+                    Self.widget(19, .openRouterCredits(credits), bar: false),
+                    Self.widget(20, .openRouterModels(models), side: false),
                 ], share: 0.5, alignment: .start),
         ]
         let data = try c.json()
