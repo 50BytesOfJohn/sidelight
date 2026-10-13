@@ -8,7 +8,7 @@ import Testing
 /// schema as v0.1.2). Loading one and saving it again must keep everything it says; newer options may only add to
 /// it. The one exception is a retired widget kind, which is dropped on purpose (``WidgetKind/retiredRawValues``).
 struct ReleasedConfigurationTests {
-    static let releases = ["v0.1.2", "v0.2.0", "v0.2.1", "v0.3.0", "v0.4.0", "v0.5.0"]
+    static let releases = ["v0.1.2", "v0.2.0", "v0.2.1", "v0.3.0", "v0.4.0", "v0.5.0", "v0.6.0"]
 
     @Test(arguments: releases)
     func `a released configuration loads with every setting kept`(release: String) throws {
