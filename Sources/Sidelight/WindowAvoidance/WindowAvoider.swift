@@ -223,7 +223,9 @@ final class WindowAvoider {
         var counts: [ReservationTransition.Move.Reason: Int] = [:]
         for application in NSWorkspace.shared.runningApplications where isEligible(application) {
             let pid = application.processIdentifier
-            let allWindows = AccessibilityElement.application(pid).windows
+            // An app whose windows can't all be listed can't have one told apart from the others: none moves, and
+            // what was remembered of them is forgotten.
+            guard let allWindows = AccessibilityElement.application(pid).readableWindows else { continue }
             let windows: [(window: AccessibilityElement, frame: CGRect)] = allWindows.compactMap { window in
                 guard window.isStandardWindow, !window.isFullScreen, !window.isMinimized, let frame = window.frame
                 else { return nil }
@@ -304,8 +306,13 @@ final class WindowAvoider {
         return move.baselines(accepted: accepted)
     }
 
-    /// Notes that avoidance moved `window` from `before` to `accepted` to keep `region` clear, so it can go back.
-    /// A window still where Sidelight last left it keeps its earlier baselines; one moved since starts over.
+    /// Notes that everyday avoidance moved `window` from `before` to `accepted` to keep `region` clear.
+    ///
+    /// A window still where Sidelight last left it keeps the baselines it had, with the new accepted frame. Otherwise
+    /// it starts over, and only the side panel or bar gives it a way back: hiding the panels puts back what they
+    /// pushed. The details panel's way back belongs to the windows it took the space from when it opened (see
+    /// ``ReservationTransition``). A window it pushes later, opened or moved since, has no frame from before the
+    /// session to return to; it can still follow the edge it's left touching when the details panel closes.
     private func remember(
         _ window: AccessibilityElement, pid: pid_t, launchDate: Date?, before: CGRect, accepted: CGRect,
         region: PanelRegion
@@ -318,8 +325,10 @@ final class WindowAvoider {
                     && ReservationTransition.isUnchanged(before, since: entry.baselines.accepted)
                     ? entry.baselines : nil
             } ?? WindowBaselines(accepted: accepted)
-        baselines[region.role] = baselines[region.role] ?? before
+        if region.role == .main { baselines.main = baselines.main ?? before }
         baselines.accepted = accepted
+        // Nothing to put back: nothing to remember.
+        guard baselines.main != nil || baselines.details != nil else { return }
         movedWindows.append(
             MovedWindow(
                 window: window, processIdentifier: pid, launchDate: launchDate, displayID: region.displayID,
@@ -540,7 +549,7 @@ final class WindowAvoider {
         guard let application = NSRunningApplication(processIdentifier: pid),
             mayMove(
                 window, frame: windowFrame, of: application,
-                among: AccessibilityElement.application(pid).windows, onScreen: .current())
+                among: AccessibilityElement.application(pid).readableWindows, onScreen: .current())
         else {
             Log.avoidance.debug("Left a window alone, not certainly on the active Space: \(reason, privacy: .public)")
             return false
@@ -578,15 +587,22 @@ final class WindowAvoider {
 
 extension WindowAvoider {
     /// Whether Sidelight may move `window`, now at `frame`: a window of an app it may move, on the active Space as the
-    /// window server shows it in `onScreen`, and told apart from the app's other `windows` by its frame.
-    /// Accessibility can't say which Space a window is on without private API, so anything ambiguous counts as no.
-    /// Every move goes through this.
+    /// window server shows it in `onScreen`, and told apart from every other window of the app by its frame.
+    /// Accessibility can't say which Space a window is on without private API, so anything short of complete evidence
+    /// counts as no: the app's window list unreadable (`nil`) or missing `window`, or any other window's frame
+    /// unreadable, since that window could be its twin on the active Space. Every move goes through this.
     fileprivate func mayMove(
         _ window: AccessibilityElement, frame: CGRect, of application: NSRunningApplication,
-        among windows: [AccessibilityElement], onScreen: OnScreenWindows
+        among windows: [AccessibilityElement]?, onScreen: OnScreenWindows
     ) -> Bool {
-        guard isEligible(application) else { return false }
-        let siblings = windows.filter { !$0.isSameElement(as: window) }.compactMap(\.frame)
+        guard isEligible(application), let windows, windows.contains(where: { $0.isSameElement(as: window) }) else {
+            return false
+        }
+        var siblings: [CGRect] = []
+        for sibling in windows where !sibling.isSameElement(as: window) {
+            guard let siblingFrame = sibling.frame else { return false }
+            siblings.append(siblingFrame)
+        }
         return onScreen.contains(frame, of: application.processIdentifier, siblings: siblings)
     }
 }

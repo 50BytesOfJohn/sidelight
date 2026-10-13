@@ -224,10 +224,12 @@ struct BackgroundImageView: View {
 extension Appearance {
     /// The color scheme the panel's content uses: light or dark text, or the system's choice.
     ///
-    /// - Parameter imageURL: The image background's picture.
-    func colorScheme(system: ColorScheme, imageURL: URL?) -> ColorScheme {
+    /// - Parameters:
+    ///   - imageURL: The image background's picture.
+    ///   - onCards: Whether the content sits on the cards, or straight on the background.
+    func colorScheme(system: ColorScheme, imageURL: URL?, onCards: Bool = true) -> ColorScheme {
         let luminance = background.kind == .image ? imageURL.flatMap(BackgroundImageLoader.luminance) : nil
-        switch resolvedText(imageLuminance: luminance) {
+        switch resolvedText(imageLuminance: luminance, onCards: onCards) {
         case .automatic: return system
         case .light: return .dark
         case .dark: return .light

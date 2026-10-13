@@ -79,10 +79,7 @@ private struct OpenRouterKeyPicker: View {
             if list.isLoading {
                 ProgressView().controlSize(.small)
             } else if list.problem != nil, !(list.problem?.needsKey ?? false) {
-                Button("Try Again") {
-                    if list.fetchedAt == nil { service.loadKeysIfNeeded() } else { service.loadMoreKeys() }
-                }
-                .controlSize(.small)
+                Button("Try Again") { service.retryKeys() }.controlSize(.small)
             } else if list.hasMore {
                 Button("Load More Keys") { service.loadMoreKeys() }.controlSize(.small)
             }
@@ -126,41 +123,30 @@ struct OpenRouterKeyForm: View {
 
     var body: some View {
         Group {
-            switch service.hasKey {
-            case true?:
+            if service.keyRemovalFailed {
+                // Whatever the keychain still holds isn't used; this says so whether or not it can be read.
                 HStack {
-                    Label("Management key saved in your keychain", systemImage: "key.fill").font(.callout)
-                    Spacer()
-                    Button("Remove", role: .destructive) { service.removeKey() }.controlSize(.small)
-                }
-                if service.keyRemovalFailed {
-                    Text("Couldn't remove the key from your keychain, so it's still saved and used. Try again.")
-                        .font(.caption)
+                    Label("Couldn't remove the key from your keychain", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
                         .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Remove Again", role: .destructive) { service.removeKey() }.controlSize(.small)
                 }
-            case false?:
-                VStack(alignment: .leading, spacing: 6) {
-                    SecureField("OpenRouter management key", text: $draft)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit(save)
+                SettingsCaption("Sidelight isn't using it. Remove it again, or save a key to replace it.")
+                keyField
+            } else {
+                switch service.hasKey {
+                case true?:
                     HStack {
-                        Button(isSaving ? "Checking…" : "Save Key", action: save)
-                            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                        Label("Management key saved in your keychain", systemImage: "key.fill").font(.callout)
                         Spacer()
-                        Link("Create a management key", destination: Self.managementKeysURL)
-                            .font(.callout)
+                        Button("Remove", role: .destructive) { service.removeKey() }.controlSize(.small)
                     }
-                    .controlSize(.small)
-                    if let problem {
-                        Text("\(problem.title). \(problem.advice)")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                case false?:
+                    keyField
+                case nil:
+                    ProgressView().controlSize(.small)
                 }
-            case nil:
-                ProgressView().controlSize(.small)
             }
             SettingsCaption(
                 "Only a management key can read the account's balance and spending. It can also create and delete "
@@ -171,6 +157,29 @@ struct OpenRouterKeyForm: View {
     }
 
     static let managementKeysURL = URL(string: "https://openrouter.ai/settings/management-keys")!
+
+    /// Where a key is typed in and checked before it's saved.
+    private var keyField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SecureField("OpenRouter management key", text: $draft)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(save)
+            HStack {
+                Button(isSaving ? "Checking…" : "Save Key", action: save)
+                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                Spacer()
+                Link("Create a management key", destination: Self.managementKeysURL)
+                    .font(.callout)
+            }
+            .controlSize(.small)
+            if let problem {
+                Text("\(problem.title). \(problem.advice)")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
 
     private func save() {
         guard !isSaving else { return }

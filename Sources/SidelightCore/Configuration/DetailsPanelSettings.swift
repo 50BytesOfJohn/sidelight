@@ -41,7 +41,8 @@ public struct DetailsPanelSettings: Codable, Hashable, Sendable {
 
 extension Appearance {
     /// The appearance the details panel draws with: the panel's, with the details panel's own background when it has
-    /// a custom style. Cards and text are always the panel's.
+    /// a custom style. Text settings are the panel's; it draws no cards, so automatic text goes by the background
+    /// alone (see ``Appearance/resolvedText(imageLuminance:onCards:)``).
     public func forDetailsPanel(_ details: DetailsPanelSettings) -> Appearance {
         var appearance = self
         appearance.background = details.background(inheriting: background)

@@ -34,7 +34,9 @@ struct DetailsPanelView: View {
             .clipShape(shape)
         }
         .padding(margin)
-        .environment(\.colorScheme, appearance.colorScheme(system: systemColorScheme, imageURL: imageURL))
+        // Its content sits straight on its background, never on cards: the text is chosen for that background.
+        .environment(
+            \.colorScheme, appearance.colorScheme(system: systemColorScheme, imageURL: imageURL, onCards: false))
         // Stops minute redraws while it's hidden with the panels, or nobody can see it.
         .environment(\.isPanelShown, layout.isOnScreen)
         .accessibilityElement(children: .contain)

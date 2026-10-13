@@ -35,6 +35,9 @@ final class HotkeyCenter {
     /// The shortcut each action should have, whether or not that worked.
     @ObservationIgnored private var requested: [HotkeyAction: Hotkey] = [:]
     @ObservationIgnored private var registered: [HotkeyAction: (hotkey: Hotkey, reference: EventHotKeyRef)] = [:]
+    /// The shortcut that last registered for each action, kept while recording frees them all and while a new one is
+    /// refused: it's what the action falls back to. Forgotten only when the action's shortcut is taken away.
+    @ObservationIgnored private var lastWorking: [HotkeyAction: Hotkey] = [:]
     /// While a shortcut is being recorded, none is registered, so pressing one reaches the recorder.
     @ObservationIgnored private var isSuspended = false
     @ObservationIgnored private var eventHandler: EventHandlerRef?
@@ -50,10 +53,11 @@ final class HotkeyCenter {
         reconcile()
     }
 
-    /// Takes `action`'s shortcut away.
+    /// Takes `action`'s shortcut away, with what it would fall back to.
     func unregister(_ action: HotkeyAction) {
         guard requested[action] != nil else { return }
         requested[action] = nil
+        lastWorking[action] = nil
         reconcile()
     }
 
@@ -79,7 +83,8 @@ final class HotkeyCenter {
     /// that doesn't fit the new mapping is released, so a shortcut moving from one action to another (or two
     /// swapping) is free to take; then what's missing is registered, in ``HotkeyAction`` order. An action whose
     /// shortcut an earlier one already has gets none, so pressing it does one thing. When macOS refuses a new
-    /// shortcut, an action that had a working one keeps it, so the toggle never stops working over a typo.
+    /// shortcut, an action that had a working one gets it back, even after recording freed it, so the toggle never
+    /// stops working over a shortcut another app has. A fallback another action now uses isn't taken.
     private func reconcile() {
         installEventHandlerIfNeeded()
         var desired: [(action: HotkeyAction, hotkey: Hotkey)] = []
@@ -95,11 +100,9 @@ final class HotkeyCenter {
             desired.append((action, hotkey))
         }
 
-        var previous: [HotkeyAction: Hotkey] = [:]
         for (action, registration) in registered {
             let wanted = desired.first { $0.action == action }?.hotkey
             guard wanted.map({ !$0.isSameShortcut(as: registration.hotkey) }) ?? true else { continue }
-            previous[action] = registration.hotkey
             release(action)
         }
 
@@ -113,8 +116,11 @@ final class HotkeyCenter {
                 Log.app.error("Can't register hotkey \(hotkey.displayString, privacy: .public): status \(status)")
             }
             setProblem(.unavailable(status), for: action)
-            // Keep the shortcut that worked, unless another action now has it.
-            if let fallback = previous[action], !desired.contains(where: { $0.hotkey.isSameShortcut(as: fallback) }) {
+            // Back to the shortcut that worked, unless it's the one refused or another action wants or has it.
+            if let fallback = lastWorking[action], !fallback.isSameShortcut(as: hotkey),
+                !desired.contains(where: { $0.action != action && $0.hotkey.isSameShortcut(as: fallback) }),
+                !registered.values.contains(where: { $0.hotkey.isSameShortcut(as: fallback) })
+            {
                 _ = acquire(fallback, for: action)
             }
         }
@@ -134,6 +140,7 @@ final class HotkeyCenter {
         )
         guard status == noErr, let reference else { return status == noErr ? OSStatus(eventInternalErr) : status }
         registered[action] = (hotkey, reference)
+        lastWorking[action] = hotkey
         return noErr
     }
 
