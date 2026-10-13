@@ -69,6 +69,18 @@ public enum AvoidanceGeometry {
         canonical(actual, edge: edge).width > canonical(requested, edge: edge).width + snapTolerance
     }
 
+    /// Where `window`, at the size the app insists on, goes to be clear of `panel`: moved away from the screen's edge
+    /// until its near edge is ``gap`` past the panel. `nil` when it already is clear, give or take what apps round.
+    ///
+    /// For an app that refused the size a plan asked for, so kept a window too big for the room beside the panel:
+    /// it stays as big as it wants, out from under the panel, even if that puts part of it past the screen's edge.
+    public static func clearing(_ window: CGRect, of panel: CGRect, edge: PanelPosition) -> CGRect? {
+        guard window.intersects(panel.insetBy(dx: snapTolerance, dy: snapTolerance)) else { return nil }
+        let moved = canonical(window, edge: edge)
+        let near = canonical(panel, edge: edge).maxX + gap
+        return restored(CGRect(x: near, y: moved.minY, width: moved.width, height: moved.height), edge: edge)
+    }
+
     /// Converts a Cocoa rect (bottom-left origin) to Accessibility space (top-left of the primary screen).
     public static func accessibilityRect(fromCocoa rect: CGRect, primaryScreenHeight: CGFloat) -> CGRect {
         CGRect(x: rect.minX, y: primaryScreenHeight - rect.maxY, width: rect.width, height: rect.height)
