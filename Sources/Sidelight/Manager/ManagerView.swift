@@ -1,28 +1,108 @@
 import SidelightCore
 import SwiftUI
 
-/// The Widgets window: the panel's widgets on the left, a gallery of every widget in the middle,
-/// and the selected widget's settings on the right. Every change applies to the live panel immediately.
+/// The Widgets window: the panel's widgets in the sidebar, a gallery of every widget, and the selected widget's or
+/// section's settings in the inspector. Every change applies to the live panel immediately.
 struct ManagerView: View {
-    @State private var previewLayout: WidgetLayout = .regular
     @State private var selection: ManagerSelection?
+    /// `nil` shows every category.
+    @State private var category: WidgetCategory?
+    @State private var search = ""
+    @State private var isInspectorShown = true
+    @AppStorage("GalleryPreviewLayout") private var previewLayout = WidgetLayout.regular
+    @Environment(WindowCoordinator.self) private var windows
 
     var body: some View {
-        HStack(spacing: 0) {
+        NavigationSplitView {
             ActiveWidgetsColumn(selection: $selection)
-                .frame(width: 300)
-            Divider()
-            GalleryColumn(previewLayout: $previewLayout, selection: $selection)
-                .frame(maxWidth: .infinity)
-            Divider()
-            InspectorColumn(selection: $selection)
-                .frame(width: 350)
+                .navigationSplitViewColumnWidth(min: 250, ideal: 280, max: 360)
+        } detail: {
+            GalleryColumn(category: category, search: search, previewLayout: previewLayout, selection: $selection)
+                .toolbar { toolbar }
+                .inspector(isPresented: $isInspectorShown) {
+                    InspectorColumn(selection: $selection)
+                        .inspectorColumnWidth(min: 320, ideal: 360, max: 480)
+                }
         }
-        .background(.background)
+        .onChange(of: selection) {
+            if selection != nil { isInspectorShown = true }
+        }
+        // Clocks in the previews stop while the window is covered, minimized or on another Space.
+        .environment(\.isPanelShown, windows.isManagerVisible)
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            Picker("Category", selection: $category) {
+                Text("All").tag(WidgetCategory?.none)
+                ForEach(WidgetCategory.allCases) { Text($0.title).tag(Optional($0)) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+        }
+        // Its own field, next to the categories it narrows down further: `searchable` puts one over the inspector,
+        // where it would seem to search settings.
+        ToolbarItem(placement: .principal) {
+            GallerySearchField(text: $search)
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+            // One icon, like the inspector's button beside it: a toolbar drops a menu's text, and its chevron alone
+            // sits off-center. The menu ticks the size shown.
+            Menu {
+                Picker("Preview Size", selection: $previewLayout.animation(Motion.layout)) {
+                    ForEach(WidgetLayout.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                Label("Preview Size", systemImage: "arrow.up.left.and.arrow.down.right")
+            }
+            .menuIndicator(.hidden)
+            .help("Preview size: \(previewLayout.title)")
+            Button {
+                isInspectorShown.toggle()
+            } label: {
+                Label("Inspector", systemImage: "sidebar.trailing")
+            }
+            .help(isInspectorShown ? "Hide the inspector" : "Show the inspector")
+        }
     }
 }
 
-/// Column title with a one-line explanation.
+/// Narrows the gallery to the widgets whose words match. ⌘F focuses it and Escape clears it.
+private struct GallerySearchField: View {
+    @Binding var text: String
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search", text: $text)
+                .textFieldStyle(.plain)
+                .focused($isFocused)
+                .onExitCommand {
+                    text = ""
+                    isFocused = false
+                }
+            if !text.isEmpty {
+                Button("Clear", systemImage: "xmark.circle.fill") { text = "" }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 180)
+        .background {
+            Button("Search Widgets") { isFocused = true }
+                .keyboardShortcut("f")
+                .hidden()
+        }
+    }
+}
+
+/// Column title with a one-line explanation, as the builder heads its columns.
 struct ColumnHeader: View {
     let title: String
     let subtitle: String
@@ -69,6 +149,13 @@ extension AppConfiguration {
     func sizeSummary(of section: PanelSection) -> String {
         guard let fraction = freeLengthFraction(of: section.id) else { return "Fits its widgets" }
         return "\(FreeLengthFraction.title(fraction)) of the free space"
+    }
+
+    /// e.g. "Half · top", "Fits widgets · centered", "Empty", for the sidebar's section rows.
+    func shortSummary(of section: PanelSection) -> String {
+        guard let widgets = self.section(section.id)?.widgets, !widgets.isEmpty else { return "Empty" }
+        let size = freeLengthFraction(of: section.id).map(FreeLengthFraction.title) ?? "Fits widgets"
+        return "\(size) · \(section.alignment.title(for: panel.position).lowercased())"
     }
 }
 

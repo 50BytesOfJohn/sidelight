@@ -6,7 +6,10 @@ struct WidgetMetadata {
     let title: String
     let systemImage: String
     let tint: Color
+    /// A few words, without a period: what the widget shows. Gallery tiles show it on one line.
     let summary: String
+    /// More about what it shows and where the data comes from, behind the inspector's ⓘ.
+    var details: String?
     /// The service's logo in `ProviderLogos.xcassets`, drawn in place of ``systemImage``.
     var logo: String?
     /// Built on something new or undocumented that may still change under it. The gallery and inspector say so.
@@ -16,13 +19,47 @@ struct WidgetMetadata {
 /// Marks a widget kind as beta next to its name.
 struct BetaBadge: View {
     var body: some View {
-        Text("Beta")
+        TagBadge(title: "Beta", tint: .orange)
+            .help("New, and built on something that may still change")
+    }
+}
+
+/// A small tinted capsule next to a name: `Beta`, `Added`.
+struct TagBadge: View {
+    let title: String
+    let tint: Color
+
+    var body: some View {
+        Text(title)
             .font(.system(size: 9.5, weight: .semibold))
             .padding(.horizontal, 6)
             .padding(.vertical, 1.5)
-            .background(Capsule().fill(.orange.opacity(0.18)))
-            .foregroundStyle(.orange)
-            .help("New, and built on something that may still change")
+            .background(Capsule().fill(tint.opacity(0.18)))
+            .foregroundStyle(tint)
+            .fixedSize()
+    }
+}
+
+/// The gallery's groups of widget kinds.
+enum WidgetCategory: String, CaseIterable, Identifiable {
+    case agents, cloud, essentials
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .agents: "AI agents"
+        case .cloud: "Cloud"
+        case .essentials: "Essentials"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .agents: "sparkles"
+        case .cloud: "cloud"
+        case .essentials: "square.grid.2x2"
+        }
     }
 }
 
@@ -43,6 +80,16 @@ extension WidgetKind {
         case .railway: .railway
         case .agentSessions: .agentSessions
         case .openRouter: .openRouter
+        }
+    }
+}
+
+extension WidgetKind {
+    var category: WidgetCategory {
+        switch self {
+        case .codex, .claudeCode, .cursor, .aiUsage, .claudeSessions, .codexSessions, .agentSessions: .agents
+        case .railway, .openRouter, .noodleComputer: .cloud
+        case .clock, .calendar, .nowPlaying, .system: .essentials
         }
     }
 }

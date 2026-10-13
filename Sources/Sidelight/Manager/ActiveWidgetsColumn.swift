@@ -1,4 +1,3 @@
-import AppKit
 import SidelightCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -15,98 +14,61 @@ struct ActiveWidgetsColumn: View {
 
     var body: some View {
         let configuration = store.configuration
-        let widgetCount = configuration.widgets.count
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-                ColumnHeader(
-                    title: "Your panel",
-                    subtitle: "Drag widgets between sections · drop gallery tiles here · changes apply live")
-                PlacementSummary().padding(.top, 8)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 34)
-            .padding(.bottom, 10)
-
-            List(selection: $selection) {
-                ForEach(configuration.sections.rows) { row in
-                    switch row {
-                    case .section(let header):
-                        sectionRow(header, in: configuration)
-                    case .widget(let widget):
-                        ActiveWidgetRow(widget: binding(for: widget))
-                            .tag(ManagerSelection.widget(widget.id))
-                            .listRowSeparator(.hidden)
-                            .contextMenu {
-                                Button("Duplicate") { duplicate(widget) }
-                                Button("Remove", role: .destructive) { remove(widget.id) }
-                            }
-                    }
-                }
-                .onMove { source, destination in
-                    withAnimation(Motion.layout) {
-                        store.configuration.moveRows(fromOffsets: source, toOffset: destination)
-                    }
-                }
-                .onDelete { offsets in
-                    let rows = store.configuration.sections.rows
-                    for offset in offsets {
-                        if case .widget(let widget) = rows[offset] { remove(widget.id) }
-                    }
-                }
-                .onInsert(of: [.plainText]) { index, providers in
-                    for provider in providers {
-                        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-                            guard let rawValue = object as? String, let kind = WidgetKind(rawValue: rawValue) else {
-                                return
-                            }
-                            Task { @MainActor in insert(kind, atRow: index) }
+        List(selection: $selection) {
+            ForEach(configuration.sections.rows) { row in
+                switch row {
+                case .section(let header):
+                    sectionRow(header, in: configuration)
+                case .widget(let widget):
+                    let binding = binding(for: widget)
+                    ActiveWidgetRow(widget: binding)
+                        .tag(ManagerSelection.widget(widget.id))
+                        .contextMenu {
+                            Toggle("Show in Side Panel", isOn: binding.showsInSidePanel)
+                            Toggle("Show in Bar", isOn: binding.showsInBar)
+                            Divider()
+                            Button("Duplicate") { duplicate(widget) }
+                            Button("Remove", role: .destructive) { remove(widget.id) }
                         }
+                }
+            }
+            .onMove { source, destination in
+                withAnimation(Motion.layout) {
+                    store.configuration.moveRows(fromOffsets: source, toOffset: destination)
+                }
+            }
+            .onDelete { offsets in
+                let rows = store.configuration.sections.rows
+                for offset in offsets {
+                    if case .widget(let widget) = rows[offset] { remove(widget.id) }
+                }
+            }
+            .onInsert(of: [.plainText]) { index, providers in
+                for provider in providers {
+                    _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+                        guard let rawValue = object as? String, let kind = WidgetKind(rawValue: rawValue) else {
+                            return
+                        }
+                        Task { @MainActor in insert(kind, atRow: index) }
                     }
                 }
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-
-            HStack {
-                Text(widgetCount == 1 ? "1 widget" : "\(widgetCount) widgets")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button(action: addSection) {
-                    Label("Add Section", systemImage: "plus.rectangle.on.rectangle")
-                }
-                .buttonStyle(.borderless)
-                .font(.system(size: 11))
-                .help("Add a section below the others, with its own size and alignment")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([store.fileURL])
-                } label: {
-                    Label("config.json", systemImage: "doc.text")
-                }
-                .buttonStyle(.borderless)
-                .font(.system(size: 11))
-                .help("Reveal config.json in Finder (hand edits are applied live)")
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-
-            Divider().padding(.horizontal, 16)
-            WindowSwitchLink(destination: .settings).padding(10)
+            // Where the new section will appear, after the last one, rather than in a toolbar or at the window's
+            // edge.
+            NewSectionRow(action: addSection)
         }
-        .background(VisualEffectBackground(material: .sidebar, blendingMode: .behindWindow).ignoresSafeArea())
+        .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            WindowSwitchLink(destination: .settings).padding(.horizontal, 10).padding(.bottom, 10)
+        }
     }
 
     private func sectionRow(_ section: PanelSection, in configuration: AppConfiguration) -> some View {
         let index = configuration.sections.firstIndex { $0.id == section.id } ?? 0
-        let isEmpty = configuration.section(section.id)?.widgets.isEmpty ?? true
         return SectionHeaderRow(
-            title: configuration.title(of: section),
-            summary: isEmpty
-                ? "Empty · drag widgets here"
-                : "\(configuration.sizeSummary(of: section)) · \(alignmentSummary(section, in: configuration))"
+            title: configuration.title(of: section), summary: configuration.shortSummary(of: section)
         )
         .tag(ManagerSelection.section(section.id))
-        .listRowSeparator(.hidden)
         .contextMenu {
             Button("Move Up") { moveSection(section.id, by: -1) }.disabled(index == 0)
             Button("Move Down") { moveSection(section.id, by: 1) }.disabled(index == configuration.sections.count - 1)
@@ -114,10 +76,6 @@ struct ActiveWidgetsColumn: View {
             Button("Remove Section", role: .destructive) { removeSection(section.id) }
                 .disabled(configuration.sections.count == 1)
         }
-    }
-
-    private func alignmentSummary(_ section: PanelSection, in configuration: AppConfiguration) -> String {
-        "aligned \(section.alignment.title(for: configuration.panel.position).lowercased())"
     }
 
     /// Looks the widget up by identity on every access, so edits never land on the wrong one after a move.
@@ -166,77 +124,101 @@ struct ActiveWidgetsColumn: View {
     }
 }
 
-/// The default position, with a quick switch. Sizes and per-display settings live in Settings.
-private struct PlacementSummary: View {
-    @Environment(ConfigurationStore.self) private var store
-
-    var body: some View {
-        let configuration = store.configuration
-        HStack(spacing: 6) {
-            Menu {
-                ForEach(PanelPosition.allCases) { position in
-                    Button {
-                        store.configuration.panel.position = position
-                    } label: {
-                        Label(position.title, systemImage: position.systemImage)
-                    }
-                }
-            } label: {
-                Label(configuration.panel.position.title, systemImage: configuration.panel.position.systemImage)
-            }
-            .menuStyle(.button)
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .fixedSize()
-
-            Spacer()
-        }
-    }
-}
-
-/// A section's header: its name, how long it is and where its widgets sit.
+/// A section's name, with its size and alignment after it, heading its widgets. A row like theirs, with a tile
+/// like their icons, so it reads as something to select; no gap above it, which the list would highlight and
+/// outline too.
 private struct SectionHeaderRow: View {
     let title: String
     let summary: String
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "rectangle.split.1x2")
-                .font(.system(size: 11, weight: .semibold))
+            IconTile(systemImage: "rectangle.split.1x2", tint: .gray, size: 18)
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Text(summary)
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-                .frame(width: 18)
-            VStack(alignment: .leading, spacing: 0) {
-                SectionLabel(title)
-                Text(summary).font(.system(size: 10.5)).foregroundStyle(.tertiary).lineLimit(1)
-            }
-            Spacer(minLength: 0)
+                .lineLimit(1)
         }
-        .padding(.top, 8)
-        .padding(.bottom, 2)
-        .help("Select to change the section's size and alignment; drag to move it with its widgets")
+        .padding(.vertical, 2)
+        .help("Select to set the section's size and alignment. Drag to move it with its widgets.")
     }
 }
 
+/// Adds a section after the others: a section row with a dashed tile, like a section still to come.
+private struct NewSectionRow: View {
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 9, weight: .bold))
+                    .frame(width: 18, height: 18)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18 * 0.27, style: .continuous)
+                            .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [2.5, 2]))
+                    )
+                Text("New Section")
+                    .font(.system(size: 12, weight: .medium))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(isHovered ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in withAnimation(Motion.hover) { isHovered = hovering } }
+        .help("Add a section below the others, with its own size and alignment")
+        .padding(.top, 4)
+    }
+}
+
+/// A widget in the panel. Its side panel and bar switches show while it's hovered; otherwise only a widget left out
+/// of one of them says so. The inspector has the same switches for the selected widget.
 private struct ActiveWidgetRow: View {
     @Binding var widget: WidgetInstance
+    @State private var isHovered = false
 
     var body: some View {
         let metadata = widget.kind.metadata
         HStack(spacing: 10) {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.tertiary)
-            metadata.iconTile(size: 30)
+            metadata.iconTile(size: 26)
             VStack(alignment: .leading, spacing: 1) {
-                Text(metadata.title).font(.system(size: 13, weight: .semibold))
-                Text(widget.settings.summary).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+                Text(metadata.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                Text(widget.settings.summary).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
-            PlacementToggle(title: "Side", systemImage: "sidebar.left", isOn: $widget.showsInSidePanel)
-            PlacementToggle(title: "Bar", systemImage: "menubar.rectangle", isOn: $widget.showsInBar)
+            if isHovered {
+                HStack(spacing: 2) {
+                    PlacementToggle(title: "Side panel", systemImage: "sidebar.left", isOn: $widget.showsInSidePanel)
+                    PlacementToggle(title: "Bar", systemImage: "menubar.rectangle", isOn: $widget.showsInBar)
+                }
+                .transition(.opacity)
+            } else if let note = placementNote {
+                Image(systemName: note.systemImage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .help(note.help)
+            }
         }
-        .padding(.vertical, 5)
-        .opacity(widget.isHidden ? 0.5 : 1)
+        .padding(.vertical, 3)
+        .opacity(widget.isHidden ? 0.55 : 1)
+        .onHover { hovering in withAnimation(Motion.hover) { isHovered = hovering } }
+    }
+
+    /// Set when the widget is left out of the side panel, the bar or both.
+    private var placementNote: (systemImage: String, help: String)? {
+        switch (widget.showsInSidePanel, widget.showsInBar) {
+        case (true, true): nil
+        case (true, false): ("sidebar.left", "Only in the side panel")
+        case (false, true): ("menubar.rectangle", "Only in the bar")
+        case (false, false): ("eye.slash", "Hidden in the side panel and the bar")
+        }
     }
 }
 
@@ -250,19 +232,17 @@ private struct PlacementToggle: View {
             withAnimation(Motion.snappy) { isOn.toggle() }
         } label: {
             Image(systemName: systemImage)
-                .font(.system(size: 10, weight: .semibold))
-                .frame(width: 24, height: 20)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isOn ? Color.accentColor.opacity(0.9) : Color.primary.opacity(0.07))
-                )
-                .foregroundStyle(isOn ? .white : .secondary)
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 22, height: 20)
+                // Primary and tertiary, not the accent color, so they read on a selected row too.
+                .foregroundStyle(isOn ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
         .help(
             isOn
-                ? "Shown in the \(title.lowercased()) — click to hide"
-                : "Hidden in the \(title.lowercased()) — click to show"
+                ? "Shown in the \(title.lowercased()). Click to hide."
+                : "Hidden in the \(title.lowercased()). Click to show."
         )
         .accessibilityLabel("Show in \(title.lowercased())")
         .accessibilityValue(isOn ? "On" : "Off")

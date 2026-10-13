@@ -65,6 +65,8 @@ final class AppController {
         avoider.occupiedRegions = { [weak panels] in panels?.occupiedRegions ?? [] }
         avoider.mode = configuration.windowAvoidance
         avoider.start(promptingForAccess: true)
+        windows.occupiedRegions = { [weak panels] in panels?.occupiedRegions ?? [] }
+        panels.onReservationsChanged = { [weak windows] in windows?.panelsChanged(settlingFor: $0) }
 
         environment.hotkeys.handlers = [
             .togglePanels: { [weak panels] in panels?.toggle() },

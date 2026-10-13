@@ -6,7 +6,7 @@ extension WidgetMetadata {
         title: "Clock",
         systemImage: "clock",
         tint: .blue,
-        summary: "Time and date, from digits and dials to flip tiles, words and binary."
+        summary: "Time and date, in many styles"
     )
 }
 
@@ -178,15 +178,17 @@ struct ClockSettingsEditor: View {
     @Binding var settings: ClockSettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Picker("Alignment", selection: $settings.alignment.animation(Motion.layout)) {
-                ForEach(ClockAlignment.allCases) { alignment in
-                    Label(alignment.title, systemImage: alignment.systemImage).labelStyle(.iconOnly).tag(alignment)
-                }
+        Picker(selection: $settings.alignment.animation(Motion.layout)) {
+            ForEach(ClockAlignment.allCases) { alignment in
+                Label(alignment.title, systemImage: alignment.systemImage).labelStyle(.iconOnly).tag(alignment)
             }
-            .pickerStyle(.segmented)
-            SettingsCaption("In regular and compact cards. Narrow columns always center the clock; bar chips fit it.")
+        } label: {
+            InfoLabel(
+                "Alignment",
+                info: "Applies to regular and compact cards. Minimal cards always center the clock, and bar chips "
+                    + "fit it.")
         }
+        .pickerStyle(.segmented)
         if settings.style.showsSecondsOption {
             Toggle(settings.style == .analog ? "Second hand" : "Show seconds", isOn: $settings.showsSeconds)
         }

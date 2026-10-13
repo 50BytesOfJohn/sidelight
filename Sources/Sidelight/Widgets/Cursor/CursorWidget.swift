@@ -6,7 +6,8 @@ extension WidgetMetadata {
         title: "Cursor",
         systemImage: "cursorarrow",
         tint: .cursor,
-        summary: "Cursor's included usage this billing cycle: Cursor models and API models, and whether they'll last."
+        summary: "Included usage this billing cycle",
+        details: "Cursor models and API models this billing cycle, and whether they'll last until it resets."
     )
 }
 
@@ -37,10 +38,10 @@ struct CursorSettingsEditor: View {
 
     var body: some View {
         CursorFetchSettings(isOn: $settings.refreshesFromCursor, minutes: $settings.refreshMinutes)
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Show on-demand spending", isOn: $settings.showsOnDemand)
-            SettingsCaption("Pay-as-you-go usage past the included pools, as a share of your spending limit.")
+        Toggle(isOn: $settings.showsOnDemand) {
+            InfoLabel(
+                "Show on-demand spending",
+                info: "Pay-as-you-go usage past the included pools, as a share of your spending limit.")
         }
     }
 }
@@ -53,21 +54,15 @@ struct CursorFetchSettings: View {
     @Environment(CursorService.self) private var cursor
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            RefreshIntervalPicker(
-                title: "Fetch usage from Cursor", isOn: $isOn, minutes: $minutes,
-                choices: CursorSettings.refreshMinuteChoices)
-            SettingsCaption(
-                "Asks cursor.com for your plan's usage the way its Spending dashboard does, signed in as the Cursor "
-                    + "app is (or the Cursor CLI, if the app isn't). The sign-in is read for each request and never "
-                    + "stored or renewed. Cursor has no public usage API for individual plans, so this uses the "
-                    + "dashboard's own endpoint and may stop working."
-            )
-            if isOn {
-                status
-            }
-            SettingsCaption(
-                "The editor, the CLI and cloud agents share the same pools; Cursor doesn't split usage by tool.")
+        RefreshIntervalPicker(
+            title: "Fetch usage from Cursor",
+            info: "Asks cursor.com for your plan's usage, like its Spending dashboard, with the Cursor app's "
+                + "sign-in (or the Cursor CLI's). Sidelight reads the sign-in for each request and never stores it. "
+                + "Cursor has no public usage API, so this may stop working.\n\nThe editor, the CLI and cloud "
+                + "agents share the same pools. Cursor doesn't split usage by tool.",
+            isOn: $isOn, minutes: $minutes, choices: CursorSettings.refreshMinuteChoices)
+        if isOn {
+            status
         }
     }
 

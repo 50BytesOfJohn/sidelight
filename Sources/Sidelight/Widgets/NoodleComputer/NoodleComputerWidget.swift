@@ -7,7 +7,8 @@ extension WidgetMetadata {
         title: "Noodle Computer",
         systemImage: "desktopcomputer",
         tint: .blue,
-        summary: "Computers in Noodle Computer, for you and your agents: which are running. Click one to open it.",
+        summary: "Which of your computers are running",
+        details: "Computers in Noodle Computer, for you and your agents. Click one to open it.",
         isBeta: true
     )
 }
@@ -107,29 +108,25 @@ struct NoodleComputerSettingsEditor: View {
                 Text(computer.name).tag(Optional(computer.id))
             }
         }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            StatusRow(color: statusColor, text: statusText)
-            HStack {
-                if service.status == .connected {
-                    Button(service.isLending ? "Waiting for Noodle Computer…" : "Lend a Computer…") {
-                        service.lendComputer()
-                    }
-                    .disabled(service.isLending)
-                } else if case .problem = service.status {
-                    Button("Try Again") { service.refreshNow() }
-                } else if service.status == .notInstalled || service.status == .notRunning {
-                    Button(service.status == .notInstalled ? "Get Noodle Computer" : "Open Noodle Computer") {
-                        service.openApp()
-                    }
-                }
+        StatusRow(color: statusColor, text: statusText) {
+            Spacer(minLength: 4)
+            InfoButton(
+                "Turn on Allow agents in Noodle Computer's settings, under Agents. It asks once whether to let "
+                    + "Sidelight in, and shows Sidelight only the computers you lend it. Sidelight checks on them "
+                    + "every 30 seconds while Noodle Computer is open, and never while it's closed.\n\n"
+                    + versionText)
+        }
+        if service.status == .connected {
+            Button(service.isLending ? "Waiting for Noodle Computer…" : "Lend a Computer…") {
+                service.lendComputer()
             }
-            SettingsCaption(
-                "Beta. Turn on Allow agents in Noodle Computer's settings, under Agents. It asks once whether to "
-                    + "let Sidelight in, and shows Sidelight only the computers you lend it. Sidelight checks on "
-                    + "them every 30 seconds while Noodle Computer is open, and never while it's closed."
-            )
-            SettingsCaption(versionText)
+            .disabled(service.isLending)
+        } else if case .problem = service.status {
+            Button("Try Again") { service.refreshNow() }
+        } else if service.status == .notInstalled || service.status == .notRunning {
+            Button(service.status == .notInstalled ? "Get Noodle Computer" : "Open Noodle Computer") {
+                service.openApp()
+            }
         }
     }
 

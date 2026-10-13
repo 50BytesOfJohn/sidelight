@@ -75,7 +75,6 @@ struct OpenRouterSettingsEditor: View {
 
     var body: some View {
         BlockPresetPicker(settings: $settings)
-        Divider()
         OpenRouterWidgetOptions(settings: $settings)
     }
 }
@@ -86,45 +85,40 @@ private struct OpenRouterWidgetOptions: View {
     @Environment(OpenRouterService.self) private var service
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Sync models", selection: $settings.sync) {
-                Text("Manually").tag(RefreshCadence.manual)
-                ForEach(syncChoices, id: \.self) { minutes in
-                    Text(OpenRouterSettings.syncTitle(minutes: minutes)).tag(RefreshCadence.minutes(minutes))
-                }
+        Picker(selection: $settings.sync) {
+            Text("Manually").tag(RefreshCadence.manual)
+            ForEach(syncChoices, id: \.self) { minutes in
+                Text(OpenRouterSettings.syncTitle(minutes: minutes)).tag(RefreshCadence.minutes(minutes))
             }
-            SettingsCaption(
-                "One public catalogue for every OpenRouter widget, synced only while one shows models. No key needed.")
+        } label: {
+            InfoLabel(
+                "Sync models",
+                info: "One public catalogue for every OpenRouter widget, synced only while one shows models. No key "
+                    + "needed.")
         }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Refresh balances", selection: $settings.refresh) {
-                Text("Manually").tag(RefreshCadence.manual)
-                ForEach(refreshChoices, id: \.self) { minutes in
-                    Text("Every \(minutes) minutes").tag(RefreshCadence.minutes(minutes))
-                }
+        Picker(selection: $settings.refresh) {
+            Text("Manually").tag(RefreshCadence.manual)
+            ForEach(refreshChoices, id: \.self) { minutes in
+                Text("Every \(minutes) minutes").tag(RefreshCadence.minutes(minutes))
             }
-            SettingsCaption(
-                settings.refresh == .manual
+        } label: {
+            InfoLabel(
+                "Refresh balances",
+                info: settings.refresh == .manual
                     ? "Fetched once, then whenever you click refresh."
-                    : "Only while a balance is on screen. Spending changes once a day, so it's fetched after "
+                    : "Only while a balance is on screen. Spending changes once a day, so Sidelight fetches it after "
                         + "midnight UTC.")
         }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Management key").font(.callout.weight(.medium))
-            SettingsCaption(
-                "Needed only for Balance blocks. Shared by every OpenRouter widget, and also in Settings, under "
-                    + "Connections. A Balance block can use its own key instead, for another account.")
-            OpenRouterKeyForm(account: service.shared)
+        Picker(selection: $settings.glance) {
+            ForEach(OpenRouterGlance.allCases) { Text($0.title).tag($0) }
+        } label: {
+            InfoLabel("Minimal and bar show", info: glanceCaption)
         }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Minimal and bar show", selection: $settings.glance) {
-                ForEach(OpenRouterGlance.allCases) { Text($0.title).tag($0) }
-            }
-            SettingsCaption(glanceCaption)
-        }
+        OpenRouterKeyForm(
+            account: service.shared,
+            info: "Needed only for Balance blocks. Every OpenRouter widget shares it, and it's also in Settings, under "
+                + "Connections. A Balance block can use its own key instead, for another account.\n\n"
+                + OpenRouterKeyForm.explanation)
     }
 
     private var glanceCaption: String {

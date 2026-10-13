@@ -6,7 +6,8 @@ extension WidgetMetadata {
         title: "System",
         systemImage: "cpu",
         tint: .teal,
-        summary: "CPU % and memory, refreshed every 2 s."
+        summary: "CPU and memory use",
+        details: "Updates every 2 seconds."
     )
 }
 

@@ -33,25 +33,19 @@ struct InspectorColumn: View {
                 placeholder
             }
         }
-        .animation(Motion.snappy, value: selection)
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.5))
     }
 
     private func inspector(id: UUID, @ViewBuilder content: () -> some View) -> some View {
-        ScrollView {
-            content()
-                .padding(18)
-                .padding(.top, 20)
-        }
-        .id(id)
-        .transition(.opacity.combined(with: .offset(x: 12)))
+        Form { content() }
+            .formStyle(.grouped)
+            .id(id)
     }
 
     private var placeholder: some View {
         ContentUnavailableView {
-            Label("Select a widget or section", systemImage: "square.grid.2x2")
+            Label("Nothing selected", systemImage: "square.grid.2x2")
         } description: {
-            Text("Pick a widget to edit its settings and see it at every size, or a section to set its size.")
+            Text("Select a widget or a section in your panel to change it.")
         }
     }
 
@@ -97,85 +91,73 @@ private struct SectionInspector: View {
         let position = configuration.panel.position
         let fittedPanels = monitor.displays.map { $0.panel(in: configuration) }.filter { $0.showsPanel }
             .filter { $0.length == .fit }
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 12) {
-                Image(systemName: "rectangle.split.1x2")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 44, height: 44)
-                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.quaternary))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(configuration.title(of: section)).font(.system(size: 18, weight: .bold))
-                    Text(section.widgets.count == 1 ? "1 widget" : "\(section.widgets.count) widgets")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                }
+        Section {
+            SectionsPreview(selectedID: section.id, position: position, onSelect: onSelect)
+                .padding(.vertical, 6)
+        } header: {
+            InspectorTitle(
+                title: configuration.title(of: section),
+                subtitle: section.widgets.count == 1 ? "1 widget" : "\(section.widgets.count) widgets"
+            ) {
+                IconTile(systemImage: "rectangle.split.1x2", tint: .gray, size: 32)
+            } accessories: {
+                InfoButton("Click a section to select it. Drag the line between two shared sections to resize them.")
             }
+        }
 
-            InspectorSection("Panel") {
-                SectionsPreview(selectedID: section.id, position: position, onSelect: onSelect)
-                Text("Drag the line between two shared sections to resize them; click a section to select it.")
-                    .inspectorFootnote()
+        Section {
+            TextField(
+                text: Binding {
+                    section.name ?? ""
+                } set: {
+                    section.name = $0.isEmpty ? nil : $0
+                },
+                prompt: Text(configuration.title(of: PanelSection(id: section.id)))
+            ) {
+                InfoLabel("Name", info: "Only shown here, to tell sections apart.")
             }
-
-            InspectorSection("Name") {
-                TextField(
-                    configuration.title(of: PanelSection(id: section.id)),
-                    text: Binding {
-                        section.name ?? ""
-                    } set: {
-                        section.name = $0.isEmpty ? nil : $0
-                    }
-                )
-                .textFieldStyle(.roundedBorder)
-                Text("Only shown here, to tell sections apart.").inspectorFootnote()
+            Picker(selection: isShared.animation(Motion.layout)) {
+                Text("Fit widgets").tag(false)
+                Text("Share space").tag(true)
+            } label: {
+                InfoLabel(
+                    "Size",
+                    info: section.isShared
+                        ? "Shared sections split the space that fitting sections leave, by weight. Two sections "
+                            + "weighing 1 each get half each."
+                        : "As long as its widgets, however long the panel is.")
             }
-
-            InspectorSection("Size") {
-                Picker("Size", selection: isShared.animation(Motion.layout)) {
-                    Text("Fit widgets").tag(false)
-                    Text("Share of free space").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                if let share = section.share, section.isShared {
-                    Stepper(value: shareBinding.animation(Motion.layout), in: 0.1...10, step: 0.5) {
-                        let summary = Text(configuration.sizeSummary(of: section)).foregroundStyle(.secondary)
-                        Text("Weight \(share.formatted(.number.precision(.fractionLength(0...1)))) · \(summary)")
-                    }
-                    Text("Shared sections split what fitting sections leave, by weight: 1 and 1 make halves.")
-                        .inspectorFootnote()
-                } else {
-                    Text("As long as its widgets, however long the panel is.").inspectorFootnote()
-                }
-            }
-
-            InspectorSection("Alignment") {
-                Picker("Alignment", selection: $section.alignment.animation(Motion.layout)) {
-                    ForEach(PanelAlignment.allCases) { alignment in
-                        Text(alignment.title(for: position)).tag(alignment)
+            .pickerStyle(.segmented)
+            if let share = section.share, section.isShared {
+                Stepper(value: shareBinding.animation(Motion.layout), in: 0.1...10, step: 0.5) {
+                    LabeledContent("Weight") {
+                        Text(
+                            "\(share.formatted(.number.precision(.fractionLength(0...1)))) · "
+                                + configuration.sizeSummary(of: section).lowercased())
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                Text("Where the widgets sit when the section is longer than they are.").inspectorFootnote()
             }
-
-            if !fittedPanels.isEmpty {
-                Label(
-                    "Where the panel fits its content, sections stack at their natural length, so size and "
-                        + "alignment apply only where it fills its edge.",
-                    systemImage: "info.circle"
-                )
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            }
-
-            if let onRemove {
-                Button(role: .destructive, action: onRemove) {
-                    Label("Remove Section", systemImage: "trash").frame(maxWidth: .infinity)
+            Picker(selection: $section.alignment.animation(Motion.layout)) {
+                ForEach(PanelAlignment.allCases) { alignment in
+                    Text(alignment.title(for: position)).tag(alignment)
                 }
-                .controlSize(.large)
-                .help("Its widgets move to the section above")
+            } label: {
+                InfoLabel(
+                    "Alignment",
+                    info: "Where the widgets sit when the section is longer than they are."
+                        + (fittedPanels.isEmpty
+                            ? ""
+                            : " Where the panel fits its content, sections stack at their natural length, so size "
+                                + "and alignment apply only where the panel fills its edge."))
+            }
+            .pickerStyle(.segmented)
+        }
+
+        if let onRemove {
+            Section {
+                Button("Remove Section", role: .destructive, action: onRemove)
+                    .frame(maxWidth: .infinity)
+                    .help("Its widgets move to the section above")
             }
         }
     }
@@ -313,90 +295,113 @@ private struct SectionsPreview: View {
     }
 }
 
-extension Text {
-    fileprivate func inspectorFootnote() -> some View {
-        font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-    }
-}
-
 private struct WidgetInspector: View {
     @Binding var widget: WidgetInstance
     let onRemove: () -> Void
     @Environment(WindowCoordinator.self) private var windows
+    @State private var previewLayout = WidgetLayout.regular
 
     var body: some View {
         let metadata = widget.kind.metadata
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 12) {
-                metadata.iconTile(size: 44)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(metadata.title).font(.system(size: 18, weight: .bold))
-                        if metadata.isBeta { BetaBadge() }
+        Section {
+            Toggle(isOn: $widget.showsInSidePanel) { Label("Side panel", systemImage: "sidebar.left") }
+            Toggle(isOn: $widget.showsInBar) { Label("Bar", systemImage: "menubar.rectangle") }
+        } header: {
+            // The preview sits in the header, straight on the inspector: in a section's card it would get a frame
+            // around the stage, which already sets it apart.
+            VStack(alignment: .leading, spacing: 0) {
+                InspectorTitle(title: metadata.title, subtitle: metadata.summary) {
+                    metadata.iconTile(size: 32)
+                } accessories: {
+                    if metadata.isBeta { BetaBadge() }
+                    if let details = metadata.details { InfoButton(details) }
+                }
+                VStack(spacing: 10) {
+                    WidgetInspectorPreview(settings: widget.settings, layout: previewLayout)
+                    Picker("Size", selection: $previewLayout.animation(Motion.layout)) {
+                        ForEach(WidgetLayout.allCases) { Text($0.title).tag($0) }
                     }
-                    Text(metadata.summary).font(.system(size: 11)).foregroundStyle(.secondary)
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 4)
+                .padding(.bottom, 18)
+                Text("Show in")
             }
+        }
 
-            InspectorSection("Show in") {
-                Toggle(isOn: $widget.showsInSidePanel) {
-                    Label("Side panel (left / right)", systemImage: "sidebar.left")
-                }
-                Toggle(isOn: $widget.showsInBar) { Label("Bar (top / bottom)", systemImage: "menubar.rectangle") }
+        if !widget.kind.styles.isEmpty {
+            Section("Style") {
+                StylePicker(settings: $widget.settings)
             }
+        }
 
-            if !widget.kind.styles.isEmpty {
-                InspectorSection("Style") {
-                    StylePicker(settings: $widget.settings)
-                }
-            }
-
-            if widget.settings.hasBuilder {
-                InspectorSection("Blocks") {
-                    Text(
-                        "This widget is built from blocks. Arrange them, choose what each shows, and see it at "
-                            + "every size in its builder."
-                    )
-                    .inspectorFootnote()
-                    Button {
-                        windows.showBuilder(for: widget.id, title: "\(metadata.title) Builder")
-                    } label: {
-                        Label("Open Builder", systemImage: "square.stack.3d.up").frame(maxWidth: .infinity)
-                    }
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-
-            InspectorSection("Settings") {
+        if widget.kind.editorHasSections {
+            WidgetSettingsEditor(settings: $widget.settings)
+        } else {
+            Section("Settings") {
+                builderRow
                 WidgetSettingsEditor(settings: $widget.settings)
             }
+        }
 
-            InspectorSection("Preview") {
-                VStack(alignment: .leading, spacing: 12) {
-                    stage(.regular)
-                    HStack(alignment: .top, spacing: 12) {
-                        stage(.compact)
-                        stage(.minimal).frame(width: 84)
-                    }
-                    stage(.bar).frame(height: 56)
-                }
-            }
-
-            Button(role: .destructive, action: onRemove) {
-                Label("Remove from Panel", systemImage: "trash").frame(maxWidth: .infinity)
-            }
-            .controlSize(.large)
+        Section {
+            Button("Remove from Panel", role: .destructive, action: onRemove)
+                .frame(maxWidth: .infinity)
         }
     }
 
-    private func stage(_ layout: WidgetLayout) -> some View {
-        ZStack {
-            PreviewStage()
-            WidgetPreview(settings: widget.settings, layout: layout).padding(8)
+    @ViewBuilder
+    private var builderRow: some View {
+        if widget.settings.hasBuilder {
+            LabeledContent {
+                Button("Open Builder", systemImage: "square.stack.3d.up") {
+                    windows.showBuilder(for: widget.id, title: "\(widget.kind.metadata.title) Builder")
+                }
+            } label: {
+                InfoLabel("Blocks", info: "Arrange the blocks this widget is built from, and set each one's options.")
+            }
         }
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+/// The selected widget at one size, on the dark stage previews sit on.
+private struct WidgetInspectorPreview: View {
+    let settings: WidgetSettings
+    let layout: WidgetLayout
+
+    var body: some View {
+        WidgetPreview(settings: settings, layout: layout)
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .frame(height: layout.inspectorStageHeight)
+            .background(PreviewStage())
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+/// What the inspector shows, above its first section: an icon, a name and a line about it.
+private struct InspectorTitle<Icon: View, Accessories: View>: View {
+    let title: String
+    let subtitle: String
+    @ViewBuilder let icon: Icon
+    @ViewBuilder let accessories: Accessories
+
+    var body: some View {
+        HStack(spacing: 10) {
+            icon
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary)
+                    accessories
+                }
+                Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        }
+        .textCase(nil)
+        .padding(.bottom, 6)
     }
 }
 

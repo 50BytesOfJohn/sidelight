@@ -2,7 +2,7 @@ import SidelightCore
 import SwiftUI
 
 /// The inspector's style control: the current style with arrows to step through the others while watching the
-/// previews below, and a browser of them all. It stays this size however many styles a widget has.
+/// preview above, and a browser of them all. It stays this size however many styles a widget has.
 struct StylePicker: View {
     @Binding var settings: WidgetSettings
     @State private var isBrowsing = false
@@ -10,61 +10,37 @@ struct StylePicker: View {
     var body: some View {
         let styles = settings.kind.styles
         let index = styles.firstIndex { $0.id == settings.styleID } ?? 0
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Button {
-                    isBrowsing = true
-                } label: {
-                    current(styles[index], position: index + 1, of: styles.count)
-                }
-                .buttonStyle(.plain)
-                .help("Browse all styles")
-
-                ControlGroup {
-                    Button {
-                        step(by: -1, in: styles, from: index)
-                    } label: {
-                        Image(systemName: "chevron.left")
-                    }
-                    .help("Previous style")
-                    Button {
-                        step(by: 1, in: styles, from: index)
-                    } label: {
-                        Image(systemName: "chevron.right")
-                    }
-                    .help("Next style")
-                }
-                .controlSize(.small)
-                .fixedSize()
-            }
-
+        let style = styles[index]
+        HStack(spacing: 10) {
             Button {
                 isBrowsing = true
             } label: {
-                Label("Browse \(styles.count) Styles", systemImage: "square.grid.2x2").frame(maxWidth: .infinity)
+                StyleThumbnail(settings: settings)
             }
+            .buttonStyle(.plain)
+            .help("Browse all styles")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(style.title).font(.system(size: 13, weight: .semibold))
+                Text("\(style.family.title) · \(index + 1) of \(styles.count)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .help(style.summary)
+            Spacer(minLength: 4)
+            ControlGroup {
+                Button("Previous Style", systemImage: "chevron.left") { step(by: -1, in: styles, from: index) }
+                    .help("Previous style")
+                Button("Next Style", systemImage: "chevron.right") { step(by: 1, in: styles, from: index) }
+                    .help("Next style")
+            }
+            .labelStyle(.iconOnly)
+            .controlSize(.small)
+            .fixedSize()
         }
         .popover(isPresented: $isBrowsing, arrowEdge: .leading) {
             StyleBrowser(settings: $settings)
         }
-    }
-
-    private func current(_ style: WidgetStyle, position: Int, of count: Int) -> some View {
-        HStack(spacing: 10) {
-            StyleThumbnail(settings: settings)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(style.title).font(.system(size: 13, weight: .semibold))
-                Text(style.summary)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("\(style.family.title) · \(position) of \(count)")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
-            Spacer(minLength: 0)
-        }
-        .contentShape(Rectangle())
+        Button("Browse All \(styles.count) Styles…") { isBrowsing = true }
     }
 
     /// Wraps around at either end, like flipping through watch faces.

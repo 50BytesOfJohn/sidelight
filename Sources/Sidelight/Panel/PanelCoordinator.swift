@@ -32,6 +32,8 @@ final class PanelCoordinator: DetailsPresenting {
     @ObservationIgnored private var detailsPanel: DetailsPanelController?
     @ObservationIgnored private let pendingCover = DelayedTask()
     @ObservationIgnored private let pendingDetailsUnseen = DelayedTask()
+    /// Told with window avoidance whenever the strips change, so Sidelight's own windows move out of the way too.
+    @ObservationIgnored var onReservationsChanged: (_ settlingFor: Duration?) -> Void = { _ in }
 
     /// Long enough that Mission Control, or a screen blanking for a moment, doesn't stop and restart services.
     static let unseenDelay: Duration = .seconds(60)
@@ -266,6 +268,7 @@ final class PanelCoordinator: DetailsPresenting {
     /// panels have settled.
     private func reservationsChanged(from before: [PanelRegion], settlingFor delay: Duration? = nil) {
         environment.windowAvoider.reservationsChanged(from: before, settlingFor: delay)
+        onReservationsChanged(delay)
     }
 
     /// Whether `old` and `new` keep the same strips clear on every display.

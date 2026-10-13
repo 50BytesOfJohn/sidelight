@@ -67,6 +67,9 @@ struct OpenRouterKeyPicker: View {
 /// Saving or removing the management key Sidelight reads an account with, the same everywhere it's offered.
 struct OpenRouterKeyForm: View {
     let account: OpenRouterAccount
+    /// Rows titled "Management key", with the explanation behind this ⓘ, for the Widgets window. `nil` shows the
+    /// explanation under the form, as Settings does.
+    var info: String?
 
     var body: some View {
         Group {
@@ -88,16 +91,30 @@ struct OpenRouterKeyForm: View {
                 keyField
             } else {
                 switch account.hasKey {
+                case true? where info != nil:
+                    LabeledContent {
+                        HStack(spacing: 8) {
+                            Label("Saved", systemImage: "key.fill")
+                                .foregroundStyle(.secondary)
+                                .help("In your keychain, never in config.json")
+                            Button("Remove", role: .destructive) { account.removeKey() }.controlSize(.small)
+                        }
+                    } label: {
+                        title
+                    }
+                    unnotedSave
                 case true?:
                     HStack {
-                        Label("Management key saved in your keychain", systemImage: "key.fill").font(.callout)
+                        Label("Management key saved in your keychain", systemImage: "key.fill")
+                            .font(.callout)
                         Spacer()
                         Button("Remove", role: .destructive) { account.removeKey() }.controlSize(.small)
                     }
-                    if account.unnotedKeyChange == .save {
-                        SettingsCaption(
-                            "Sidelight couldn't note that this key replaces the one you removed: after it restarts, "
-                                + "it won't use it until you save it again.")
+                    unnotedSave
+                case false? where info != nil:
+                    VStack(alignment: .leading, spacing: 8) {
+                        title
+                        keyField
                     }
                 case false?:
                     keyField
@@ -105,15 +122,33 @@ struct OpenRouterKeyForm: View {
                     ProgressView().controlSize(.small)
                 }
             }
-            SettingsCaption(
-                "Only a management key can read an account's balance and spending. It can also create and delete "
-                    + "keys: Sidelight only ever reads with it, and keeps it in your keychain, never in config.json. "
-                    + "The model catalogue needs no key.")
+            if info == nil {
+                SettingsCaption(Self.explanation)
+            }
         }
         // A new form for another account: a key typed for one is never saved for another.
         .id(account.id)
         .onAppear { account.lookForKey() }
     }
+
+    @ViewBuilder
+    private var title: some View {
+        if let info { InfoLabel("Management key", info: info) }
+    }
+
+    @ViewBuilder
+    private var unnotedSave: some View {
+        if account.unnotedKeyChange == .save {
+            SettingsCaption(
+                "Sidelight couldn't note that this key replaces the one you removed: after it restarts, it won't use "
+                    + "it until you save it again.")
+        }
+    }
+
+    static let explanation =
+        "Only a management key can read an account's balance and spending. It can also create and delete keys: "
+        + "Sidelight only ever reads with it, and keeps it in your keychain, never in config.json. The model "
+        + "catalogue needs no key."
 
     /// Where a key is typed in and checked before it's saved.
     private var keyField: some View {

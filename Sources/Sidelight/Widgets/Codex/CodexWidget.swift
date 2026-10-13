@@ -6,7 +6,8 @@ extension WidgetMetadata {
         title: "Codex",
         systemImage: "chart.pie",
         tint: .orange,
-        summary: "Codex plan limits: what's left of the 5-hour and weekly windows, when they reset, and tokens per day."
+        summary: "Codex plan limits and tokens",
+        details: "What's left of the 5-hour and weekly windows, when they reset, and tokens per day."
     )
 }
 
@@ -23,28 +24,26 @@ struct CodexSettingsEditor: View {
     @Binding var settings: CodexSettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Limits show", selection: $settings.limitReading) {
-                ForEach(CodexSettings.LimitReading.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            SettingsCaption(
-                settings.limitReading == .remaining
-                    ? "Like Codex's /status. Meters drain as you use Codex, and their tick drains with the window's "
-                        + "time: a meter that falls short of its tick runs out before the reset."
-                    : "Like the Claude Code and Cursor widgets. Meters fill as you use Codex, and their tick moves "
-                        + "with the window's time: a meter that passes its tick runs out before the reset."
-            )
+        Picker(selection: $settings.limitReading) {
+            ForEach(CodexSettings.LimitReading.allCases) { Text($0.title).tag($0) }
+        } label: {
+            InfoLabel(
+                "Limits show",
+                info: settings.limitReading == .remaining
+                    ? "Like Codex's /status. Meters drain as you use Codex, and the tick drains with the window's "
+                        + "time. A meter below its tick runs out before the reset."
+                    : "Like the Claude Code and Cursor widgets. Meters fill as you use Codex, and the tick moves with "
+                        + "the window's time. A meter past its tick runs out before the reset.")
         }
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Show weekly limit", isOn: $settings.showsWeeklyLimit)
-            SettingsCaption("A plan with a single limit always shows it.")
+        .pickerStyle(.segmented)
+        Toggle(isOn: $settings.showsWeeklyLimit) {
+            InfoLabel("Show weekly limit", info: "A plan with a single limit always shows it.")
         }
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Show token history", isOn: $settings.showsTokenHistory)
-            SettingsCaption("Tokens per day over two weeks and in total in the regular layout, and today's in compact.")
+        Toggle(isOn: $settings.showsTokenHistory) {
+            InfoLabel(
+                "Show token history",
+                info: "Regular cards show tokens per day for two weeks and the total. Compact cards show today's.")
         }
-        Divider()
         CodexSourceStatus()
     }
 }
@@ -54,14 +53,7 @@ struct CodexSourceStatus: View {
     @Environment(CodexService.self) private var codex
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            status
-            SettingsCaption(
-                "Reads your plan's usage through the Codex CLI (codex app-server), signed in as Codex is, with "
-                    + "read-only requests. Without it, the limits come from Codex's session logs on this Mac and "
-                    + "update when Codex runs."
-            )
-        }
+        status
     }
 
     private var status: some View {
@@ -71,6 +63,10 @@ struct CodexSourceStatus: View {
                 color: statusColor(state, now: now), text: statusText(state, now: now), alignment: .firstTextBaseline
             ) {
                 Spacer(minLength: 4)
+                InfoButton(
+                    "Reads your plan's usage through the Codex CLI (codex app-server), signed in as Codex is, with "
+                        + "read-only requests. Without the CLI, limits come from Codex's session logs on this Mac "
+                        + "and update when Codex runs.")
                 RefreshButton(help: "Ask Codex now", isDisabled: state.source == .off) { codex.refreshNow() }
             }
         }

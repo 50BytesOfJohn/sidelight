@@ -6,7 +6,8 @@ extension WidgetMetadata {
         title: "Next events",
         systemImage: "calendar",
         tint: .red,
-        summary: "Upcoming events today and tomorrow (EventKit)."
+        summary: "Today's and tomorrow's events",
+        details: "Reads the calendars on this Mac. Sidelight asks for access the first time."
     )
 }
 

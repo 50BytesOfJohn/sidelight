@@ -6,7 +6,8 @@ extension WidgetMetadata {
         title: "Now playing",
         systemImage: "music.note",
         tint: .pink,
-        summary: "Track, artist and artwork via media-control."
+        summary: "The track that's playing",
+        details: "Track, artist and artwork, read with media-control."
     )
 }
 

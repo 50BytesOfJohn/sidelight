@@ -7,8 +7,9 @@ extension WidgetMetadata {
         title: "OpenRouter",
         systemImage: "sparkles.rectangle.stack.fill",
         tint: .indigo,
-        summary: "The newest models on OpenRouter, or any list of them, and your accounts' balances and spending. "
-            + "Built from blocks; only balances need a key.",
+        summary: "New models, balances and spending",
+        details: "The newest models on OpenRouter, or any list of them, and your accounts' balances and spending. "
+            + "Built from blocks. Only balances need a key.",
         isBeta: true
     )
 }

@@ -1,43 +1,65 @@
 import SidelightCore
 import SwiftUI
 
-/// Every widget kind, previewed live with real data at the chosen layout.
+/// Every widget kind, previewed live with real data at the chosen layout, grouped by category.
 struct GalleryColumn: View {
-    @Binding var previewLayout: WidgetLayout
+    /// `nil` shows every category, each under its own heading.
+    let category: WidgetCategory?
+    /// Words every shown kind matches, in its name, summary, details or category. Empty shows them all.
+    let search: String
+    let previewLayout: WidgetLayout
     @Binding var selection: ManagerSelection?
     @Environment(ConfigurationStore.self) private var store
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                ColumnHeader(
-                    title: "Gallery",
-                    subtitle:
-                        "Live previews with real data. Add with + (next to the selection) or drag a tile into your panel."
-                )
-                Spacer()
-                Picker("Preview size", selection: $previewLayout.animation(Motion.layout)) {
-                    ForEach(WidgetLayout.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 300)
+        let configuration = store.configuration
+        // Read once here and handed down, so editing the configuration redraws only the tiles it changes.
+        let appearance = CardAppearance(configuration.appearance).forPreview
+        let instances = Dictionary(grouping: configuration.widgets, by: \.kind)
+        let tile = { (kind: WidgetKind) in
+            GalleryTile(
+                kind: kind, layout: previewLayout, appearance: appearance, placed: instances[kind] ?? []
+            ) {
+                add(kind)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 34)
-            .padding(.bottom, 12)
+            .equatable()
+        }
+        let categories = (category.map { [$0] } ?? WidgetCategory.allCases)
+            .map { ($0, $0.kinds.filter { $0.matches(search) }) }
+            .filter { !$0.1.isEmpty }
+        if categories.isEmpty {
+            ContentUnavailableView.search(text: search)
+        } else {
+            grid(categories, tile: tile)
+        }
+    }
 
-            ScrollView {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: previewLayout.galleryTileMinimumWidth), spacing: 14)],
-                    spacing: 14
-                ) {
-                    ForEach(WidgetKind.allCases) { kind in
-                        GalleryTile(kind: kind, previewLayout: previewLayout) { add(kind) }
+    private func grid<Tile: View>(
+        _ categories: [(WidgetCategory, [WidgetKind])], tile: @escaping (WidgetKind) -> Tile
+    ) -> some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: previewLayout.galleryTileMinimumWidth), spacing: 16)],
+                alignment: .leading,
+                spacing: 16
+            ) {
+                // One category needs no heading: the toolbar names it.
+                if category != nil, let (_, kinds) = categories.first {
+                    ForEach(kinds, content: tile)
+                } else {
+                    ForEach(categories, id: \.0) { category, kinds in
+                        Section {
+                            ForEach(kinds, content: tile)
+                        } header: {
+                            Text(category.title)
+                                .font(.title3.weight(.semibold))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, category == categories.first?.0 ? 0 : 12)
+                        }
                     }
                 }
-                .padding(20)
             }
+            .padding(20)
         }
     }
 
@@ -48,67 +70,85 @@ struct GalleryColumn: View {
     }
 }
 
-private struct GalleryTile: View {
+extension WidgetCategory {
+    var kinds: [WidgetKind] { WidgetKind.allCases.filter { $0.category == self } }
+}
+
+extension WidgetKind {
+    /// Whether every word of `search` is in the kind's name, summary, details or category, ignoring case and
+    /// accents: "claude limits" finds Claude Code and AI Usage.
+    func matches(_ search: String) -> Bool {
+        let metadata = self.metadata
+        let text = [metadata.title, metadata.summary, metadata.details ?? "", category.title].joined(separator: " ")
+        return search.split(whereSeparator: \.isWhitespace).allSatisfy {
+            text.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+    }
+}
+
+/// One widget kind: its live preview, name and summary, and a button to add it. Drag it into the sidebar to add it
+/// at a particular place.
+private struct GalleryTile: View, Equatable {
     let kind: WidgetKind
-    let previewLayout: WidgetLayout
+    let layout: WidgetLayout
+    let appearance: CardAppearance
+    /// The panel's widgets of this kind. The preview uses the first one's settings.
+    let placed: [WidgetInstance]
     let onAdd: () -> Void
-    @Environment(ConfigurationStore.self) private var store
     @State private var isHovered = false
 
-    private var instances: [WidgetInstance] { store.configuration.widgets.filter { $0.kind == kind } }
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.kind == rhs.kind && lhs.layout == rhs.layout && lhs.appearance == rhs.appearance
+            && lhs.placed.first?.settings == rhs.placed.first?.settings && lhs.placed.count == rhs.placed.count
+    }
 
     var body: some View {
         let metadata = kind.metadata
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         VStack(spacing: 0) {
-            ZStack {
-                PreviewStage()
-                // Preview with the settings of the first instance in the panel, if there is one.
-                WidgetPreview(settings: instances.first?.settings ?? .defaults(for: kind), layout: previewLayout)
+            PreviewStage()
+                .overlay {
+                    CenteredUnlessTaller(margin: 16) {
+                        WidgetPreview(
+                            settings: placed.first?.settings ?? .defaults(for: kind), layout: layout,
+                            appearance: appearance
+                        )
+                    }
                     .allowsHitTesting(false)
-            }
-            .frame(height: previewLayout.galleryStageHeight)
-            .clipped()
+                }
+                .frame(height: layout.galleryStageHeight)
+                .clipped()
 
-            HStack(alignment: .center, spacing: 10) {
-                metadata.iconTile(size: 28)
-                VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 10) {
+                metadata.iconTile(size: 26)
+                VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(metadata.title).font(.system(size: 13, weight: .semibold))
+                        Text(metadata.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                         if metadata.isBeta { BetaBadge() }
-                        if !instances.isEmpty {
-                            Text(instances.count == 1 ? "Added" : "Added ×\(instances.count)")
-                                .font(.system(size: 9.5, weight: .semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1.5)
-                                .background(Capsule().fill(.green.opacity(0.18)))
-                                .foregroundStyle(.green)
+                        if !placed.isEmpty {
+                            TagBadge(title: placed.count == 1 ? "Added" : "Added ×\(placed.count)", tint: .green)
                         }
                     }
-                    Text(metadata.summary).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(2)
-                    if kind.styles.count > 1 {
-                        Label("\(kind.styles.count) styles", systemImage: "swatchpalette")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.tertiary)
-                    }
+                    Text(metadata.summary)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 4)
-                Button(action: onAdd) {
-                    Image(systemName: "plus").font(.system(size: 13, weight: .bold)).frame(width: 28, height: 28)
-                }
-                .buttonStyle(.glass)
-                .clipShape(Circle())
-                .help("Add \(metadata.title) to the panel")
-                .accessibilityLabel("Add \(metadata.title)")
+                Button("Add \(metadata.title)", systemImage: "plus", action: onAdd)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .help("Add to your panel, after the selected widget")
             }
-            .padding(12)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
         }
-        .background(shape.fill(Color(nsColor: .controlBackgroundColor)))
+        .background(Color(nsColor: .controlBackgroundColor), in: shape)
         .clipShape(shape)
-        .overlay(shape.strokeBorder(Color.primary.opacity(isHovered ? 0.18 : 0.08), lineWidth: 1))
-        .shadow(color: .black.opacity(isHovered ? 0.22 : 0.08), radius: isHovered ? 14 : 5, y: isHovered ? 6 : 2)
-        .scaleEffect(isHovered ? 1.015 : 1)
-        .onHover { hovering in withAnimation(Motion.snappy) { isHovered = hovering } }
+        .overlay(shape.strokeBorder(Color.primary.opacity(isHovered ? 0.2 : 0.08), lineWidth: 1))
+        .onHover { hovering in withAnimation(Motion.hover) { isHovered = hovering } }
+        .help(metadata.details ?? metadata.summary)
         .draggable(kind.rawValue) {
             HStack {
                 metadata.iconTile(size: 24)
@@ -117,5 +157,22 @@ private struct GalleryTile: View {
             .padding(8)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
         }
+    }
+}
+
+/// Centers its one view, or, when the view is taller than the space, pins it `margin` from the top so a tall widget
+/// shows its head rather than its middle.
+private struct CenteredUnlessTaller: Layout {
+    let margin: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let view = subviews.first else { return }
+        let size = view.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+        let y = size.height + 2 * margin > bounds.height ? bounds.minY + margin : bounds.midY - size.height / 2
+        view.place(at: CGPoint(x: bounds.midX, y: y), anchor: .top, proposal: ProposedViewSize(size))
     }
 }
