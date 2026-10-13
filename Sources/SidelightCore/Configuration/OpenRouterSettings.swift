@@ -387,6 +387,17 @@ public struct OpenRouterDemand: Equatable, Sendable {
     /// Whether anything needs the account's credential.
     public var needsAccount: Bool { balance != nil || !activity.isEmpty }
 
+    /// Only what widgets of `kinds` need: the catalogue for Models widgets, the account for Credits widgets.
+    public func limited(to kinds: Set<WidgetKind>) -> OpenRouterDemand {
+        var demand = self
+        if !kinds.contains(.openRouterModels) { demand.catalogue = nil }
+        if !kinds.contains(.openRouterCredits) {
+            demand.balance = nil
+            demand.activity = [:]
+        }
+        return demand
+    }
+
     public mutating func merge(_ other: OpenRouterDemand) {
         catalogue = catalogue.merged(with: other.catalogue)
         balance = balance.merged(with: other.balance)
@@ -428,10 +439,13 @@ public struct ShownPanel: Hashable, Sendable {
 extension AppConfiguration {
     /// What the OpenRouter widgets on `panels` need.
     ///
-    /// While `previewsEveryWidget` (the Widgets window or the builder is open), the Models widgets in the configuration
-    /// count too, so their previews show the live public catalogue. Credits previews never do: they show an example,
-    /// and never read the key or ask OpenRouter about the account. Widgets not in the configuration never count.
-    public func openRouterDemand(panels: [ShownPanel], previewsEveryWidget: Bool = false) -> OpenRouterDemand {
+    /// While `previewsEveryWidget` (the Widgets window is open), the Models widgets in the configuration count too, so
+    /// their previews show the live public catalogue; otherwise only those `previewing` lists (the one a builder
+    /// edits). Credits previews never do: they show an example, and never read the key or ask OpenRouter about the
+    /// account. Widgets not in the configuration never count.
+    public func openRouterDemand(
+        panels: [ShownPanel], previewsEveryWidget: Bool = false, previewing: Set<WidgetInstance.ID> = []
+    ) -> OpenRouterDemand {
         var demand = OpenRouterDemand(
             keepsAccountData: widgets.contains { $0.kind == .openRouterCredits })
         for panel in panels {
@@ -439,8 +453,8 @@ extension AppConfiguration {
                 demand.add(widget, showsCharts: panel.showsCharts)
             }
         }
-        if previewsEveryWidget {
-            for case .openRouterModels(let settings) in widgets.map(\.settings) {
+        for widget in widgets where previewsEveryWidget || previewing.contains(widget.id) {
+            if case .openRouterModels(let settings) = widget.settings {
                 demand.catalogue = demand.catalogue.merged(with: settings.sync)
             }
         }

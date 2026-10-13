@@ -23,10 +23,12 @@ public enum HTTP {
         return URLSession(configuration: configuration)
     }()
 
-    /// Sends `request`; throws when no response came back at all.
+    /// Sends `request`; throws when no response came back at all. `delegate` may refuse redirects.
     @concurrent
-    public static func send(_ request: URLRequest) async throws -> Response {
-        let (body, response) = try await session.data(for: request)
+    public static func send(
+        _ request: URLRequest, delegate: (any URLSessionTaskDelegate)? = nil
+    ) async throws -> Response {
+        let (body, response) = try await session.data(for: request, delegate: delegate)
         let http = response as? HTTPURLResponse
         var headers: [String: String] = [:]
         for (key, value) in http?.allHeaderFields ?? [:] {

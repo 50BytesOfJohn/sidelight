@@ -98,11 +98,18 @@ final class RemoteResource<Value, Problem: Equatable> {
     /// Fetches as soon as allowed: right away, or once ``manualGap`` has passed since the last fetch, or once the
     /// provider allows. Ignored during a fetch, and while nothing needs the resource.
     func refreshNow() {
-        guard policy != nil, !isFetching else { return }
+        guard let delay = refreshDelay else { return }
+        start(after: delay)
+    }
+
+    /// How long ``refreshNow()`` would wait before fetching: `.zero` to fetch right away, `nil` when it would do
+    /// nothing (during a fetch, and while nothing needs the resource).
+    var refreshDelay: Duration? {
+        guard policy != nil, !isFetching else { return nil }
         let instant = ContinuousClock.now
         var earliest = lastAttempt.map { $0 + manualGap } ?? instant
         if let notBefore, notBefore > earliest { earliest = notBefore }
-        start(after: max(.zero, earliest - instant))
+        return max(.zero, earliest - instant)
     }
 
     /// Forgets the value and every past fetch, as for a different account: what was fetched no longer applies. A

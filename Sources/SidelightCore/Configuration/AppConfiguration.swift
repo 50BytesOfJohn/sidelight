@@ -52,9 +52,11 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
 
     /// What the data services have to do for the panels at `positions`. While `previewsEveryWidget` (the Widgets
     /// window shows a live preview of every kind, and of every widget in the configuration), all of them run, and
-    /// every widget's opt-ins count, shown or hidden.
+    /// every widget's opt-ins count, shown or hidden. Otherwise the widgets `previewing` lists (the one a builder
+    /// edits) count too, shown or hidden; nothing else is previewed.
     public func serviceDemand(
-        at positions: some Sequence<PanelPosition>, previewsEveryWidget: Bool = false
+        at positions: some Sequence<PanelPosition>, previewsEveryWidget: Bool = false,
+        previewing: Set<WidgetInstance.ID> = []
     ) -> ServiceDemand {
         let placed = Set(widgets.map(\.kind))
         guard !previewsEveryWidget else {
@@ -64,7 +66,8 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
                 kinds: Set(WidgetKind.allCases), placedKinds: placed, usage: usage,
                 railway: ServiceDemand.railwayNeeds(of: widgets), sessions: Set(AgentProvider.allCases))
         }
-        let visible = visibleWidgets(at: positions)
+        let shown = Set(visibleWidgets(at: positions).map(\.id)).union(previewing)
+        let visible = widgets.filter { shown.contains($0.id) }
         return ServiceDemand(
             kinds: Set(visible.map(\.kind)), placedKinds: placed, usage: UsageServiceDemand(widgets: visible),
             railway: ServiceDemand.railwayNeeds(of: visible), sessions: ServiceDemand.sessionProviders(of: visible))
@@ -128,6 +131,35 @@ public struct ServiceDemand: Equatable, Sendable {
         self.usage = usage
         self.railway = railway
         self.sessions = sessions ?? Self.sessionProviders(of: kinds)
+    }
+
+    /// Only what widgets of `kinds` need: services that only other kinds of widget use don't run, previews
+    /// included. Codex, Claude Code and Cursor usage run for their own widgets and AI Usage; Claude Code and Codex
+    /// sessions for their own widgets and Agent sessions, which alone lists Cursor's and OpenCode's.
+    public func limited(to kinds: Set<WidgetKind>) -> ServiceDemand {
+        var demand = self
+        demand.kinds.formIntersection(kinds)
+        demand.placedKinds.formIntersection(kinds)
+        demand.usage.providers = usage.providers.filter { provider in
+            let kind: WidgetKind =
+                switch provider {
+                case .codex: .codex
+                case .claudeCode: .claudeCode
+                case .cursor: .cursor
+                }
+            return kinds.contains(kind) || kinds.contains(.aiUsage)
+        }
+        demand.sessions = sessions.filter { provider in
+            let kind: WidgetKind? =
+                switch provider {
+                case .claudeCode: .claudeSessions
+                case .codex: .codexSessions
+                case .cursor, .openCode: nil
+                }
+            return kinds.contains(.agentSessions) || (kind.map { kinds.contains($0) } ?? false)
+        }
+        if !kinds.contains(.railway) { demand.railway = [:] }
+        return demand
     }
 
     /// The agents whose sessions `widgets` list.

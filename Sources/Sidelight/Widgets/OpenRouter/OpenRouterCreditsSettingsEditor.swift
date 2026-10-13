@@ -73,8 +73,10 @@ private struct OpenRouterKeyPicker: View {
                 Text("\(chart.keyName ?? "Chosen key") (not listed)").tag(Optional(hash))
             }
         }
-        .disabled(service.hasKey != true)
-        .onAppear { service.loadKeysIfNeeded() }
+        .disabled(!service.canUseKey)
+        // Keys load while a picker is on screen, and stop loading once none is.
+        .onAppear { service.keyPickerAppeared() }
+        .onDisappear { service.keyPickerDisappeared() }
         HStack(spacing: 8) {
             if list.isLoading {
                 ProgressView().controlSize(.small)
@@ -82,6 +84,9 @@ private struct OpenRouterKeyPicker: View {
                 Button("Try Again") { service.retryKeys() }.controlSize(.small)
             } else if list.hasMore {
                 Button("Load More Keys") { service.loadMoreKeys() }.controlSize(.small)
+            } else if list.fetchedAt == nil, list.problem == nil, service.canUseKey {
+                // Nothing loaded yet, and nothing loading.
+                Button("Load Keys") { service.retryKeys() }.controlSize(.small)
             }
             if let problem = list.problem {
                 Text(problem.title).font(.caption).foregroundStyle(.orange)
@@ -126,13 +131,18 @@ struct OpenRouterKeyForm: View {
             if service.keyRemovalFailed {
                 // Whatever the keychain still holds isn't used; this says so whether or not it can be read.
                 HStack {
-                    Label("Couldn't remove the key from your keychain", systemImage: "exclamationmark.triangle.fill")
+                    Label("A removed key is still in your keychain", systemImage: "exclamationmark.triangle.fill")
                         .font(.callout)
                         .foregroundStyle(.orange)
                     Spacer()
                     Button("Remove Again", role: .destructive) { service.removeKey() }.controlSize(.small)
                 }
-                SettingsCaption("Sidelight isn't using it. Remove it again, or save a key to replace it.")
+                SettingsCaption(
+                    service.unnotedKeyChange == .removal
+                        ? "Sidelight isn't using it now, but couldn't note that you removed it: after it restarts, it "
+                            + "would use it again. Remove it again, or save a key to replace it."
+                        : "The keychain couldn't delete it. Sidelight isn't using it, even after it restarts. Remove "
+                            + "it again, or save a key to replace it.")
                 keyField
             } else {
                 switch service.hasKey {
@@ -141,6 +151,11 @@ struct OpenRouterKeyForm: View {
                         Label("Management key saved in your keychain", systemImage: "key.fill").font(.callout)
                         Spacer()
                         Button("Remove", role: .destructive) { service.removeKey() }.controlSize(.small)
+                    }
+                    if service.unnotedKeyChange == .save {
+                        SettingsCaption(
+                            "Sidelight couldn't note that this key replaces the one you removed: after it restarts, "
+                                + "it won't use it until you save it again.")
                     }
                 case false?:
                     keyField

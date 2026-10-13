@@ -71,6 +71,9 @@ public struct WindowBaselines: Equatable, Sendable {
 /// - A strip that replaces one on another edge (a bar giving way to a details panel on the left), or the same panel
 ///   resizing, frees the old strip as it takes the new one: a window the old strip moved and nobody touched since
 ///   starts from where it was before, so it moves once, straight to its place.
+/// - Only the details panel opening gives windows a way back to before it. Moving it during its session (its panel
+///   changed sides) keeps the ways back windows already had, and gives none to the others it pushes: they can still
+///   follow its edge when it closes.
 ///
 /// All rects use Accessibility coordinates, as ``AvoidanceGeometry`` does.
 public enum ReservationTransition {
@@ -156,10 +159,13 @@ public enum ReservationTransition {
         // Where the window would be without the old strip, when the new one frees it: from there, it moves once.
         var start = window
         var kept = ours ?? WindowBaselines(accepted: window)
+        // The details panel moving during its session (its panel changed sides) gives no window a way back to before
+        // the session: one without it was opened or moved during the session, and was never anywhere before it.
+        let isSameSession = old?.role == .details && new.role == .details
         if let old, let ours, let before = ours[old.role], freesOldStrip(from: old, to: new) {
             start = before
-            kept[new.role] = kept[new.role] ?? before
-        } else {
+            if !isSameSession { kept[new.role] = kept[new.role] ?? before }
+        } else if !isSameSession {
             kept[new.role] = kept[new.role] ?? window
         }
 

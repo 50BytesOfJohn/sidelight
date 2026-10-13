@@ -12,6 +12,8 @@ final class AppController {
     private let panels: PanelCoordinator
     private var statusItem: StatusItemController?
     private var observations: [Task<Void, Never>] = []
+    /// The kinds of widget whose data services may run; `nil` for every kind.
+    private let serviceKinds: Set<WidgetKind>?
 
     private var store: ConfigurationStore { environment.configurationStore }
 
@@ -48,6 +50,7 @@ final class AppController {
             updater: Updater()
         )
         self.environment = environment
+        serviceKinds = composition.serviceKinds
         windows = WindowCoordinator(environment: environment)
         panels = PanelCoordinator(environment: environment)
     }
@@ -118,18 +121,21 @@ final class AppController {
         var openRouter: OpenRouterDemand
     }
 
-    /// Runs each data service only while a widget that needs it is visible on some display, or while the manager
-    /// window (which previews every widget) is open. Panels hidden with the shortcut show nothing, so they need
-    /// nothing; nor do panels nobody has seen for a minute, on a sleeping or locked screen, nor a panel the details
-    /// panel has stood in for a few seconds. Codex, Claude Code and Cursor are each needed by their own widget and by
-    /// an AI Usage widget showing them; they run once for all of them, and fetch on a timer only as often as the most
-    /// frequent of those that opted in asks. The details panel needs only what it shows, while it can be seen: it's
-    /// watched on its own, as the panel it covers is ordered out on purpose.
+    /// Runs each data service only while a widget that needs it is visible on some display, while the manager
+    /// window (which previews every widget) is open, or while the builder previews it. Panels hidden with the
+    /// shortcut show nothing, so they need nothing; nor do panels nobody has seen for a minute, on a sleeping or
+    /// locked screen, nor a panel the details panel has stood in for a few seconds. Codex, Claude Code and Cursor are
+    /// each needed by their own widget and by an AI Usage widget showing them; they run once for all of them, and
+    /// fetch on a timer only as often as the most frequent of those that opted in asks. The details panel needs only
+    /// what it shows, while it can be seen: it's watched on its own, as the panel it covers is ordered out on
+    /// purpose. A composition limited to some kinds of widget runs only their services, whatever is shown or
+    /// previewed.
     private func observeServiceDemand() {
         let store = store
         let windows = windows
         let monitor = environment.displays
         let coordinator = panels
+        let kinds = serviceKinds
         observations.append(
             Task { [weak self] in
                 let demand = Observations {
@@ -142,19 +148,21 @@ final class AppController {
                     let panels = displays.map { (display: $0, panel: $0.panel(in: configuration)) }
                         .filter { $0.panel.showsPanel }
                     let previews = windows.previewsEveryWidget
+                    let previewed = Set([windows.builderWidgetID].compactMap(\.self))
                     let shown = panels.map {
                         ShownPanel(
                             position: $0.panel.position,
                             density: PanelMetrics.columns(of: $0.panel, on: $0.display).density)
                     }
-                    var openRouter = configuration.openRouterDemand(panels: shown, previewsEveryWidget: previews)
+                    var openRouter = configuration.openRouterDemand(
+                        panels: shown, previewsEveryWidget: previews, previewing: previewed)
                     if !coordinator.isHidden, !coordinator.isDetailsUnseen, let details = coordinator.details {
                         openRouter.merge(details.openRouterDemand(in: configuration))
                     }
-                    return Demand(
-                        services: configuration.serviceDemand(
-                            at: panels.map(\.panel.position), previewsEveryWidget: previews),
-                        openRouter: openRouter)
+                    let services = configuration.serviceDemand(
+                        at: panels.map(\.panel.position), previewsEveryWidget: previews, previewing: previewed)
+                    guard let kinds else { return Demand(services: services, openRouter: openRouter) }
+                    return Demand(services: services.limited(to: kinds), openRouter: openRouter.limited(to: kinds))
                 }
                 for await demand in demand {
                     self?.runServices(for: demand.services)

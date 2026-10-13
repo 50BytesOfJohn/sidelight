@@ -29,10 +29,12 @@ struct OpenRouterKeyList: Equatable {
 ///
 /// Every request made with the key (balance, spending, the key list) shares one pace: once OpenRouter asks to wait,
 /// none is sent before it allows, once it rejects the key, none is sent with it again until a key is saved, and
-/// someone's clicks (refresh, more keys) ask at most once per ``manualActionGap`` between them.
+/// someone's clicks (refresh, more keys) are sent at most once per ``manualActionGap`` between them.
 ///
-/// Removing the key stops its use at once. Whether it's still stored is a separate matter: if the keychain can't
-/// delete it, Settings says so, and it stays unused until it's removed or a key is saved again.
+/// Removing the key stops its use at once, and for good: the removal is noted outside the keychain before the
+/// keychain is asked to delete the key, so a key it couldn't delete isn't used after a restart either. Whether it's
+/// still stored is a separate matter: Settings says so, and it stays unused until it's removed or a key is saved
+/// again.
 @Observable
 final class OpenRouterService: DataService {
     /// Sends a request and returns OpenRouter's answer; throws when no answer came back at all.
@@ -56,10 +58,25 @@ final class OpenRouterService: DataService {
     private(set) var activities: [OpenRouterSpendScope: RemoteResource<OpenRouterActivity, OpenRouterProblem>] = [:]
     /// Whether a management key is saved; `nil` until the keychain has been looked at.
     private(set) var hasKey: Bool?
-    /// Removing the key from the keychain failed: it may still be saved, but isn't used. Removing it again or saving
-    /// a key ends this.
+    /// The keychain still holds a key someone removed (it couldn't delete it): it isn't used. Removing it again or
+    /// saving a key ends this.
     private(set) var keyRemovalFailed = false
+    /// A change to the key that couldn't be noted outside the keychain, so it won't outlast a restart.
+    private(set) var unnotedKeyChange: UnnotedKeyChange?
     private(set) var keyList = OpenRouterKeyList()
+
+    /// A change to the key that Sidelight couldn't note outside the keychain.
+    enum UnnotedKeyChange: Equatable {
+        /// The key was removed but is still in the keychain, and the removal couldn't be noted: once Sidelight
+        /// restarts, it uses that key again.
+        case removal
+        /// A key was saved, but an earlier removal is still noted: once Sidelight restarts, it doesn't use the key
+        /// until it's saved again.
+        case save
+    }
+
+    /// Whether the account can be read now: a key is saved, and isn't one someone removed.
+    var canUseKey: Bool { hasKey == true && !keyRemovalFailed }
 
     /// What the widgets on screen need. Set from the configuration.
     var demand = OpenRouterDemand() {
@@ -74,12 +91,14 @@ final class OpenRouterService: DataService {
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var isEnabled = false
     /// Reading the key, once; everything that needs it waits for this one read.
-    @ObservationIgnored private var keyLoad: Task<String?, Never>?
-    /// The last change to the keychain item. Each waits for the one before, so a removal still under way can't
-    /// delete a key saved after it. `nil` from a write that was skipped.
-    @ObservationIgnored private var keyWrite: Task<Bool?, Never>?
-    /// Counts saves and removals, so a save that a later one overtook while OpenRouter checked it changes nothing.
-    @ObservationIgnored private var keyChanges = 0
+    @ObservationIgnored private var keyLoad: Task<StoredKey, Never>?
+    /// The last change to the key: saving it or removing it, in the keychain and in the note of its removal. Each
+    /// waits for the one before, so a removal still under way can't delete a key saved after it.
+    @ObservationIgnored private var keyOperation: Task<OpenRouterProblem?, Never>?
+    /// Counts the saves and removals asked for, so a save that a later one overtook before its turn writes nothing.
+    @ObservationIgnored private var keyRequests = 0
+    /// Counts the removals asked for: a key saved while one was asked for isn't used.
+    @ObservationIgnored private var keyRemovals = 0
     /// Bumped whenever the key changes: an answer fetched with the old key is dropped rather than shown.
     @ObservationIgnored private var keyGeneration = 0
     /// Someone removed the key, and hasn't saved one since: whatever the keychain still holds isn't used.
@@ -87,15 +106,18 @@ final class OpenRouterService: DataService {
     /// What OpenRouter said about asking with the current key, for every request made with it.
     @ObservationIgnored private var pacing = AccountPacing()
     @ObservationIgnored private var keyListTask: Task<Void, Never>?
-    /// Bumped whenever the key list is forgotten: a page still loading then is dropped.
+    /// Bumped whenever loading keys stops: a page still loading then is dropped.
     @ObservationIgnored private var keyListGeneration = 0
-    /// Clicks that came within ``manualActionGap`` of the last, run together once it's over.
-    @ObservationIgnored private var pendingManualActions: [() -> Void] = []
-    @ObservationIgnored private let manualActionWait = DelayedTask()
+    /// Key pickers on screen. Pages of keys load for them only: once none is left, loading stops.
+    @ObservationIgnored private var keyPickers = 0
+    /// Clicks waiting for their turn, at most one of each.
+    @ObservationIgnored private var pendingRequests: [ManualRequest] = []
+    @ObservationIgnored private let manualRequestWait = DelayedTask()
 
     /// - Parameters:
     ///   - transport: How requests are sent: `HTTP.send`, unless a test stands in for OpenRouter.
-    ///   - keyStore: Where the management key is kept: Sidelight's keychain item, unless a test stands in for it.
+    ///   - keyStore: Where the management key and its removal are kept: Sidelight's keychain item, unless a test
+    ///     stands in for it.
     ///   - now: The wall clock, for UTC days and ages.
     init(
         transport: @escaping Transport = { try await HTTP.send($0) }, keyStore: OpenRouterKeyStore = .keychain,
@@ -132,42 +154,79 @@ final class OpenRouterService: DataService {
     }
 
     /// Fetches the balance now, and the spending for `scope` if a day ended since or it failed: one click, so both
-    /// go together. Never sooner than OpenRouter allows or ``manualActionGap`` after the last click, and not at all
-    /// with a key it rejected.
+    /// go together. Never sooner than OpenRouter allows or ``manualActionGap`` after the last click's requests, and
+    /// not at all with a key it rejected.
     func refreshAccount(scope: OpenRouterSpendScope?) {
-        performManualAction { [weak self] in
-            guard let self else { return }
-            balance.refreshNow()
-            guard let scope, let activity = activities[scope] else { return }
-            if activity.problem != nil || activity.value.map({ $0.isBehind(at: now()) }) ?? true {
-                activity.refreshNow()
-            }
-        }
+        queue(.account(scope))
     }
 
-    /// Runs `action`, someone's request with the key, now; or, within ``manualActionGap`` of the last one, once the
-    /// gap is over, together with any others that came meanwhile.
-    private func performManualAction(_ action: @escaping () -> Void) {
-        let wait = pacing.manualWait(gap: Self.manualActionGap)
-        guard wait > .zero else {
-            pacing.manualActionTaken()
-            action()
+    /// Someone's click that asks OpenRouter with the key.
+    private enum ManualRequest: Equatable {
+        /// The balance, and the spending for a scope if it's due.
+        case account(OpenRouterSpendScope?)
+        /// The next page of keys; the first again if it failed.
+        case keys
+    }
+
+    /// Sends `request` once it may go, unless the same one is already waiting.
+    private func queue(_ request: ManualRequest) {
+        if !pendingRequests.contains(request) { pendingRequests.append(request) }
+        sendManualRequests()
+    }
+
+    /// Sends the waiting click that can go soonest, if it can go now, and otherwise waits until it can. A click goes
+    /// ``manualActionGap`` after the last one was sent, and once all it fetches would actually be fetched: a resource
+    /// can wait longer of its own. Its requests go together. One with nothing left to fetch is dropped.
+    private func sendManualRequests() {
+        manualRequestWait.cancel()
+        pendingRequests.removeAll { delay(of: $0) == nil }
+        let gap = pacing.manualWait(gap: Self.manualActionGap)
+        let waits = pendingRequests.map { max(gap, delay(of: $0) ?? .zero) }
+        guard let wait = waits.min(), let index = waits.firstIndex(of: wait) else { return }
+        guard wait <= .zero else {
+            // Checked again then: a click may have gone meanwhile, or what it fetches may have changed.
+            manualRequestWait.schedule(after: wait) { [weak self] in self?.sendManualRequests() }
             return
         }
-        pendingManualActions.append(action)
-        manualActionWait.schedule(after: wait) { [weak self] in
-            guard let self else { return }
-            let actions = pendingManualActions
-            pendingManualActions = []
-            pacing.manualActionTaken()
-            for action in actions { action() }
+        send(pendingRequests.remove(at: index))
+        pacing.manualRequestSent()
+        sendManualRequests()
+    }
+
+    /// How long until everything `request` fetches can be fetched; `nil` when there's nothing left to fetch.
+    private func delay(of request: ManualRequest) -> Duration? {
+        switch request {
+        case .account(let scope):
+            [balance.refreshDelay, scope.flatMap(dueActivity)?.refreshDelay].compactMap(\.self).max()
+        case .keys:
+            keyList.isLoading ? nil : .zero
         }
     }
 
-    /// Drops clicks still waiting for the gap: the key or the account's data they were for is gone.
-    private func dropPendingManualActions() {
-        pendingManualActions = []
-        manualActionWait.cancel()
+    private func send(_ request: ManualRequest) {
+        switch request {
+        case .account(let scope):
+            balance.refreshNow()
+            scope.flatMap(dueActivity)?.refreshNow()
+        case .keys:
+            // Not even the first page loaded: start over, its failure forgotten.
+            if keyList.fetchedAt == nil { forgetKeyList() }
+            loadNextKeyPage()
+        }
+    }
+
+    /// The spending for `scope`, when a click should fetch it: a day ended since it was fetched, or it failed.
+    private func dueActivity(_ scope: OpenRouterSpendScope) -> RemoteResource<OpenRouterActivity, OpenRouterProblem>? {
+        guard let activity = activities[scope],
+            activity.problem != nil || activity.value.map({ $0.isBehind(at: now()) }) ?? true
+        else { return nil }
+        return activity
+    }
+
+    /// Drops clicks still waiting: the key or the account's data they were for is gone.
+    private func dropManualRequests() {
+        pendingRequests = []
+        manualRequestWait.cancel()
     }
 
     // MARK: Demand
@@ -177,11 +236,10 @@ final class OpenRouterService: DataService {
             catalogue.policy = nil
             balance.policy = nil
             for activity in activities.values { activity.policy = nil }
-            keyListTask?.cancel()
-            keyListTask = nil
-            keyListGeneration += 1
-            if keyList.isLoading { keyList.isLoading = false }
-            dropPendingManualActions()
+            // A key picker on screen still needs its keys, even with no widget showing.
+            if keyPickers == 0 { stopLoadingKeys() }
+            // Refresh clicks have nothing left to fetch, and are dropped.
+            sendManualRequests()
             if !demand.keepsAccountData { forgetAccountData() }
             return
         }
@@ -202,7 +260,7 @@ final class OpenRouterService: DataService {
     /// and failures, whether or not anything was ever fetched. The key stays saved. Safe to call any number of times.
     private func forgetAccountData() {
         forgetKeyList()
-        dropPendingManualActions()
+        dropManualRequests()
         if balance.value != nil || balance.problem != nil || balance.isFetching { balance.reset() }
         if !activities.isEmpty {
             for activity in activities.values { activity.policy = nil }
@@ -216,6 +274,18 @@ final class OpenRouterService: DataService {
         keyListTask = nil
         keyListGeneration += 1
         if keyList != OpenRouterKeyList() { keyList = OpenRouterKeyList() }
+    }
+
+    /// Stops loading keys, dropping a page still loading and clicks for more; the keys loaded so far stay.
+    private func stopLoadingKeys() {
+        keyListTask?.cancel()
+        keyListTask = nil
+        keyListGeneration += 1
+        if keyList.isLoading { keyList.isLoading = false }
+        if pendingRequests.contains(.keys) {
+            pendingRequests.removeAll { $0 == .keys }
+            sendManualRequests()
+        }
     }
 
     private static func policy(_ cadence: RefreshCadence) -> RefreshPolicy {
@@ -363,59 +433,91 @@ final class OpenRouterService: DataService {
     /// key can read the account's balance and spending.
     ///
     /// Checking it asks OpenRouter once with the candidate itself, whatever the saved key's pace: it's a different
-    /// key, and someone just asked. A save cancelled while it's checked, or overtaken by a newer save or removal
-    /// before its turn to be written, writes and reports nothing.
+    /// key, and someone just asked. A save cancelled before its turn to be written, or overtaken by a newer save or
+    /// removal by then, writes and reports nothing. Once written, it's the keychain's key, but a removal asked for
+    /// meanwhile still keeps it from being used. A save that fails changes nothing: a key someone removed stays unused.
     func saveKey(_ candidate: String) async -> OpenRouterProblem? {
         let key = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return .noKey }
-        keyChanges += 1
-        let change = keyChanges
+        keyRequests += 1
+        let request = keyRequests
+        let removals = keyRemovals
         if let problem = await checkManagementKey(key) { return problem }
-        guard !Task.isCancelled, change == keyChanges else { return nil }
+        guard !Task.isCancelled, request == keyRequests else { return nil }
         let store = keyStore
-        let write = queueKeyWrite(
-            onlyIf: { [weak self] in self?.keyChanges == change },
-            { await store.save(key) })
-        // Skipped: a newer change came before its turn.
-        guard let saved = await write.value else { return nil }
-        // A removal or save since queued its own write after this one, and shows its own result.
-        guard change == keyChanges else { return nil }
-        guard saved else { return .keychain }
-        keyLoad = Task { key }
-        hasKey = true
-        isKeyWithdrawn = false
-        keyRemovalFailed = false
-        keyChanged()
-        Log.openRouter.info("Saved an OpenRouter management key")
-        return nil
+        let operation = queueKeyOperation { [weak self] in
+            // Whoever saved it gave up, or a newer save or removal came, before its turn: nothing is written.
+            guard let self, !Task.isCancelled, request == keyRequests else { return nil }
+            guard await store.save(key) else {
+                Log.openRouter.error("Couldn't save the OpenRouter management key in the keychain")
+                return .keychain
+            }
+            // In the keychain now, whoever gave up meanwhile: an earlier removal no longer applies to it.
+            let forgotRemoval = await store.removal.note(false)
+            if !forgotRemoval {
+                Log.openRouter.error("Saved an OpenRouter management key, but couldn't forget an earlier removal")
+            }
+            // Removed again while it was written: that removal deletes it next, and meanwhile it isn't used.
+            guard removals == keyRemovals else { return nil }
+            keyLoad = Task { StoredKey.key(key) }
+            hasKey = true
+            isKeyWithdrawn = false
+            keyRemovalFailed = false
+            unnotedKeyChange = forgotRemoval ? nil : .save
+            keyChanged()
+            Log.openRouter.info("Saved an OpenRouter management key")
+            return nil
+        }
+        // Cancelling the save cancels its turn: one not yet written never is. One under way can't be undone.
+        return await withTaskCancellationHandler {
+            await operation.value
+        } onCancel: {
+            operation.cancel()
+        }
     }
 
     /// Removes the saved key, and everything it showed. Sidelight stops using it right away, whatever happens in
-    /// the keychain: if it can't delete the key, ``keyRemovalFailed`` says so, and the key still isn't used. Only
-    /// removing it again or saving a key changes that. What OpenRouter said about the key (a rejection, a wait)
-    /// still holds meanwhile.
+    /// the keychain, and notes the removal before the keychain is asked to delete it, so a key it couldn't delete
+    /// isn't used after a restart either. ``keyRemovalFailed`` then says it's still there; only removing it again or
+    /// saving a key changes that. What OpenRouter said about the key (a rejection, a wait) still holds meanwhile.
     func removeKey() {
-        keyChanges += 1
-        let change = keyChanges
+        keyRequests += 1
+        keyRemovals += 1
+        let removal = keyRemovals
         isKeyWithdrawn = true
-        keyLoad = Task { nil }
+        keyLoad = nil
         hasKey = false
         keyRemovalFailed = false
+        unnotedKeyChange = nil
         forgetKeyData()
         let store = keyStore
-        let write = queueKeyWrite { await store.delete() }
-        Task { [weak self] in
-            let removed = await write.value
-            // A save or removal since shows its own result.
-            guard let self, change == keyChanges else { return }
-            guard removed != true else {
-                Log.openRouter.info("Removed the OpenRouter management key")
-                return
-            }
+        _ = queueKeyOperation { [weak self] in
+            let noted = await store.removal.note(true)
+            let deleted = await store.delete()
+            // Gone: nothing left to keep from use. Should forgetting the note fail, saving a key forgets it.
+            if deleted { _ = await store.removal.note(false) }
+            self?.removalFinished(removal, deleted: deleted, noted: noted)
+            return nil
+        }
+    }
+
+    private func removalFinished(_ removal: Int, deleted: Bool, noted: Bool) {
+        // Removed again since: that removal shows its own result. A save asked for since comes after this, and
+        // shows its own.
+        guard removal == keyRemovals else { return }
+        guard !deleted else {
+            Log.openRouter.info("Removed the OpenRouter management key")
+            return
+        }
+        // Still stored, as far as anyone knows, but not used: it was asked to go.
+        keyRemovalFailed = true
+        hasKey = true
+        if noted {
             Log.openRouter.error("Couldn't remove the OpenRouter management key from the keychain")
-            // Still stored, as far as anyone knows, but not used: it was asked to go.
-            keyRemovalFailed = true
-            hasKey = true
+        } else {
+            unnotedKeyChange = .removal
+            Log.openRouter.error(
+                "Couldn't remove the OpenRouter management key from the keychain, nor note that it was removed")
         }
     }
 
@@ -448,10 +550,11 @@ final class OpenRouterService: DataService {
     }
 
     /// A key was saved: everything the old one showed goes before the new one shows anything, and what OpenRouter said
-    /// about the old key no longer holds.
+    /// about the old key no longer holds. A key picker on screen lists the keys again, with the new one.
     private func keyChanged() {
         pacing = AccountPacing()
         forgetKeyData()
+        if keyPickers > 0 { loadNextKeyPage() }
     }
 
     /// Everything the key showed goes, and answers still on their way are dropped. Resources still needed fetch
@@ -459,43 +562,83 @@ final class OpenRouterService: DataService {
     private func forgetKeyData() {
         keyGeneration += 1
         forgetKeyList()
-        dropPendingManualActions()
+        dropManualRequests()
         balance.reset()
         for activity in activities.values { activity.reset() }
     }
 
-    /// The key to use: the saved one, read from the keychain the first time; `nil` without one, or once someone
-    /// removed it, even if the keychain still holds it.
-    private func managementKey() async -> String? {
-        guard !isKeyWithdrawn else { return nil }
-        let store = keyStore
-        let load = keyLoad ?? Task { await store.read() }
-        keyLoad = load
-        let key = await load.value
-        // Saved or removed during this read: the newer answer stands.
-        guard keyLoad == load else { return await managementKey() }
-        if hasKey != (key != nil) { hasKey = key != nil }
-        return key
+    /// What the keychain holds, as far as Sidelight may use it.
+    private enum StoredKey {
+        case key(String)
+        case missing
+        /// Someone removed the key, and hasn't saved one since: the keychain may still hold it, but it isn't used.
+        case removed(isStillStored: Bool)
     }
 
-    /// Queues a change to the keychain item, made once the change before it is done, and only if `shouldWrite` still
-    /// says so then; the task's value is `nil` when it was skipped.
-    private func queueKeyWrite(
-        onlyIf shouldWrite: @escaping @MainActor () -> Bool = { true }, _ write: @escaping @Sendable () async -> Bool
-    ) -> Task<Bool?, Never> {
-        let previous = keyWrite
-        let task = Task { () -> Bool? in
-            _ = await previous?.value
-            guard shouldWrite() else { return nil }
-            return await write()
+    /// The key to use: the saved one, read from the keychain the first time; `nil` without one, or once someone
+    /// removed it, even if the keychain still holds it, and even if that was before Sidelight last quit.
+    private func managementKey() async -> String? {
+        guard !isKeyWithdrawn else { return nil }
+        let load = keyLoad ?? readStoredKey()
+        keyLoad = load
+        let stored = await load.value
+        // Saved or removed during this read: the newer answer stands.
+        guard keyLoad == load else { return await managementKey() }
+        switch stored {
+        case .key(let key):
+            if hasKey != true { hasKey = true }
+            return key
+        case .missing:
+            if hasKey != false { hasKey = false }
+            return nil
+        case .removed(let isStillStored):
+            isKeyWithdrawn = true
+            if hasKey != isStillStored { hasKey = isStillStored }
+            if keyRemovalFailed != isStillStored { keyRemovalFailed = isStillStored }
+            return nil
         }
-        keyWrite = task
+    }
+
+    private func readStoredKey() -> Task<StoredKey, Never> {
+        let store = keyStore
+        return Task {
+            // A removal is noted: the keychain is only asked whether it still holds the key, to say so.
+            if await store.removal.isNoted() { return .removed(isStillStored: await store.read() != nil) }
+            return await store.read().map(StoredKey.key) ?? .missing
+        }
+    }
+
+    /// Queues `operation` on the key, to run once the one before it is done: the key and the note of its removal
+    /// change one operation at a time, in the order asked. Cancelling the task it returns cancels the operation;
+    /// it checks for that before it changes anything.
+    private func queueKeyOperation(
+        _ operation: @escaping @MainActor () async -> OpenRouterProblem?
+    ) -> Task<OpenRouterProblem?, Never> {
+        let previous = keyOperation
+        let task = Task {
+            _ = await previous?.value
+            return await operation()
+        }
+        keyOperation = task
         return task
     }
 
     // MARK: Key picker
 
-    /// Loads the first page of keys, unless it was loaded lately.
+    /// A key picker appeared: it loads the first page of keys, unless it was loaded lately, and keeps loading keys
+    /// until the last picker disappears.
+    func keyPickerAppeared() {
+        keyPickers += 1
+        loadKeysIfNeeded()
+    }
+
+    /// A key picker disappeared. With none left, a page still loading is dropped, and so are clicks for more; the
+    /// keys loaded so far stay.
+    func keyPickerDisappeared() {
+        keyPickers = max(0, keyPickers - 1)
+        if keyPickers == 0 { stopLoadingKeys() }
+    }
+
     /// Loads the first page of keys as the picker appears, unless it was loaded lately. After a failure, only
     /// ``retryKeys()`` tries again, so showing the picker again doesn't.
     func loadKeysIfNeeded() {
@@ -507,18 +650,12 @@ final class OpenRouterService: DataService {
 
     /// Loads the next page of keys, up to ``maximumKeyPages`` pages: someone's click, so paced like a refresh.
     func loadMoreKeys() {
-        performManualAction { [weak self] in self?.loadNextKeyPage() }
+        queue(.keys)
     }
 
-    /// Tries the key list again after it failed: the first page, or the one that failed.
+    /// Loads the keys again after they failed, or before any loaded: the first page, or the one that failed.
     func retryKeys() {
-        performManualAction { [weak self] in
-            guard let self else { return }
-            if keyList.fetchedAt == nil {
-                forgetKeyList()
-            }
-            loadNextKeyPage()
-        }
+        queue(.keys)
     }
 
     private func loadNextKeyPage() {
@@ -577,23 +714,23 @@ final class OpenRouterService: DataService {
 }
 
 /// What OpenRouter said about asking with one key, whatever was asked: when it allows the next request, and whether
-/// it rejected the key; and when someone last asked. Forgotten when a key is saved.
+/// it rejected the key; and when someone's click last sent requests. Forgotten when a key is saved.
 private struct AccountPacing {
     /// OpenRouter asked not to be asked again before this.
     private var notBefore: ContinuousClock.Instant?
     /// OpenRouter rejected the key (401), or what it may read (403): asking again with it can't help.
     private var rejection: OpenRouterProblem?
-    /// Someone's last refresh or page of keys.
-    private var lastManualAction: ContinuousClock.Instant?
+    /// When someone's last refresh or page of keys was sent.
+    private var lastManualRequest: ContinuousClock.Instant?
 
-    /// How long until someone's next request may go, `gap` after their last one.
+    /// How long until someone's next click may send requests, `gap` after their last one did.
     func manualWait(gap: Duration) -> Duration {
-        guard let lastManualAction else { return .zero }
-        return max(.zero, lastManualAction + gap - .now)
+        guard let lastManualRequest else { return .zero }
+        return max(.zero, lastManualRequest + gap - .now)
     }
 
-    mutating func manualActionTaken() {
-        lastManualAction = .now
+    mutating func manualRequestSent() {
+        lastManualRequest = .now
     }
 
     mutating func record(_ problem: OpenRouterProblem, retry: RetryAdvice, at now: Date) {
