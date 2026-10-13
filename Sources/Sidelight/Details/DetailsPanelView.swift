@@ -25,6 +25,10 @@ struct DetailsPanelView: View {
                 cutout: DesktopCutout(
                     displayID: placement.displayID, screen: placement.screenFrame,
                     rect: placement.frame.insetBy(dx: margin, dy: margin), anchor: .center))
+            // macOS passes mouse events through a window's fully transparent pixels to the app behind, so with no
+            // background, scrolling between two rows would scroll that app instead. This fill is too faint to see,
+            // but it makes every point of the panel its own.
+            shape.fill(Color.black.opacity(0.01))
             VStack(spacing: 0) {
                 DetailsHeader(title: content.title, metadata: content.kind.metadata, close: close)
                 DetailsContentView(content: content)
@@ -36,7 +40,8 @@ struct DetailsPanelView: View {
         .padding(margin)
         // Its content sits straight on its background, never on cards: the text is chosen for that background.
         .environment(
-            \.colorScheme, appearance.colorScheme(system: systemColorScheme, imageURL: imageURL, onCards: false))
+            \.colorScheme, appearance.colorScheme(system: systemColorScheme, imageURL: imageURL, onCards: false)
+        )
         // Stops minute redraws while it's hidden with the panels, or nobody can see it.
         .environment(\.isPanelShown, layout.isOnScreen)
         .accessibilityElement(children: .contain)

@@ -171,7 +171,7 @@ public struct ServiceDemand: Equatable, Sendable {
             case .codexSessions: providers.insert(.codex)
             case .agentSessions(let settings): providers.formUnion(settings.providers)
             case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .system, .noodleComputer,
-                .railway, .openRouterCredits, .openRouterModels:
+                .railway, .openRouter:
                 break
             }
         }
@@ -230,7 +230,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 claudeMinutes += [settings.claudeRefreshMinutesIfOptedIn].compactMap(\.self)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
             case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway,
-                .agentSessions, .openRouterCredits, .openRouterModels:
+                .agentSessions, .openRouter:
                 break
             }
         }

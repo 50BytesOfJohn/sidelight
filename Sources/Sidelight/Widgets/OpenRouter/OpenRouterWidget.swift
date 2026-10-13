@@ -3,28 +3,40 @@ import SidelightCore
 import SwiftUI
 
 extension WidgetMetadata {
-    static let openRouterModels = WidgetMetadata(
-        title: "OpenRouter Models",
+    static let openRouter = WidgetMetadata(
+        title: "OpenRouter",
         systemImage: "sparkles.rectangle.stack.fill",
         tint: .indigo,
-        summary: "The newest models on OpenRouter, or any list of them, with prices and context. No key needed. "
-            + "Built from blocks.",
-        isBeta: true,
-        family: "OpenRouter"
+        summary: "The newest models on OpenRouter, or any list of them, and your accounts' balances and spending. "
+            + "Built from blocks; only balances need a key.",
+        isBeta: true
     )
 }
 
-extension OpenRouterModelsSettings {
+extension OpenRouterSettings {
     /// The Widgets window's one-line description. Not ``summary``, the Summary block's options.
     var layoutSummary: String {
+        if let preset { return "\(preset.title) · \(syncSummary)" }
         let lists = shownLists.count
-        let layout = preset?.title ?? (lists == 1 ? "1 list" : "\(lists) lists")
-        let sync = sync.minutes.map(OpenRouterModelsSettings.syncTitle) ?? "Synced manually"
-        return "\(layout) · \(sync)"
+        let balances = shownBalances.count
+        var parts: [String] = []
+        if balances > 0 { parts.append(balances == 1 ? "1 balance" : "\(balances) balances") }
+        if lists > 0 { parts.append(lists == 1 ? "1 list" : "\(lists) lists") }
+        if parts.isEmpty { parts.append(blocks.isShown(.summary) ? "Summary" : "No blocks") }
+        if showsCatalogue { parts.append(syncSummary) }
+        return parts.joined(separator: " · ")
     }
 
-    /// `Every 15 minutes`, `Every hour`, `Every 6 hours`.
+    private var syncSummary: String {
+        sync.minutes.map(OpenRouterSettings.syncTitle) ?? "Synced manually"
+    }
+
+    /// `Every 15 minutes`, `Every hour`, `Every 6 hours`, `Every day`.
     static func syncTitle(minutes: Int) -> String {
+        if minutes % 1440 == 0 {
+            let days = minutes / 1440
+            return days == 1 ? "Every day" : "Every \(days) days"
+        }
         if minutes % 60 == 0 {
             let hours = minutes / 60
             return hours == 1 ? "Every hour" : "Every \(hours) hours"
@@ -35,8 +47,8 @@ extension OpenRouterModelsSettings {
 
 // MARK: - Widget
 
-struct OpenRouterModelsWidgetView: View {
-    let settings: OpenRouterModelsSettings
+struct OpenRouterWidgetView: View {
+    let settings: OpenRouterSettings
     let layout: WidgetLayout
     @Environment(OpenRouterService.self) private var service
     @Environment(DetailsPresenter.self) private var details
@@ -45,24 +57,82 @@ struct OpenRouterModelsWidgetView: View {
 
     var body: some View {
         WidgetClock { now in
-            content(now: now)
+            switch layout {
+            case .regular, .compact: blocks(now: now)
+            case .minimal, .bar: glance(now: now)
+            }
         }
     }
 
+    /// The catalogue to show: the one fetched, or in the Widgets window and the builder, until a widget that's been
+    /// added has fetched it, a few models as OpenRouter listed them.
+    private func catalogue(now: Date) -> OpenRouterCatalogue? {
+        service.catalogue.value ?? (isPreview ? .sample(at: now) : nil)
+    }
+
+    /// The account a Balance block reads. Previews read none: they show an example.
+    private func account(_ id: UUID, _ options: OpenRouterBalanceOptions) -> OpenRouterAccount? {
+        guard let placement else { return nil }
+        return service.account(options.account(widget: placement.widgetID, block: id))
+    }
+
+    // MARK: Blocks
+
     @ViewBuilder
-    private func content(now: Date) -> some View {
+    private func blocks(now: Date) -> some View {
+        let catalogue = catalogue(now: now)
+        let blocks = shownBlocks(hasCatalogue: catalogue != nil)
+        if blocks.isEmpty {
+            WidgetMessage(
+                title: "No blocks shown", detail: "Choose blocks in this widget's builder.",
+                systemImage: "square.stack.3d.up", layout: layout)
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(blocks.enumerated()), id: \.element) { index, block in
+                    if index > 0 {
+                        HairlineDivider()
+                            .padding(.vertical, layout == .regular ? 10 : 7)
+                    }
+                    view(for: block, catalogue: catalogue, now: now)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .animation(Motion.layout, value: blocks)
+        }
+    }
+
+    /// The blocks to draw. Without a catalogue, the first block that shows models says why, once, for all of them.
+    private func shownBlocks(hasCatalogue: Bool) -> [OpenRouterBlock] {
+        let blocks = settings.blocks.shownBlocks
+        guard !hasCatalogue else { return blocks }
+        let first = blocks.first(where: \.showsCatalogue)
+        return blocks.filter { !$0.showsCatalogue || $0 == first }
+    }
+
+    @ViewBuilder
+    private func view(for block: OpenRouterBlock, catalogue: OpenRouterCatalogue?, now: Date) -> some View {
+        switch block {
+        case .balance(let id):
+            let options = settings.balanceOptions(id)
+            OpenRouterBalanceBlock(options: options, account: account(id, options), layout: layout, now: now)
+        case .summary, .list:
+            if let catalogue {
+                OpenRouterCatalogueBlocks(
+                    catalogue: catalogue, settings: settings, layout: layout, now: now, sync: sync(catalogue),
+                    open: open
+                )
+                .view(for: block)
+            } else {
+                catalogueMessage
+            }
+        }
+    }
+
+    /// Why there are no models to show yet.
+    @ViewBuilder
+    private var catalogueMessage: some View {
         let resource = service.catalogue
-        if isPreview {
-            // The Widgets window and the builder: the public catalogue once it's fetched for a widget that's been
-            // added, and until then a few models as OpenRouter listed them. Nothing to refresh or open there.
-            OpenRouterModelsContent(
-                catalogue: resource.value ?? .sample(at: now), settings: settings, layout: layout, now: now,
-                problem: nil, isFetching: false, refresh: nil, open: nil)
-        } else if let catalogue = resource.value {
-            OpenRouterModelsContent(
-                catalogue: catalogue, settings: settings, layout: layout, now: now, problem: resource.problem,
-                isFetching: resource.isFetching, refresh: service.refreshCatalogue, open: open)
-        } else if let problem = resource.problem {
+        if let problem = resource.problem {
             WidgetMessage(
                 title: "Catalogue unavailable", detail: "\(problem.title). \(problem.advice)",
                 systemImage: "exclamationmark.triangle", layout: layout,
@@ -74,66 +144,71 @@ struct OpenRouterModelsWidgetView: View {
         }
     }
 
+    /// When the catalogue was synced, and how to sync it now; previews never fetch.
+    private func sync(_ catalogue: OpenRouterCatalogue) -> OpenRouterSyncState {
+        let resource = service.catalogue
+        return isPreview
+            ? OpenRouterSyncState(syncedAt: catalogue.fetchedAt, problem: nil, isFetching: false, refresh: nil)
+            : OpenRouterSyncState(
+                syncedAt: catalogue.fetchedAt, problem: resource.problem, isFetching: resource.isFetching,
+                refresh: service.refreshCatalogue)
+    }
+
     /// Opens the whole catalogue in the details panel, in place of this panel. Only from a real panel: previews
     /// have no placement.
     private var open: ((DetailsRequest) -> Void)? {
-        guard let placement else { return nil }
+        guard let placement, !isPreview else { return nil }
         return { [details] request in details.open(request, from: placement) }
+    }
+
+    // MARK: Glance
+
+    @ViewBuilder
+    private func glance(now: Date) -> some View {
+        switch settings.resolvedGlance {
+        case .balance:
+            if let (id, options) = settings.glanceBalance {
+                OpenRouterBalanceBlock(options: options, account: account(id, options), layout: layout, now: now)
+            } else {
+                WidgetMessage(
+                    title: "No Balance block", detail: "Add one in this widget's builder, or show a model instead.",
+                    systemImage: "creditcard", layout: layout)
+            }
+        case .automatic, .newest, .count:
+            if let catalogue = catalogue(now: now) {
+                OpenRouterCatalogueBlocks(
+                    catalogue: catalogue, settings: settings, layout: layout, now: now, sync: sync(catalogue),
+                    open: open
+                )
+                .glance
+            } else {
+                catalogueMessage
+            }
+        }
     }
 }
 
-/// A Models widget's blocks for one catalogue.
-private struct OpenRouterModelsContent: View {
+/// The blocks and glances that show the model catalogue, for one catalogue.
+private struct OpenRouterCatalogueBlocks {
     let catalogue: OpenRouterCatalogue
-    let settings: OpenRouterModelsSettings
+    let settings: OpenRouterSettings
     let layout: WidgetLayout
     let now: Date
-    /// Why the last sync failed, while showing an older catalogue.
-    let problem: OpenRouterProblem?
-    let isFetching: Bool
-    /// `nil` in previews, which never fetch.
-    let refresh: (() -> Void)?
+    let sync: OpenRouterSyncState
     /// `nil` where no details panel can open: previews.
     let open: ((DetailsRequest) -> Void)?
 
-    var body: some View {
-        switch layout {
-        case .regular, .compact:
-            let blocks = settings.blocks.shownBlocks
-            if blocks.isEmpty {
-                WidgetMessage(
-                    title: "No blocks shown", detail: "Choose blocks in this widget's builder.",
-                    systemImage: "square.stack.3d.up", layout: layout)
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(blocks.enumerated()), id: \.element) { index, block in
-                        if index > 0 {
-                            HairlineDivider()
-                                .padding(.vertical, layout == .regular ? 10 : 7)
-                        }
-                        view(for: block, refreshesHere: block == firstListShowingRefresh)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                }
-                .animation(Motion.layout, value: blocks)
-            }
-        case .minimal, .bar:
-            glance
-        }
-    }
+    /// Why the last sync failed, while showing an older catalogue.
+    private var problem: OpenRouterProblem? { sync.problem }
 
     /// Without the summary, the first list carries the refresh button.
-    private var firstListShowingRefresh: OpenRouterModelsBlock? {
+    private var firstListShowingRefresh: OpenRouterBlock? {
         guard !settings.blocks.isShown(.summary) else { return nil }
         return settings.shownLists.first.map { .list($0.id) }
     }
 
-    private var sync: OpenRouterSyncState {
-        OpenRouterSyncState(syncedAt: catalogue.fetchedAt, problem: problem, isFetching: isFetching, refresh: refresh)
-    }
-
     @ViewBuilder
-    private func view(for block: OpenRouterModelsBlock, refreshesHere: Bool) -> some View {
+    func view(for block: OpenRouterBlock) -> some View {
         let isCompact = layout == .compact
         switch block {
         case .summary:
@@ -149,20 +224,22 @@ private struct OpenRouterModelsContent: View {
                 title: options.title,
                 models: catalogue.models(options.filter, sortedBy: options.sort, limit: rows),
                 total: catalogue.count(options.filter), options: options, isCompact: isCompact, now: now,
-                sync: refreshesHere ? sync : nil, open: openList)
+                sync: block == firstListShowingRefresh ? sync : nil, open: openList)
+        case .balance:
+            EmptyView()
         }
     }
 
     // MARK: Glance
 
     @ViewBuilder
-    private var glance: some View {
+    var glance: some View {
         let filter = settings.glanceFilter
         let request = DetailsRequest.openRouterModels(filter: filter, sort: .latestAdded)
         let content = Group {
-            switch settings.glance {
-            case .newest: newestGlance(catalogue.newest(filter))
+            switch settings.resolvedGlance {
             case .count: countGlance(catalogue.count(filter))
+            case .automatic, .newest, .balance: newestGlance(catalogue.newest(filter))
             }
         }
         .opacity(problem == nil ? 1 : 0.6)

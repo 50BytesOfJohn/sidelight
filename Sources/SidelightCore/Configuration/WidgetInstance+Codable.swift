@@ -25,8 +25,7 @@ extension WidgetInstance: Codable {
             case .noodleComputer: .noodleComputer(try container.decode(.settings, or: .init()))
             case .railway: .railway(try container.decode(.settings, or: .init()))
             case .agentSessions: .agentSessions(try container.decode(.settings, or: .init()))
-            case .openRouterCredits: .openRouterCredits(try container.decode(.settings, or: .init()))
-            case .openRouterModels: .openRouterModels(try container.decode(.settings, or: .init()))
+            case .openRouter: .openRouter(try container.decode(.settings, or: .init()))
             }
         self.init(
             id: try container.decode(UUID.self, forKey: .id),
@@ -55,8 +54,7 @@ extension WidgetInstance: Codable {
         case .noodleComputer(let settings): try container.encode(settings, forKey: .settings)
         case .railway(let settings): try container.encode(settings, forKey: .settings)
         case .agentSessions(let settings): try container.encode(settings, forKey: .settings)
-        case .openRouterCredits(let settings): try container.encode(settings, forKey: .settings)
-        case .openRouterModels(let settings): try container.encode(settings, forKey: .settings)
+        case .openRouter(let settings): try container.encode(settings, forKey: .settings)
         case .nowPlaying: break
         }
     }

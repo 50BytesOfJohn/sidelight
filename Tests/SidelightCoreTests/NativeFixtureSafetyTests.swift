@@ -15,7 +15,7 @@ struct NativeFixtureSafetyTests {
         #expect(configuration.windowAvoidance == .off)
         #expect(configuration.displays.isEmpty)
         #expect(!configuration.widgets.isEmpty)
-        #expect(configuration.widgets.allSatisfy { $0.kind == .openRouterModels || $0.kind == .openRouterCredits })
+        #expect(configuration.widgets.allSatisfy { $0.kind == .openRouter })
         #expect(configuration.openRouterDemand(panels: []).needsAccount == false)
         #expect(!configuration.appearance.background.color.isAnimated)
     }

@@ -99,7 +99,7 @@ final class RailwayService: DataService {
         case .failure(let problem), .success(.failure(let problem)): return problem
         case .success(.success):
             guard change == tokenChanges else { return nil }
-            guard await writeToken({ await Self.storeToken(token) }).value else {
+            guard await writeToken({ await KeychainItem.railwayToken.save(token) }).value else {
                 return .refused(message: "Couldn't save to the keychain")
             }
             // A removal or save since queued its own write after this one, and already showed its result.
@@ -120,7 +120,7 @@ final class RailwayService: DataService {
         hasToken = false
         token.reset()
         apply()
-        writeToken { await Self.deleteToken() }
+        writeToken { await KeychainItem.railwayToken.delete() }
     }
 
     /// Queues a change to the keychain item, made once the change before it is done.
@@ -171,7 +171,7 @@ final class RailwayService: DataService {
 
     /// The saved token, read from the keychain the first time.
     private func loadToken() async -> String? {
-        let load = tokenLoad ?? Task { await Self.readToken() }
+        let load = tokenLoad ?? Task { await KeychainItem.railwayToken.read() }
         tokenLoad = load
         let token = await load.value
         // Saved or removed while this read: the newer answer stands.
@@ -225,18 +225,6 @@ final class RailwayService: DataService {
             await group.next()
             group.cancelAll()
         }
-    }
-
-    @concurrent
-    private static func readToken() async -> String? { RailwayTokenStore.read() }
-
-    @concurrent
-    private static func storeToken(_ token: String) async -> Bool { RailwayTokenStore.save(token) }
-
-    @concurrent
-    private static func deleteToken() async -> Bool {
-        RailwayTokenStore.delete()
-        return true
     }
 }
 

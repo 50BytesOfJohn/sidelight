@@ -41,7 +41,7 @@ final class AppController {
             noodleComputer: NoodleComputerService(),
             railway: RailwayService(),
             openRouter: OpenRouterService(
-                transport: composition.openRouterTransport, keyStore: composition.openRouterKeyStore),
+                transport: composition.openRouterTransport, keys: composition.openRouterKeys),
             details: DetailsPresenter(),
             hotkeys: HotkeyCenter(),
             windowAvoider: WindowAvoider(includes: composition.movesWindows),
@@ -172,8 +172,8 @@ final class AppController {
         )
     }
 
-    /// One service for both OpenRouter widgets and the catalogue's details panel. Only placed widgets count, so the
-    /// gallery's previews never fetch, and previews of Credits never read the key.
+    /// One service for every OpenRouter widget and the catalogue's details panel. Only placed widgets count, so the
+    /// gallery's previews never fetch, and previews of balances never read a key.
     private func runOpenRouter(for demand: OpenRouterDemand) {
         environment.openRouter.demand = demand
         environment.openRouter.setRunning(!demand.isEmpty)
@@ -215,7 +215,7 @@ final class AppController {
                 environment.railway.needs = demand.railway
                 environment.railway.setRunning(isNeeded && !demand.railway.isEmpty)
             // Theirs goes by the OpenRouter demand, which also counts the details panel.
-            case .openRouterCredits, .openRouterModels: break
+            case .openRouter: break
             }
         }
     }

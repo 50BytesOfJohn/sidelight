@@ -1,69 +1,14 @@
 import SidelightCore
 import SwiftUI
 
-/// The Widgets window's settings for an OpenRouter Credits widget: the account's key, how often to ask, and the
-/// chart.
-struct OpenRouterCreditsSettingsEditor: View {
-    @Binding var settings: OpenRouterCreditsSettings
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            OpenRouterKeyForm()
-        }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Refresh", selection: $settings.refresh) {
-                Text("Manually").tag(RefreshCadence.manual)
-                ForEach(refreshChoices, id: \.self) { minutes in
-                    Text("Every \(minutes) minutes").tag(RefreshCadence.minutes(minutes))
-                }
-            }
-            SettingsCaption(
-                settings.refresh == .manual
-                    ? "Fetched once, then whenever you click refresh."
-                    : "Only while the widget is on screen. Spending changes once a day, so it's fetched after "
-                        + "midnight UTC.")
-        }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Show spending by day", isOn: $settings.chart.isShown)
-            if settings.chart.isShown {
-                Picker("Days", selection: $settings.chart.days) {
-                    ForEach(dayChoices, id: \.self) { Text("\($0) days").tag($0) }
-                }
-                .pickerStyle(.segmented)
-                Picker("Spending of", selection: $settings.chart.scope) {
-                    Text("The account").tag(OpenRouterChartScope.account)
-                    Text("One key").tag(OpenRouterChartScope.key)
-                }
-                if settings.chart.scope == .key {
-                    OpenRouterKeyPicker(chart: $settings.chart)
-                }
-                SettingsCaption(
-                    "Completed days in UTC: today isn't over yet. What other providers bill through your own keys "
-                        + "(BYOK) is listed apart, never added. The balance is always the account's.")
-            }
-        }
-    }
-
-    /// The offered intervals; one set by hand in `config.json` is listed too.
-    private var refreshChoices: [Int] {
-        Set(OpenRouterCreditsSettings.refreshMinuteChoices + [settings.refresh.minutes].compactMap(\.self)).sorted()
-    }
-
-    private var dayChoices: [Int] {
-        Set(OpenRouterSpendChartSettings.dayChoices + [settings.chart.days]).sorted()
-    }
-}
-
 /// Which of the account's keys the chart shows. Keys are chosen by hash, so renaming one keeps it chosen; a chosen
 /// key OpenRouter doesn't list (any more, or on the pages loaded so far) stays chosen, by its saved name.
-private struct OpenRouterKeyPicker: View {
+struct OpenRouterKeyPicker: View {
+    let account: OpenRouterAccount
     @Binding var chart: OpenRouterSpendChartSettings
-    @Environment(OpenRouterService.self) private var service
 
     var body: some View {
-        let list = service.keyList
+        let list = account.keyList
         Picker("Key", selection: selection) {
             Text("Choose…").tag(String?.none)
             ForEach(list.keys) { key in
@@ -73,20 +18,20 @@ private struct OpenRouterKeyPicker: View {
                 Text("\(chart.keyName ?? "Chosen key") (not listed)").tag(Optional(hash))
             }
         }
-        .disabled(!service.canUseKey)
+        .disabled(!account.canUseKey)
         // Keys load while a picker is on screen, and stop loading once none is.
-        .onAppear { service.keyPickerAppeared() }
-        .onDisappear { service.keyPickerDisappeared() }
+        .onAppear { account.keyPickerAppeared() }
+        .onDisappear { account.keyPickerDisappeared() }
         HStack(spacing: 8) {
             if list.isLoading {
                 ProgressView().controlSize(.small)
             } else if list.problem != nil, !(list.problem?.needsKey ?? false) {
-                Button("Try Again") { service.retryKeys() }.controlSize(.small)
+                Button("Try Again") { account.retryKeys() }.controlSize(.small)
             } else if list.hasMore {
-                Button("Load More Keys") { service.loadMoreKeys() }.controlSize(.small)
-            } else if list.fetchedAt == nil, list.problem == nil, service.canUseKey {
+                Button("Load More Keys") { account.loadMoreKeys() }.controlSize(.small)
+            } else if list.fetchedAt == nil, list.problem == nil, account.canUseKey {
                 // Nothing loaded yet, and nothing loading.
-                Button("Load Keys") { service.retryKeys() }.controlSize(.small)
+                Button("Load Keys") { account.retryKeys() }.controlSize(.small)
             }
             if let problem = list.problem {
                 Text(problem.title).font(.caption).foregroundStyle(.orange)
@@ -104,7 +49,7 @@ private struct OpenRouterKeyPicker: View {
             chart.keyHash
         } set: { hash in
             chart.keyHash = hash
-            if let key = service.keyList.keys.first(where: { $0.hash == hash }) {
+            if let key = account.keyList.keys.first(where: { $0.hash == hash }) {
                 chart.keyName = key.name
             } else if hash == nil {
                 chart.keyName = nil
@@ -119,40 +64,37 @@ private struct OpenRouterKeyPicker: View {
     }
 }
 
-/// Saving or removing the management key Sidelight reads the account with, the same everywhere it's offered.
+/// Saving or removing the management key Sidelight reads an account with, the same everywhere it's offered.
 struct OpenRouterKeyForm: View {
-    @Environment(OpenRouterService.self) private var service
-    @State private var draft = ""
-    @State private var isSaving = false
-    @State private var problem: OpenRouterProblem?
+    let account: OpenRouterAccount
 
     var body: some View {
         Group {
-            if service.keyRemovalFailed {
+            if account.keyRemovalFailed {
                 // Whatever the keychain still holds isn't used; this says so whether or not it can be read.
                 HStack {
                     Label("A removed key is still in your keychain", systemImage: "exclamationmark.triangle.fill")
                         .font(.callout)
                         .foregroundStyle(.orange)
                     Spacer()
-                    Button("Remove Again", role: .destructive) { service.removeKey() }.controlSize(.small)
+                    Button("Remove Again", role: .destructive) { account.removeKey() }.controlSize(.small)
                 }
                 SettingsCaption(
-                    service.unnotedKeyChange == .removal
+                    account.unnotedKeyChange == .removal
                         ? "Sidelight isn't using it now, but couldn't note that you removed it: after it restarts, it "
                             + "would use it again. Remove it again, or save a key to replace it."
                         : "The keychain couldn't delete it. Sidelight isn't using it, even after it restarts. Remove "
                             + "it again, or save a key to replace it.")
                 keyField
             } else {
-                switch service.hasKey {
+                switch account.hasKey {
                 case true?:
                     HStack {
                         Label("Management key saved in your keychain", systemImage: "key.fill").font(.callout)
                         Spacer()
-                        Button("Remove", role: .destructive) { service.removeKey() }.controlSize(.small)
+                        Button("Remove", role: .destructive) { account.removeKey() }.controlSize(.small)
                     }
-                    if service.unnotedKeyChange == .save {
+                    if account.unnotedKeyChange == .save {
                         SettingsCaption(
                             "Sidelight couldn't note that this key replaces the one you removed: after it restarts, "
                                 + "it won't use it until you save it again.")
@@ -164,24 +106,44 @@ struct OpenRouterKeyForm: View {
                 }
             }
             SettingsCaption(
-                "Only a management key can read the account's balance and spending. It can also create and delete "
+                "Only a management key can read an account's balance and spending. It can also create and delete "
                     + "keys: Sidelight only ever reads with it, and keeps it in your keychain, never in config.json. "
                     + "The model catalogue needs no key.")
         }
-        .onAppear { service.lookForKey() }
+        // A new form for another account: a key typed for one is never saved for another.
+        .id(account.id)
+        .onAppear { account.lookForKey() }
     }
-
-    static let managementKeysURL = URL(string: "https://openrouter.ai/settings/management-keys")!
 
     /// Where a key is typed in and checked before it's saved.
     private var keyField: some View {
+        OpenRouterKeyField(save: account.saveKey)
+    }
+}
+
+/// Where a management key is typed in, then checked with OpenRouter and saved.
+struct OpenRouterKeyField: View {
+    /// Checks and saves the key; returns why it wasn't saved.
+    let save: (String) async -> OpenRouterProblem?
+    /// Puts the field away without saving; `nil` where it always shows.
+    var cancel: (() -> Void)?
+    @State private var draft = ""
+    @State private var isSaving = false
+    @State private var problem: OpenRouterProblem?
+
+    static let managementKeysURL = URL(string: "https://openrouter.ai/settings/management-keys")!
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             SecureField("OpenRouter management key", text: $draft)
                 .textFieldStyle(.roundedBorder)
-                .onSubmit(save)
+                .onSubmit(submit)
             HStack {
-                Button(isSaving ? "Checking…" : "Save Key", action: save)
+                Button(isSaving ? "Checking…" : "Save Key", action: submit)
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                if let cancel {
+                    Button("Cancel", action: cancel).disabled(isSaving)
+                }
                 Spacer()
                 Link("Create a management key", destination: Self.managementKeysURL)
                     .font(.callout)
@@ -196,12 +158,12 @@ struct OpenRouterKeyForm: View {
         }
     }
 
-    private func save() {
+    private func submit() {
         guard !isSaving else { return }
         isSaving = true
         problem = nil
         Task {
-            problem = await service.saveKey(draft)
+            problem = await save(draft)
             isSaving = false
             if problem == nil { draft = "" }
         }

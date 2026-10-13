@@ -47,7 +47,7 @@ def prepare(directory):
     background['color'].update(color='#152436', opacity=1, fill='solid', isAnimated=False)
     config['appearance']['cards'].update(style='solid', showsTitles=True)
     config['sections'] = [{'id': str(uuid.uuid4()), 'alignment': 'start', 'share': 1,
-                           'widgets': [{'id': str(uuid.uuid4()), 'kind': 'openRouterModels',
+                           'widgets': [{'id': str(uuid.uuid4()), 'kind': 'openRouter',
                                         'showsInSidePanel': True, 'showsInBar': True, 'settings': {'sync': 'manual'}}]}]
     (directory / 'config.json').write_text(json.dumps(config, indent=2))
     return app

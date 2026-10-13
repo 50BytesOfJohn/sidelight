@@ -23,16 +23,16 @@ extension OpenRouterProblem {
     var advice: String {
         switch self {
         case .noKey:
-            "Add a management key in Sidelight's Settings, under Connections."
+            "Add a management key in the widget's builder."
         case .invalidKey:
-            "The key may have been deleted or disabled. Add a current management key in Settings, under Connections."
+            "The key may have been deleted or disabled. Save a current management key in the widget's builder."
         case .notPermitted:
-            "The key's permissions don't cover this. Check the key in OpenRouter, then save it again in Settings, "
-                + "under Connections."
+            "The key's permissions don't cover this. Check the key in OpenRouter, then save it again in the "
+                + "widget's builder."
         case .notManagementKey:
             "An inference key can't read the account's balance or spending. Create a management key in OpenRouter."
         case .keyNotFound:
-            "The account no longer has the key the chart shows. Choose another in the widget's settings."
+            "The account no longer has the key the chart shows. Choose another in the widget's builder."
         case .rateLimited:
             "Sidelight tries again once OpenRouter allows it."
         case .unavailable(let status):
@@ -71,31 +71,76 @@ extension OpenRouterModelSort {
     }
 }
 
-extension OpenRouterModelFilter {
+extension OpenRouterModality {
+    /// `Text`, `Embeddings`; a kind OpenRouter added since by its own name.
     var title: String {
         switch self {
-        case .textOnly: "Text-only"
-        case .textOutput: "Text output"
-        case .all: "All"
+        case .text: "Text"
+        case .image: "Image"
+        case .file: "File"
+        case .audio: "Audio"
+        case .video: "Video"
+        case .speech: "Speech"
+        case .decisions: "Decisions"
+        case .embeddings: "Embeddings"
+        case .rerank: "Rerank"
+        case .transcription: "Transcription"
+        default: rawValue.prefix(1).uppercased() + rawValue.dropFirst()
         }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .text: "textformat"
+        case .image: "photo"
+        case .file: "doc"
+        case .audio: "waveform"
+        case .video: "video"
+        case .speech: "person.wave.2"
+        case .decisions: "arrow.triangle.branch"
+        case .embeddings: "point.3.connected.trianglepath.dotted"
+        case .rerank: "arrow.up.arrow.down"
+        case .transcription: "mic"
+        default: "square.dashed"
+        }
+    }
+}
+
+extension OpenRouterModelFilter {
+    /// `All`, `Text`, `Text-only`, `Image · reads image, file`.
+    var title: String {
+        if self == .textOnly { return "Text-only" }
+        let output = output?.title ?? "All"
+        guard !inputs.isEmpty else { return isExact && self.output != nil ? "\(output) only" : output }
+        return "\(output) · reads \(inputList)\(isExact ? " only" : "")"
+    }
+
+    /// `image, file`
+    var inputList: String {
+        OpenRouterModality.ordered(inputs, as: OpenRouterModality.knownInputs).map { $0.title.lowercased() }
+            .joined(separator: ", ")
     }
 
     var explanation: String {
-        switch self {
-        case .textOnly: "Text in, text out, nothing else."
-        case .textOutput: "Anything that writes text, whatever it reads: images, files, audio."
-        case .all: "Every model, including embeddings, speech, images and video."
+        if isAll { return "Every model, including embeddings, speech, images and video." }
+        if self == .textOnly { return "Text in, text out, nothing else." }
+        var parts: [String] = []
+        if let output {
+            parts.append(isExact ? "Produce only \(output.title.lowercased())" : "Produce \(output.title.lowercased())")
         }
+        if !inputs.isEmpty {
+            parts.append(isExact ? "read only \(inputList)" : "read \(inputList), among others")
+        }
+        let sentence = parts.joined(separator: " and ")
+        return "Models that " + sentence.prefix(1).lowercased() + sentence.dropFirst() + "."
     }
 
-    /// `662 models`, `459 text-output models`.
+    /// `662 models`, `459 text models`, `12 models · Image · reads file`.
     func count(_ count: Int) -> String {
         let noun = count == 1 ? "model" : "models"
-        return switch self {
-        case .all: "\(count) \(noun)"
-        case .textOutput: "\(count) text-output \(noun)"
-        case .textOnly: "\(count) text-only \(noun)"
-        }
+        if isAll { return "\(count) \(noun)" }
+        if inputs.isEmpty || self == .textOnly { return "\(count) \(title.lowercased()) \(noun)" }
+        return "\(count) \(noun) · \(title)"
     }
 }
 
@@ -109,19 +154,23 @@ extension OpenRouterRowDensity {
     }
 }
 
-extension OpenRouterModelsGlance {
+extension OpenRouterGlance {
     var title: String {
         switch self {
+        case .automatic: "The first block's"
         case .newest: "Newest model"
         case .count: "Number of models"
+        case .balance: "Balance"
         }
     }
 }
 
-extension OpenRouterModelsPreset {
+extension OpenRouterPreset {
     var title: String {
         switch self {
-        case .latest: "Latest"
+        case .latest: "Latest models"
+        case .overview: "Overview"
+        case .credits: "Credits"
         case .textOnly: "Text-only"
         case .richList: "Rich list"
         }
@@ -130,6 +179,8 @@ extension OpenRouterModelsPreset {
     var systemImage: String {
         switch self {
         case .latest: "sparkles"
+        case .overview: "rectangle.stack"
+        case .credits: "creditcard"
         case .textOnly: "text.alignleft"
         case .richList: "list.bullet.rectangle"
         }
@@ -137,7 +188,9 @@ extension OpenRouterModelsPreset {
 
     var summary: String {
         switch self {
-        case .latest: "The count, then the newest text models"
+        case .latest: "The count, then the newest text models. No key needed"
+        case .overview: "The balance, then the newest text models"
+        case .credits: "The balance and what it spent each day"
         case .textOnly: "Text-in, text-out models by name"
         case .richList: "The count, then the newest with every detail"
         }

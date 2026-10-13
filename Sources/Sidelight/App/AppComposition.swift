@@ -2,13 +2,13 @@ import AppKit
 import SidelightCore
 import os
 
-/// The outside things the app is built on: its configuration file, how it reaches OpenRouter and keeps the key, which
+/// The outside things the app is built on: its configuration file, how it reaches OpenRouter and keeps its keys, which
 /// apps' windows it may move, and which data services may run. ``standard`` is the real thing; anything else stands in
 /// for part of it, so the app can be tried out without touching someone's setup, keychain, account, data or windows.
 struct AppComposition {
     var configurationFile = ConfigurationStore.defaultFileURL
     var openRouterTransport: OpenRouterService.Transport = { try await HTTP.send($0) }
-    var openRouterKeyStore = OpenRouterKeyStore.keychain
+    var openRouterKeys = OpenRouterKeyring.keychain
     /// Which apps' windows window avoidance may move, besides being regular apps other than Sidelight.
     var movesWindows: (NSRunningApplication) -> Bool = { _ in true }
     /// The kinds of widget whose data services may run, shown or previewed; `nil` for every kind. The others never
@@ -22,13 +22,13 @@ struct AppComposition {
     ///
     /// - `-SidelightConfigurationFile <path>`: another `config.json`.
     /// - `-SidelightMovesWindowsOf <bundle identifier>`: window avoidance moves only that app's windows.
-    /// - `-SidelightKeychainService <service>`: the OpenRouter key lives in another keychain item, its removal noted
+    /// - `-SidelightKeychainService <service>`: OpenRouter keys live in other keychain items, their removals noted
     ///   next to the configuration.
     /// - `-SidelightOpenRouterURL <http://127.0.0.1:port/…>`: OpenRouter requests go to a server on this Mac instead.
     ///   Only `http` or `https` on a loopback address is accepted; anything else, or a request that can't be sent
     ///   there, fails rather than reach OpenRouter.
     /// - `-SidelightServiceKinds <kind,kind,…>`: only these kinds of widget's data services run, such as
-    ///   `openRouterModels,openRouterCredits` (see ``WidgetKind``). Names it doesn't know run nothing.
+    ///   `openRouter,railway` (see ``WidgetKind``). Names it doesn't know run nothing.
     static var launch: AppComposition {
         var composition = AppComposition.standard
         #if DEBUG
@@ -40,7 +40,7 @@ struct AppComposition {
             composition.movesWindows = { $0.bundleIdentifier == bundleIdentifier }
         }
         if let service = arguments.string(forKey: "SidelightKeychainService") {
-            composition.openRouterKeyStore = .keychain(
+            composition.openRouterKeys = .keychain(
                 service: service, notingRemovalIn: composition.configurationFile.deletingLastPathComponent())
         }
         if let text = arguments.string(forKey: "SidelightOpenRouterURL") {
@@ -141,6 +141,8 @@ private nonisolated struct LoopbackServer: Sendable {
 /// Follows a redirect only to another address on this Mac: the server there can't send a request on to OpenRouter,
 /// or anywhere else. A refused redirect comes back as the answer.
 private nonisolated final class LoopbackRedirects: NSObject, URLSessionTaskDelegate {
+    // `@concurrent`, as Objective-C calls it: from URLSession's queue, with no caller's actor to run on.
+    @concurrent
     func urlSession(
         _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
         newRequest request: URLRequest

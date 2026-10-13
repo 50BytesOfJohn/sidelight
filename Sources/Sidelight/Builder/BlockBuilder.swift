@@ -75,9 +75,9 @@ extension WidgetSettings {
     /// Whether this widget is built from blocks and has a builder.
     var hasBuilder: Bool {
         switch self {
-        case .railway, .codexSessions, .openRouterModels: true
+        case .railway, .codexSessions, .openRouter: true
         case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system,
-            .noodleComputer, .agentSessions, .openRouterCredits:
+            .noodleComputer, .agentSessions:
             false
         }
     }
@@ -111,17 +111,17 @@ struct WidgetBuilderWindow: View {
                     embed: WidgetSettings.codexSessions
                 )
                 .id(id)
-            case .openRouterModels(let settings):
+            case .openRouter(let settings):
                 BlockBuilderView(
                     kind: widget.kind,
-                    settings: binding(id, current: settings, embed: WidgetSettings.openRouterModels) {
-                        if case .openRouterModels(let settings) = $0 { settings } else { nil }
+                    settings: binding(id, current: settings, embed: WidgetSettings.openRouter) {
+                        if case .openRouter(let settings) = $0 { settings } else { nil }
                     },
-                    embed: WidgetSettings.openRouterModels
+                    embed: WidgetSettings.openRouter
                 )
                 .id(id)
             case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system,
-                .noodleComputer, .agentSessions, .openRouterCredits:
+                .noodleComputer, .agentSessions:
                 ContentUnavailableView(
                     "No builder", systemImage: "square.stack.3d.up.slash",
                     description: Text("This widget's options are in the Widgets window."))

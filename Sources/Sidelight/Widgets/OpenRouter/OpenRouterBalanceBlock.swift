@@ -1,81 +1,74 @@
 import SidelightCore
 import SwiftUI
 
-extension WidgetMetadata {
-    static let openRouterCredits = WidgetMetadata(
-        title: "OpenRouter Credits",
-        systemImage: "creditcard.fill",
-        tint: .indigo,
-        summary: "Your OpenRouter account's balance, and what it spent each UTC day. Needs a management key.",
-        isBeta: true,
-        family: "OpenRouter"
-    )
-}
-
-extension OpenRouterCreditsSettings {
-    var summary: String {
-        let refresh = refresh.minutes.map { "Every \($0) min" } ?? "Manual"
-        guard chart.isShown else { return "\(refresh) · No chart" }
-        let scope = chart.scope == .key ? "Key \(chart.keyName ?? "not chosen")" : "Account"
-        return "\(refresh) · \(chart.days)-day chart · \(scope)"
-    }
-}
-
-// MARK: - Widget
-
-struct OpenRouterCreditsWidgetView: View {
-    let settings: OpenRouterCreditsSettings
+/// A Balance block: an account's balance, and optionally what it spent each UTC day. In the minimal and bar sizes, it's
+/// the widget's glance: just the balance.
+struct OpenRouterBalanceBlock: View {
+    let options: OpenRouterBalanceOptions
+    /// The account it reads; `nil` while the service hasn't set up the block's own key's account yet.
+    let account: OpenRouterAccount?
     let layout: WidgetLayout
-    @Environment(OpenRouterService.self) private var service
+    let now: Date
     @Environment(\.isWidgetPreview) private var isPreview
 
     var body: some View {
-        WidgetClock { now in
-            content(now: now)
-        }
-    }
-
-    @ViewBuilder
-    private func content(now: Date) -> some View {
-        let balance = service.balance
         if isPreview {
-            // The Widgets window and the builder show what the widget looks like, with an example marked as one: never
-            // the account's money, and the key is never read for it.
-            OpenRouterCreditsContent(
+            // The Widgets window and the builder show what the block looks like, with an example marked as one: never
+            // an account's money, and no key is ever read for it.
+            OpenRouterBalanceContent(
                 balance: .example(at: now), problem: nil, isFetching: false,
-                chart: settings.chart.isShown ? .example(at: now) : nil, settings: settings, layout: layout,
+                chart: options.chart.isShown ? .example(at: now) : nil, options: options, layout: layout,
                 now: now, isExample: true, refresh: nil)
-        } else if let value = balance.value {
-            // A key OpenRouter rejected isn't tried again until it's replaced: nothing to refresh until then.
-            OpenRouterCreditsContent(
-                balance: value, problem: balance.problem, isFetching: balance.isFetching, chart: chart(now: now),
-                settings: settings, layout: layout, now: now, isExample: false,
-                refresh: balance.problem?.needsKey == true
-                    ? nil : { service.refreshAccount(scope: settings.chart.spendScope) })
-        } else if let problem = balance.problem {
-            let retry = WidgetMessage.Action(title: "Try Again", isDisabled: balance.isFetching) {
-                service.refreshAccount(scope: settings.chart.spendScope)
-            }
-            WidgetMessage(
-                title: problem == .noKey ? "Add an OpenRouter management key" : problem.title,
-                detail: problem.advice,
-                systemImage: problem.needsKey ? "key" : "exclamationmark.triangle",
-                layout: layout,
-                action: problem.needsKey ? nil : retry)
-        } else if service.hasKey == false {
-            WidgetMessage(
-                title: "Add an OpenRouter management key", detail: OpenRouterProblem.noKey.advice,
-                systemImage: "key", layout: layout)
+        } else if let account {
+            content(account)
         } else {
             WidgetMessage(title: "Connecting to OpenRouter…", detail: nil, systemImage: "hourglass", layout: layout)
         }
     }
 
+    @ViewBuilder
+    private func content(_ account: OpenRouterAccount) -> some View {
+        let balance = account.balance
+        let scope = options.chart.spendScope
+        if let value = balance.value {
+            // A key OpenRouter rejected isn't tried again until it's replaced: nothing to refresh until then.
+            OpenRouterBalanceContent(
+                balance: value, problem: balance.problem, isFetching: balance.isFetching,
+                chart: chart(account), options: options, layout: layout, now: now, isExample: false,
+                refresh: balance.problem?.needsKey == true ? nil : { account.refreshAccount(scope: scope) })
+        } else if let problem = balance.problem {
+            let retry = WidgetMessage.Action(title: "Try Again", isDisabled: balance.isFetching) {
+                account.refreshAccount(scope: scope)
+            }
+            WidgetMessage(
+                title: problem == .noKey ? addKeyTitle : problem.title,
+                detail: problem == .noKey ? addKeyDetail : problem.advice,
+                systemImage: problem.needsKey ? "key" : "exclamationmark.triangle",
+                layout: layout,
+                action: problem.needsKey ? nil : retry)
+        } else if account.hasKey == false {
+            WidgetMessage(title: addKeyTitle, detail: addKeyDetail, systemImage: "key", layout: layout)
+        } else {
+            WidgetMessage(title: "Connecting to OpenRouter…", detail: nil, systemImage: "hourglass", layout: layout)
+        }
+    }
+
+    private var addKeyTitle: String {
+        let name = options.title.map { " for “\($0)”" } ?? ""
+        return "Add an OpenRouter management key\(name)"
+    }
+
+    private var addKeyDetail: String {
+        options.usesOwnKey
+            ? "This Balance block reads another account: add its key in the block's options, in the widget's builder."
+            : "Add it in the widget's builder, under Widget. Model lists need no key."
+    }
+
     /// What the chart shows, when it's on.
-    private func chart(now: Date) -> OpenRouterSpendChartState? {
-        guard settings.chart.isShown else { return nil }
-        guard let scope = settings.chart.spendScope else { return .chooseKey }
-        guard let activity = service.activity(for: scope) else { return .loading }
+    private func chart(_ account: OpenRouterAccount) -> OpenRouterSpendChartState? {
+        guard options.chart.isShown else { return nil }
+        guard let scope = options.chart.spendScope else { return .chooseKey }
+        guard let activity = account.activity(for: scope) else { return .loading }
         if let value = activity.value {
             let isStale = activity.problem != nil || value.isBehind(at: now)
             return .days(value, isStale: isStale, problem: activity.problem)
@@ -97,13 +90,13 @@ enum OpenRouterSpendChartState {
 }
 
 /// The balance, how fresh it is, and the chart below it.
-private struct OpenRouterCreditsContent: View {
+private struct OpenRouterBalanceContent: View {
     let balance: OpenRouterBalance
     /// Why the last fetch failed, while showing an older balance.
     let problem: OpenRouterProblem?
     let isFetching: Bool
     let chart: OpenRouterSpendChartState?
-    let settings: OpenRouterCreditsSettings
+    let options: OpenRouterBalanceOptions
     let layout: WidgetLayout
     let now: Date
     /// An example in a preview, not the account's money: it says so.
@@ -120,7 +113,7 @@ private struct OpenRouterCreditsContent: View {
             let isCompact = layout == .compact
             VStack(alignment: .leading, spacing: isCompact ? 4 : 6) {
                 if !isCompact {
-                    Text((isExample ? "Example balance · USD" : "Account balance · USD").uppercased())
+                    Text(label.uppercased())
                         .font(.system(size: 9, weight: .semibold))
                         .tracking(0.8)
                         .foregroundStyle(.secondary)
@@ -137,7 +130,7 @@ private struct OpenRouterCreditsContent: View {
                                 isFetching: isFetching, help: "Fetch the balance now", action: refresh)
                         }
                     }
-                    if settings.chart.isShown && settings.chart.scope == .key {
+                    if options.chart.isShown && options.chart.scope == .key {
                         Text("Balance is account-wide")
                             .font(.system(size: 9.5))
                             .foregroundStyle(.tertiary)
@@ -145,7 +138,7 @@ private struct OpenRouterCreditsContent: View {
                 }
                 if let chart {
                     OpenRouterSpendChart(
-                        state: chart, settings: settings.chart, isCompact: isCompact, now: now, isExample: isExample,
+                        state: chart, settings: options.chart, isCompact: isCompact, now: now, isExample: isExample,
                         retry: refresh
                     )
                     .padding(.top, isCompact ? 2 : 6)
@@ -169,6 +162,17 @@ private struct OpenRouterCreditsContent: View {
         }
     }
 
+    /// `Account balance · USD`, or the block's title, to tell accounts apart.
+    private var label: String {
+        if let title = options.title { return "\(title) · USD" }
+        return isExample ? "Example balance · USD" : "Account balance · USD"
+    }
+
+    /// `Account balance`, or the block's title.
+    private var name: String {
+        options.title.map { "\($0) balance" } ?? (isExample ? "Example balance" : "Account balance")
+    }
+
     private func figure(size: CGFloat) -> some View {
         Text(OpenRouterFormat.dollars(balance.remaining))
             .font(.system(size: size, weight: .semibold, design: .rounded))
@@ -178,8 +182,7 @@ private struct OpenRouterCreditsContent: View {
             .opacity(isStale ? 0.6 : 1)
             .contentTransition(.numericText())
             .animation(Motion.gentle, value: balance.remaining)
-            .accessibilityLabel(
-                "\(isExample ? "Example balance" : "Account balance") \(OpenRouterFormat.dollars(balance.remaining))")
+            .accessibilityLabel("\(name) \(OpenRouterFormat.dollars(balance.remaining))")
     }
 
     private var staleDot: some View {
@@ -196,7 +199,7 @@ private struct OpenRouterCreditsContent: View {
 
     private var tooltip: String {
         guard !isExample else { return "An example of the OpenRouter account balance, not yours" }
-        var lines = ["OpenRouter account balance: \(OpenRouterFormat.dollars(balance.remaining))"]
+        var lines = ["OpenRouter · \(name): \(OpenRouterFormat.dollars(balance.remaining))"]
         lines.append("Updated \(UsageFormat.age(of: balance.fetchedAt, now: now))")
         if let problem { lines.append("\(problem.title). \(problem.advice)") }
         return lines.joined(separator: "\n")
@@ -219,7 +222,7 @@ struct OpenRouterSpendChart: View {
     var body: some View {
         switch state {
         case .chooseKey:
-            note("Choose a key for the chart in the widget's settings.", systemImage: "key")
+            note("Choose a key for the chart in the widget's builder.", systemImage: "key")
         case .loading:
             note("Loading spending…", systemImage: "hourglass")
         case .failed(let problem, let isRetrying):

@@ -15,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 SERVICES = [
     "Services/DataService.swift", "Services/PacedTask.swift", "Services/RemoteResource.swift",
     "Support/AppInfo.swift", "Widgets/OpenRouter/OpenRouterKeyStore.swift",
-    "Widgets/OpenRouter/OpenRouterService.swift",
+    "Widgets/OpenRouter/OpenRouterAccount.swift", "Widgets/OpenRouter/OpenRouterService.swift",
 ]
 MANIFEST = '''// swift-tools-version: 6.4
 import PackageDescription

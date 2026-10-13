@@ -21,8 +21,7 @@ struct WidgetContent: View {
         case .noodleComputer(let settings): NoodleComputerWidgetView(settings: settings, layout: layout)
         case .railway(let settings): RailwayWidgetView(settings: settings, layout: layout)
         case .agentSessions(let settings): AgentSessionsWidgetView(settings: settings, layout: layout)
-        case .openRouterCredits(let settings): OpenRouterCreditsWidgetView(settings: settings, layout: layout)
-        case .openRouterModels(let settings): OpenRouterModelsWidgetView(settings: settings, layout: layout)
+        case .openRouter(let settings): OpenRouterWidgetView(settings: settings, layout: layout)
         }
     }
 }
@@ -50,10 +49,8 @@ struct WidgetSettingsEditor: View {
         case .railway(let settings): RailwaySettingsEditor(settings: binding(settings, WidgetSettings.railway))
         case .agentSessions(let settings):
             AgentSessionsSettingsEditor(settings: binding(settings, WidgetSettings.agentSessions))
-        case .openRouterCredits(let settings):
-            OpenRouterCreditsSettingsEditor(settings: binding(settings, WidgetSettings.openRouterCredits))
-        case .openRouterModels(let settings):
-            OpenRouterModelsSettingsEditor(settings: binding(settings, WidgetSettings.openRouterModels))
+        case .openRouter(let settings):
+            OpenRouterSettingsEditor(settings: binding(settings, WidgetSettings.openRouter))
         case .nowPlaying: Text("No options.").foregroundStyle(.secondary)
         }
     }

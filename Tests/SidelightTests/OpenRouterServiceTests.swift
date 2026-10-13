@@ -14,7 +14,7 @@ struct OpenRouterServiceTests {
             transport: { request in
                 requests.append(request)
                 return Self.response(#"{"data":[{"id":"fixture/model"}]}"#)
-            }, keyStore: store.adapter)
+            }, keys: .init(shared: store.adapter))
         service.demand = OpenRouterDemand(catalogue: .manual)
         service.start()
         service.start()
@@ -25,7 +25,7 @@ struct OpenRouterServiceTests {
         try? await Task.sleep(for: .milliseconds(30))
         #expect(requests.values.count == 1)
         #expect(requests.values.first?.value(forHTTPHeaderField: "Authorization") == nil)
-        #expect(store.reads == 0 && service.hasKey == nil)
+        #expect(store.reads == 0 && service.shared.hasKey == nil)
         service.stop()
     }
 
@@ -37,8 +37,9 @@ struct OpenRouterServiceTests {
             transport: { request in
                 requests.append(request)
                 return await replies.next()
-            }, keyStore: store.adapter)
-        service.demand = OpenRouterDemand(balance: .manual, activity: [.account: .manual], keepsAccountData: true)
+            }, keys: .init(shared: store.adapter))
+        service.demand = OpenRouterDemand.shared(
+            balance: .manual, activity: [.account: .manual], keepsAccountData: true)
         service.start()
         #expect(await eventually { replies.pendingCount == 2 })
         #expect(store.reads == 1)
@@ -47,22 +48,22 @@ struct OpenRouterServiceTests {
         await replies.answer(Self.response(#"{"data":{"total_credits":10,"total_usage":1}}"#))
         await replies.answer(Self.response(#"{"data":[]}"#))
         try? await Task.sleep(for: .milliseconds(30))
-        #expect(service.balance.value == nil)
-        #expect(service.activity(for: .account)?.value == nil)
-        #expect(!service.balance.isFetching)
+        #expect(service.shared.balance.value == nil)
+        #expect(service.shared.activity(for: .account)?.value == nil)
+        #expect(!service.shared.balance.isFetching)
     }
 
     @Test func `credential removal clears cache and prevents old account answer`() async {
         let replies = Answers<HTTP.Response>()
         let store = OpenRouterMemoryKey("old-fixture")
-        let service = OpenRouterService(transport: { _ in await replies.next() }, keyStore: store.adapter)
-        service.demand = OpenRouterDemand(balance: .manual, keepsAccountData: true)
+        let service = OpenRouterService(transport: { _ in await replies.next() }, keys: .init(shared: store.adapter))
+        service.demand = OpenRouterDemand.shared(balance: .manual, keepsAccountData: true)
         service.start()
         #expect(await eventually { replies.pendingCount == 1 })
-        service.removeKey()
+        service.shared.removeKey()
         await replies.answer(Self.response(#"{"data":{"total_credits":999,"total_usage":1}}"#))
-        #expect(await eventually { service.balance.problem == .noKey && !service.balance.isFetching })
-        #expect(service.balance.value == nil && service.hasKey == false)
+        #expect(await eventually { service.shared.balance.problem == .noKey && !service.shared.balance.isFetching })
+        #expect(service.shared.balance.value == nil && service.shared.hasKey == false)
         #expect(await eventually { store.key == nil })
         service.stop()
     }
@@ -70,8 +71,9 @@ struct OpenRouterServiceTests {
     @Test func `inference key validation never writes credential`() async {
         let store = OpenRouterMemoryKey()
         let service = OpenRouterService(
-            transport: { _ in Self.response(#"{"data":{"is_management_key":false}}"#) }, keyStore: store.adapter)
-        #expect(await service.saveKey("fixture") == .notManagementKey)
+            transport: { _ in Self.response(#"{"data":{"is_management_key":false}}"#) },
+            keys: .init(shared: store.adapter))
+        #expect(await service.shared.saveKey("fixture") == .notManagementKey)
         #expect(store.saves == 0 && store.key == nil)
         service.stop()
     }
@@ -79,8 +81,8 @@ struct OpenRouterServiceTests {
     @Test func `cancelled validation never saves a credential`() async {
         let replies = Answers<HTTP.Response>()
         let store = OpenRouterMemoryKey()
-        let service = OpenRouterService(transport: { _ in await replies.next() }, keyStore: store.adapter)
-        let saving = Task { await service.saveKey("fixture") }
+        let service = OpenRouterService(transport: { _ in await replies.next() }, keys: .init(shared: store.adapter))
+        let saving = Task { await service.shared.saveKey("fixture") }
         #expect(await eventually { replies.pendingCount == 1 })
         saving.cancel()
         await replies.answer(Self.response(#"{"data":{"is_management_key":true}}"#))
@@ -92,14 +94,14 @@ struct OpenRouterServiceTests {
     @Test func `removal overtakes validation so stale candidate never saves`() async {
         let replies = Answers<HTTP.Response>()
         let store = OpenRouterMemoryKey("before")
-        let service = OpenRouterService(transport: { _ in await replies.next() }, keyStore: store.adapter)
-        let saving = Task { await service.saveKey("candidate") }
+        let service = OpenRouterService(transport: { _ in await replies.next() }, keys: .init(shared: store.adapter))
+        let saving = Task { await service.shared.saveKey("candidate") }
         #expect(await eventually { replies.pendingCount == 1 })
-        service.removeKey()
+        service.shared.removeKey()
         await replies.answer(Self.response(#"{"data":{"is_management_key":true}}"#))
         _ = await saving.value
         #expect(await eventually { store.key == nil })
-        #expect(store.saves == 0 && service.hasKey == false)
+        #expect(store.saves == 0 && service.shared.hasKey == false)
         service.stop()
     }
 
@@ -110,14 +112,14 @@ struct OpenRouterServiceTests {
             transport: { request in
                 requests.append(request)
                 return Self.response("{}", status: 404)
-            }, keyStore: store.adapter)
+            }, keys: .init(shared: store.adapter))
         let scope = OpenRouterSpendScope.key(String(repeating: "a", count: 64))
-        service.demand = OpenRouterDemand(activity: [scope: .manual], keepsAccountData: true)
+        service.demand = OpenRouterDemand.shared(activity: [scope: .manual], keepsAccountData: true)
         service.start()
-        #expect(await eventually { service.activity(for: scope)?.problem == .keyNotFound })
+        #expect(await eventually { service.shared.activity(for: scope)?.problem == .keyNotFound })
         #expect(requests.values.count == 1)
         #expect(!requests.values.contains { $0.url?.lastPathComponent == "activity" })
-        #expect(service.activity(for: scope)?.value == nil)
+        #expect(service.shared.activity(for: scope)?.value == nil)
         service.stop()
     }
 
@@ -132,19 +134,19 @@ struct OpenRouterServiceTests {
                 requests.append(request)
                 if request.url?.query?.contains("offset=100") == true { return Self.response(#"{"data":[]}"#) }
                 return Self.response(json)
-            }, keyStore: store.adapter)
-        service.loadKeysIfNeeded()
-        #expect(await eventually { service.keyList.fetchedAt != nil && !service.keyList.isLoading })
-        #expect(service.keyList.keys.count == 1)
-        #expect(service.keyList.hasMore)
+            }, keys: .init(shared: store.adapter))
+        service.shared.loadKeysIfNeeded()
+        #expect(await eventually { service.shared.keyList.fetchedAt != nil && !service.shared.keyList.isLoading })
+        #expect(service.shared.keyList.keys.count == 1)
+        #expect(service.shared.keyList.hasMore)
         #expect(requests.values.count == 1)
-        service.loadKeysIfNeeded()
+        service.shared.loadKeysIfNeeded()
         try? await Task.sleep(for: .milliseconds(20))
         #expect(requests.values.count == 1)
-        service.loadMoreKeys()
-        #expect(await eventually { !service.keyList.isLoading && !service.keyList.hasMore })
+        service.shared.loadMoreKeys()
+        #expect(await eventually { !service.shared.keyList.isLoading && !service.shared.keyList.hasMore })
         #expect(requests.values.count == 2)
-        #expect(service.keyList.keys.count == 1)
+        #expect(service.shared.keyList.keys.count == 1)
         service.stop()
     }
 
@@ -155,12 +157,14 @@ struct OpenRouterServiceTests {
             transport: { request in
                 requests.append(request)
                 return Self.response("{}", status: 401)
-            }, keyStore: store.adapter)
-        service.demand = OpenRouterDemand(balance: .manual, keepsAccountData: true)
+            }, keys: .init(shared: store.adapter))
+        service.demand = OpenRouterDemand.shared(balance: .manual, keepsAccountData: true)
         service.start()
-        #expect(await eventually { service.balance.problem == .invalidKey && !service.balance.isFetching })
+        #expect(
+            await eventually { service.shared.balance.problem == .invalidKey && !service.shared.balance.isFetching })
         let attempts = requests.values.count
-        service.demand = OpenRouterDemand(balance: .manual, activity: [.account: .minutes(15)], keepsAccountData: true)
+        service.demand = OpenRouterDemand.shared(
+            balance: .manual, activity: [.account: .minutes(15)], keepsAccountData: true)
         try? await Task.sleep(for: .milliseconds(50))
         #expect(requests.values.count == attempts)
         service.stop()
@@ -185,18 +189,18 @@ struct OpenRouterServiceTests {
         let service = OpenRouterService(
             transport: { _ in
                 Self.response(#"{"data":{"is_management_key":true}}"#)
-            }, keyStore: adapter)
-        let first = Task { await service.saveKey("first") }
+            }, keys: .init(shared: adapter))
+        let first = Task { await service.shared.saveKey("first") }
         #expect(await eventually { replies.pendingCount == 1 })
-        service.removeKey()
-        let last = Task { await service.saveKey("last") }
+        service.shared.removeKey()
+        let last = Task { await service.shared.saveKey("last") }
         await replies.answer(true)
         #expect(await eventually { replies.pendingCount == 1 && events.values == ["save:first", "delete"] })
         await replies.answer(true)
         _ = await first.value
         _ = await last.value
         #expect(events.values == ["save:first", "delete", "save:last"])
-        #expect(store.key == "last" && service.hasKey == true)
+        #expect(store.key == "last" && service.shared.hasKey == true)
         service.stop()
     }
 
@@ -262,19 +266,20 @@ extension OpenRouterServiceTests {
                     return Self.response(#"{"data":{"is_management_key":true}}"#)
                 }
                 return Self.response("{}", status: status)
-            }, keyStore: store.adapter)
-        service.demand = OpenRouterDemand(balance: .manual, keepsAccountData: true)
+            }, keys: .init(shared: store.adapter))
+        service.demand = OpenRouterDemand.shared(balance: .manual, keepsAccountData: true)
         service.start()
         let problem: OpenRouterProblem = status == 401 ? .invalidKey : .notPermitted
-        #expect(await eventually { service.balance.problem == problem && !service.balance.isFetching })
+        #expect(await eventually { service.shared.balance.problem == problem && !service.shared.balance.isFetching })
         let count = requests.values.count
-        service.loadKeysIfNeeded()
-        service.refreshAccount(scope: nil)
-        service.demand = OpenRouterDemand(balance: .manual, activity: [.account: .manual], keepsAccountData: true)
-        #expect(await eventually { service.activity(for: .account)?.problem == problem })
-        #expect(service.keyList.problem == problem)
+        service.shared.loadKeysIfNeeded()
+        service.shared.refreshAccount(scope: nil)
+        service.demand = OpenRouterDemand.shared(
+            balance: .manual, activity: [.account: .manual], keepsAccountData: true)
+        #expect(await eventually { service.shared.activity(for: .account)?.problem == problem })
+        #expect(service.shared.keyList.problem == problem)
         #expect(requests.values.count == count)
-        #expect(await service.saveKey("fixture") == nil)
+        #expect(await service.shared.saveKey("fixture") == nil)
         #expect(await eventually { requests.values.count >= count + 2 })
         #expect(store.saves == 1)
         service.stop()
@@ -288,24 +293,29 @@ extension OpenRouterServiceTests {
             transport: { request in
                 requests.append(request)
                 return HTTP.Response(status: 429, headers: ["rEtRy-AfTeR": "600"], body: Data("{}".utf8))
-            }, keyStore: store.adapter)
-        service.demand = OpenRouterDemand(keepsAccountData: true)
+            }, keys: .init(shared: store.adapter))
+        service.demand = OpenRouterDemand.shared(keepsAccountData: true)
         service.start()
         if source == "credits" {
-            service.demand = OpenRouterDemand(balance: .manual, keepsAccountData: true)
-            #expect(await eventually { service.balance.problem == .rateLimited && !service.balance.isFetching })
+            service.demand = OpenRouterDemand.shared(balance: .manual, keepsAccountData: true)
+            #expect(
+                await eventually {
+                    service.shared.balance.problem == .rateLimited && !service.shared.balance.isFetching
+                })
         } else {
-            service.loadKeysIfNeeded()
-            #expect(await eventually { service.keyList.problem == .rateLimited && !service.keyList.isLoading })
+            service.shared.loadKeysIfNeeded()
+            #expect(
+                await eventually { service.shared.keyList.problem == .rateLimited && !service.shared.keyList.isLoading }
+            )
         }
         let count = requests.values.count
-        service.loadMoreKeys()
-        service.loadKeysIfNeeded()
-        service.demand = OpenRouterDemand(
+        service.shared.loadMoreKeys()
+        service.shared.loadKeysIfNeeded()
+        service.demand = OpenRouterDemand.shared(
             balance: .manual, activity: [.account: .manual, .key(String(repeating: "a", count: 64)): .manual],
             keepsAccountData: true)
-        #expect(await eventually { service.activity(for: .account)?.problem == .rateLimited })
-        service.refreshAccount(scope: .account)
+        #expect(await eventually { service.shared.activity(for: .account)?.problem == .rateLimited })
+        service.shared.refreshAccount(scope: .account)
         try? await Task.sleep(for: .milliseconds(30))
         #expect(requests.values.count == count)
         service.stop()
@@ -321,15 +331,16 @@ extension OpenRouterServiceTests {
                 if deletions.values.count == 1 { return false }
                 return await store.adapter.delete()
             })
-        let service = OpenRouterService(transport: { _ in Self.response("{}") }, keyStore: adapter)
-        service.lookForKey()
-        #expect(await eventually { service.hasKey == true })
-        service.removeKey()
-        #expect(service.hasKey == false)
-        #expect(await eventually { service.keyRemovalFailed && service.hasKey == true })
+        let service = OpenRouterService(transport: { _ in Self.response("{}") }, keys: .init(shared: adapter))
+        service.shared.lookForKey()
+        #expect(await eventually { service.shared.hasKey == true })
+        service.shared.removeKey()
+        #expect(service.shared.hasKey == false)
+        #expect(await eventually { service.shared.keyRemovalFailed && service.shared.hasKey == true })
         #expect(store.key == "fixture")
-        service.removeKey()
-        #expect(await eventually { store.key == nil && service.hasKey == false && !service.keyRemovalFailed })
+        service.shared.removeKey()
+        #expect(
+            await eventually { store.key == nil && service.shared.hasKey == false && !service.shared.keyRemovalFailed })
         service.stop()
     }
 
@@ -339,13 +350,13 @@ extension OpenRouterServiceTests {
         let adapter = OpenRouterKeyStore(
             read: store.adapter.read, save: store.adapter.save, delete: { await deletion.next() })
         let service = OpenRouterService(
-            transport: { _ in Self.response(#"{"data":{"is_management_key":true}}"#) }, keyStore: adapter)
-        service.removeKey()
+            transport: { _ in Self.response(#"{"data":{"is_management_key":true}}"#) }, keys: .init(shared: adapter))
+        service.shared.removeKey()
         #expect(await eventually { deletion.pendingCount == 1 })
-        let save = Task { await service.saveKey("new") }
+        let save = Task { await service.shared.saveKey("new") }
         await deletion.answer(false)
         #expect(await save.value == nil)
-        #expect(store.key == "new" && service.hasKey == true && !service.keyRemovalFailed)
+        #expect(store.key == "new" && service.shared.hasKey == true && !service.shared.keyRemovalFailed)
         service.stop()
     }
 
@@ -366,12 +377,12 @@ extension OpenRouterServiceTests {
             transport: { request in
                 validations.append(request)
                 return Self.response(#"{"data":{"is_management_key":true}}"#)
-            }, keyStore: adapter)
-        let first = Task { await service.saveKey("first") }
+            }, keys: .init(shared: adapter))
+        let first = Task { await service.shared.saveKey("first") }
         #expect(await eventually { writes.pendingCount == 1 })
-        let middle = Task { await service.saveKey("middle") }
+        let middle = Task { await service.shared.saveKey("middle") }
         #expect(await eventually { validations.values.count == 2 })
-        let last = Task { await service.saveKey("last") }
+        let last = Task { await service.shared.saveKey("last") }
         #expect(await eventually { validations.values.count == 3 })
         await writes.answer(true)
         #expect(await eventually { writes.pendingCount == 1 })
@@ -400,10 +411,10 @@ extension OpenRouterServiceTests {
             transport: { request in
                 validations.append(request)
                 return Self.response(#"{"data":{"is_management_key":true}}"#)
-            }, keyStore: adapter)
-        let first = Task { await service.saveKey("first") }
+            }, keys: .init(shared: adapter))
+        let first = Task { await service.shared.saveKey("first") }
         #expect(await eventually { firstWrite.pendingCount == 1 })
-        let cancelled = Task { await service.saveKey("cancelled") }
+        let cancelled = Task { await service.shared.saveKey("cancelled") }
         #expect(await eventually { validations.values.count == 2 })
         // Let the validated candidate enter the serialized queue before cancellation.
         try? await Task.sleep(for: .milliseconds(30))
@@ -426,17 +437,19 @@ extension OpenRouterServiceTests {
             transport: { request in
                 requests.append(request)
                 return Self.response(page)
-            }, keyStore: store.adapter)
-        service.loadKeysIfNeeded()
-        #expect(await eventually { service.keyList.fetchedAt != nil && !service.keyList.isLoading })
+            }, keys: .init(shared: store.adapter), manualActionGap: .zero)
+        service.shared.loadKeysIfNeeded()
+        #expect(await eventually { service.shared.keyList.fetchedAt != nil && !service.shared.keyList.isLoading })
         for index in 1..<OpenRouterService.maximumKeyPages {
-            service.loadMoreKeys()
-            #expect(await eventually { !service.keyList.isLoading && requests.values.count == index + 1 })
+            service.shared.loadMoreKeys()
+            #expect(await eventually { !service.shared.keyList.isLoading && requests.values.count == index + 1 })
         }
-        #expect(service.keyList.keys.count == 1)
-        #expect(service.keyList.nextOffset == 2000 && service.keyList.reachedLimit && !service.keyList.hasMore)
+        #expect(service.shared.keyList.keys.count == 1)
+        #expect(
+            service.shared.keyList.nextOffset == 2000 && service.shared.keyList.reachedLimit
+                && !service.shared.keyList.hasMore)
         #expect(requests.values[1].url?.query?.contains("offset=100") == true)
-        service.loadMoreKeys()
+        service.shared.loadMoreKeys()
         #expect(requests.values.count == 20)
         service.stop()
     }
@@ -450,15 +463,15 @@ extension OpenRouterServiceTests {
         let replies = Answers<HTTP.Response>()
         let store = OpenRouterMemoryKey("fixture")
         let service = OpenRouterService(
-            transport: { _ in await replies.next() }, keyStore: store.adapter,
+            transport: { _ in await replies.next() }, keys: .init(shared: store.adapter),
             now: { wall.withLock { $0 } })
-        service.demand = OpenRouterDemand(activity: [.account: .manual], keepsAccountData: true)
+        service.demand = OpenRouterDemand.shared(activity: [.account: .manual], keepsAccountData: true)
         service.start()
         #expect(await eventually { replies.pendingCount == 1 })
         wall.withLock { $0 = after }
         await replies.answer(Self.response(#"{"data":[{"date":"2026-10-12","usage":".125"}]}"#))
-        #expect(await eventually { service.activity(for: .account)?.value != nil })
-        let resource = service.activity(for: .account)
+        #expect(await eventually { service.shared.activity(for: .account)?.value != nil })
+        let resource = service.shared.activity(for: .account)
         #expect(resource?.fetchedAt == after && resource?.value?.fetchedAt == after)
         #expect(resource?.value?.lastCompletedDay.description == "2026-10-12")
         #expect(resource?.value?.days(7).last?.usage == Decimal(string: ".125"))
@@ -473,14 +486,115 @@ extension OpenRouterServiceTests {
             transport: { request in
                 requests.append(request)
                 return Self.response("{}", status: 403)
-            }, keyStore: store.adapter)
-        service.demand = OpenRouterDemand(activity: [scope: .manual], keepsAccountData: true)
+            }, keys: .init(shared: store.adapter))
+        service.demand = OpenRouterDemand.shared(activity: [scope: .manual], keepsAccountData: true)
         service.start()
-        #expect(await eventually { service.activity(for: scope)?.problem == .notPermitted })
-        service.loadKeysIfNeeded()
-        #expect(service.keyList.problem == .notPermitted)
+        #expect(await eventually { service.shared.activity(for: scope)?.problem == .notPermitted })
+        service.shared.loadKeysIfNeeded()
+        #expect(service.shared.keyList.problem == .notPermitted)
         #expect(requests.values.count == 1)
         #expect(!requests.values.contains { $0.url?.lastPathComponent == "activity" })
         service.stop()
+    }
+}
+
+extension OpenRouterDemand {
+    /// What the shared key's account needs, the way one Balance block reading it asks.
+    static func shared(
+        balance: RefreshCadence? = nil, activity: [OpenRouterSpendScope: RefreshCadence] = [:],
+        keepsAccountData: Bool = false
+    ) -> OpenRouterDemand {
+        OpenRouterDemand(
+            accounts: [.shared: OpenRouterAccountDemand(balance: balance, activity: activity)],
+            keptAccounts: keepsAccountData ? [.shared] : [])
+    }
+}
+
+extension OpenRouterServiceTests {
+    @Test func `each account reads with its own key and a block that goes takes only its own key`() async {
+        let own = OpenRouterAccountID.own(widget: UUID(), block: UUID())
+        let keys = OpenRouterMemoryKeyring([.shared: "shared-key", own: "own-key"])
+        let requests = OpenRouterRequestLog()
+        let service = OpenRouterService(
+            transport: { request in
+                requests.append(request)
+                return Self.response(#"{"data":{"total_credits":10,"total_usage":1}}"#)
+            }, keys: keys.keyring)
+        service.demand = OpenRouterDemand(
+            accounts: [.shared: .init(balance: .manual), own: .init(balance: .manual)], keptAccounts: [.shared, own])
+        service.start()
+        #expect(await eventually { service.shared.balance.value != nil && service.account(own)?.balance.value != nil })
+        let authorizations = Set(requests.values.compactMap { $0.value(forHTTPHeaderField: "Authorization") })
+        #expect(authorizations == ["Bearer shared-key", "Bearer own-key"])
+        // The block went back to the shared key, or was removed: its own key goes, the shared one stays.
+        service.demand = OpenRouterDemand(accounts: [.shared: .init(balance: .manual)], keptAccounts: [.shared])
+        #expect(service.account(own) == nil)
+        #expect(await eventually { keys.key(for: own).key == nil })
+        #expect(keys.key(for: .shared).key == "shared-key" && service.shared.balance.value != nil)
+        service.stop()
+    }
+
+    @Test func `an added own key is saved before the block uses it and outlasts the configuration catching up`() async {
+        let own = OpenRouterAccountID.own(widget: UUID(), block: UUID())
+        let keys = OpenRouterMemoryKeyring()
+        let service = OpenRouterService(
+            transport: { _ in Self.response(#"{"data":{"is_management_key":true}}"#) }, keys: keys.keyring)
+        service.demand = OpenRouterDemand(keptAccounts: [.shared])
+        #expect(await service.addOwnKey("own-key", for: own) == nil)
+        #expect(keys.key(for: own).key == "own-key" && service.account(own)?.canUseKey == true)
+        // Another change arrives before the configuration says the block uses its own key: the key stays.
+        service.demand = OpenRouterDemand(catalogue: .manual, keptAccounts: [.shared])
+        #expect(keys.key(for: own).key == "own-key")
+        service.demand = OpenRouterDemand(keptAccounts: [.shared, own])
+        // Removed: the block reads the shared key again.
+        service.demand = OpenRouterDemand(keptAccounts: [.shared])
+        #expect(service.account(own) == nil)
+        #expect(await eventually { keys.key(for: own).key == nil })
+    }
+
+    @Test func `an own key OpenRouter rejects is never saved`() async {
+        let own = OpenRouterAccountID.own(widget: UUID(), block: UUID())
+        let keys = OpenRouterMemoryKeyring()
+        let service = OpenRouterService(
+            transport: { _ in Self.response(#"{"data":{"is_management_key":false}}"#) }, keys: keys.keyring)
+        #expect(await service.addOwnKey("inference-key", for: own) == .notManagementKey)
+        #expect(keys.key(for: own).key == nil && service.account(own) == nil)
+    }
+
+    @Test func `a duplicated widget gets its blocks own keys before it is added`() async {
+        var settings = OpenRouterSettings(preset: .credits)
+        let block = OpenRouterPreset.balanceID
+        settings.setBalanceOptions(.init(usesOwnKey: true), for: block)
+        let widget = WidgetInstance(settings: .openRouter(settings))
+        let own = OpenRouterAccountID.own(widget: widget.id, block: block)
+        let keys = OpenRouterMemoryKeyring([own: "own-key"])
+        let service = OpenRouterService(transport: { _ in throw URLError(.notConnectedToInternet) }, keys: keys.keyring)
+        service.demand = OpenRouterDemand(keptAccounts: [own])
+        let copy = UUID()
+        await service.copyOwnKeys(of: widget, to: copy)
+        #expect(keys.key(for: .own(widget: copy, block: block)).key == "own-key")
+        #expect(keys.key(for: .shared).key == nil)
+    }
+}
+
+/// A memory key for every account, made as the service first asks for it.
+private nonisolated final class OpenRouterMemoryKeyring: Sendable {
+    private let keys: Mutex<[OpenRouterAccountID: OpenRouterMemoryKey]>
+
+    init(_ saved: [OpenRouterAccountID: String] = [:]) {
+        keys = Mutex(saved.mapValues { OpenRouterMemoryKey($0) })
+    }
+
+    func key(for account: OpenRouterAccountID) -> OpenRouterMemoryKey {
+        keys.withLock { keys in
+            if let key = keys[account] { return key }
+            let key = OpenRouterMemoryKey()
+            keys[account] = key
+            return key
+        }
+    }
+
+    var keyring: OpenRouterKeyring {
+        OpenRouterKeyring { self.key(for: $0).adapter }
     }
 }

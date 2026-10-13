@@ -1,9 +1,47 @@
 import Foundation
-import Security
+import SidelightCore
 import os
 
-/// Where the OpenRouter management key is kept: reading, saving and removing it, each off the main actor. The
-/// keychain by default; anything else only stands in for it, as a test might.
+/// Where every OpenRouter account's management key is kept: one store for each account.
+nonisolated struct OpenRouterKeyring: Sendable {
+    /// The store for `account`'s key. Asked once for each account.
+    var store: @Sendable (OpenRouterAccountID) -> OpenRouterKeyStore
+
+    init(store: @escaping @Sendable (OpenRouterAccountID) -> OpenRouterKeyStore) {
+        self.store = store
+    }
+
+    /// `shared` for the shared key, and for every other account a key kept in memory only, as a test might use.
+    init(shared: OpenRouterKeyStore) {
+        store = { $0 == .shared ? shared : .memory() }
+    }
+
+    static let defaultKeychainService = "app.getsidelight.Sidelight.openrouter"
+
+    /// Sidelight's own keychain items, which hold only what someone typed into Sidelight. Nothing is ever read from
+    /// other apps, shells or files. Removals are noted next to the configuration.
+    static let keychain = OpenRouterKeyring.keychain(
+        service: defaultKeychainService, notingRemovalIn: ConfigurationStore.defaultFileURL.deletingLastPathComponent())
+
+    /// The keychain items under `service`, to keep a trial run's keys apart from the real ones, with removals noted
+    /// in `directory`.
+    static func keychain(service: String, notingRemovalIn directory: URL) -> OpenRouterKeyring {
+        OpenRouterKeyring { account in
+            let item = KeychainItem.openRouterKey(service: service, account: account)
+            var name = service.replacing("/", with: "-")
+            if case .own(let widget, let block) = account { name += ".\(widget.uuidString).\(block.uuidString)" }
+            return OpenRouterKeyStore(
+                read: { await item.read() },
+                save: { await item.save($0) },
+                delete: { await item.delete() },
+                removal: .file(directory.appending(path: name + ".removed", directoryHint: .notDirectory))
+            )
+        }
+    }
+}
+
+/// Where one OpenRouter management key is kept: reading, saving and removing it, each off the main actor. A keychain
+/// item by default; anything else only stands in for it, as a test might.
 nonisolated struct OpenRouterKeyStore: Sendable {
     var read: @Sendable () async -> String?
     /// Whether the key was saved.
@@ -14,24 +52,19 @@ nonisolated struct OpenRouterKeyStore: Sendable {
     /// isn't used after Sidelight restarts. In memory only unless another is given, so a stand-in writes nothing.
     var removal: OpenRouterKeyRemovalRecord = .memory()
 
-    static let defaultKeychainService = "app.getsidelight.Sidelight.openrouter"
-
-    /// Sidelight's own keychain item, which holds only what someone typed into Settings. Nothing is ever read
-    /// from other apps, shells or files. Its removal is noted next to the configuration.
-    static let keychain = OpenRouterKeyStore.keychain(
-        service: defaultKeychainService, notingRemovalIn: ConfigurationStore.defaultFileURL.deletingLastPathComponent())
-
-    /// The keychain item under `service`, to keep a trial run's key apart from the real one, with its removal noted
-    /// in `directory`.
-    static func keychain(service: String, notingRemovalIn directory: URL) -> OpenRouterKeyStore {
-        let item = OpenRouterKeychainItem(service: service)
-        let name = service.replacing("/", with: "-") + ".removed"
+    /// A key kept in memory only, with nothing saved to start with.
+    static func memory() -> OpenRouterKeyStore {
+        let key = OSAllocatedUnfairLock<String?>(initialState: nil)
         return OpenRouterKeyStore(
-            read: { await item.read() },
-            save: { await item.save($0) },
-            delete: { await item.delete() },
-            removal: .file(directory.appending(path: name, directoryHint: .notDirectory))
-        )
+            read: { key.withLock { $0 } },
+            save: { new in
+                key.withLock { $0 = new }
+                return true
+            },
+            delete: {
+                key.withLock { $0 = nil }
+                return true
+            })
     }
 }
 
@@ -102,48 +135,17 @@ private nonisolated struct OpenRouterKeyRemovalFile: Sendable {
     }
 }
 
-/// The OpenRouter management key in the login keychain, rather than in `config.json`.
-private nonisolated struct OpenRouterKeychainItem: Sendable {
-    private static let account = "management-key"
-
-    let service: String
-
-    private var query: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: Self.account,
-        ]
-    }
-
-    @concurrent
-    func read() async -> String? {
-        var query = query
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else {
-            return nil
+nonisolated extension KeychainItem {
+    /// An OpenRouter management key under `service`: `management-key` for the shared key,
+    /// `management-key/<widget>/<block>` for a Balance block's own.
+    static func openRouterKey(service: String, account: OpenRouterAccountID) -> KeychainItem {
+        switch account {
+        case .shared:
+            KeychainItem(service: service, account: "management-key", label: "Sidelight: OpenRouter management key")
+        case .own(let widget, let block):
+            KeychainItem(
+                service: service, account: "management-key/\(widget.uuidString)/\(block.uuidString)",
+                label: "Sidelight: OpenRouter management key (Balance block)")
         }
-        return String(data: data, encoding: .utf8)
-    }
-
-    @concurrent
-    func save(_ key: String) async -> Bool {
-        let data = Data(key.utf8)
-        let update = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if update == errSecSuccess { return true }
-        guard update == errSecItemNotFound else { return false }
-        var item = query
-        item[kSecValueData as String] = data
-        item[kSecAttrLabel as String] = "Sidelight: OpenRouter management key"
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
-    }
-
-    @concurrent
-    func delete() async -> Bool {
-        let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess || status == errSecItemNotFound
     }
 }

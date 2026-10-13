@@ -56,6 +56,9 @@ public struct OpenRouterModel: Identifiable, Hashable, Sendable {
     public let expiration: UTCDay?
     /// The name and ID, folded for matching a search.
     let searchKey: String
+    /// ``inputModalities`` and ``outputModalities``, for filtering.
+    let inputSet: Set<OpenRouterModality>
+    let outputSet: Set<OpenRouterModality>
 
     public init(
         id: String, name: String, canonicalSlug: String? = nil, created: Date? = nil, contextLength: Int? = nil,
@@ -73,6 +76,8 @@ public struct OpenRouterModel: Identifiable, Hashable, Sendable {
         self.outputPrice = outputPrice
         self.expiration = expiration
         searchKey = Self.folded(name + "\n" + id)
+        inputSet = Set(inputModalities.map(OpenRouterModality.init))
+        outputSet = Set(outputModalities.map(OpenRouterModality.init))
     }
 
     /// OpenRouter's free variants, whose ID ends in `:free`. A model listing zero token prices isn't necessarily
@@ -98,12 +103,14 @@ public struct OpenRouterModel: Identifiable, Hashable, Sendable {
         id.firstIndex(of: "/").map { String(id[..<$0]) }
     }
 
+    /// Whether it produces the filter's output and takes in all its inputs, and with ``OpenRouterModelFilter/isExact``,
+    /// nothing else.
     public func matches(_ filter: OpenRouterModelFilter) -> Bool {
-        switch filter {
-        case .all: true
-        case .textOutput: outputModalities.contains("text")
-        case .textOnly: Set(inputModalities) == ["text"] && Set(outputModalities) == ["text"]
+        if let output = filter.output {
+            guard outputSet.contains(output), !filter.isExact || outputSet.count == 1 else { return false }
         }
+        guard !filter.inputs.isEmpty else { return true }
+        return filter.isExact ? inputSet == filter.inputs : filter.inputs.isSubset(of: inputSet)
     }
 
     /// Whether every word of `query` is in the name or the ID, ignoring case and accents. An empty query matches.
@@ -149,7 +156,10 @@ public struct OpenRouterCatalogue: Sendable {
     public let fetchedAt: Date
     /// Positions in ``models`` in each order.
     private let orders: [OpenRouterModelSort: [Int]]
-    private let counts: [OpenRouterModelFilter: Int]
+    /// What the models produce, in OpenRouter's order, then any kind it added since by name.
+    public let outputs: [OpenRouterModality]
+    /// What the models take in, in the same order.
+    public let inputs: [OpenRouterModality]
 
     public init(models: [OpenRouterModel], fetchedAt: Date) {
         let newestFirst = models.sorted(by: Self.isOrdered(.latestAdded))
@@ -165,15 +175,15 @@ public struct OpenRouterCatalogue: Sendable {
             orders[sort] = newestFirst.indices.sorted { isOrdered(newestFirst[$0], newestFirst[$1]) }
         }
         self.orders = orders
-        counts = Dictionary(
-            uniqueKeysWithValues: OpenRouterModelFilter.allCases.map { filter in
-                (filter, newestFirst.count { $0.matches(filter) })
-            })
+        outputs = OpenRouterModality.ordered(newestFirst.flatMap(\.outputSet), as: OpenRouterModality.knownOutputs)
+        inputs = OpenRouterModality.ordered(newestFirst.flatMap(\.inputSet), as: OpenRouterModality.knownInputs)
     }
 
-    /// How many models pass `filter`.
-    public func count(_ filter: OpenRouterModelFilter) -> Int {
-        counts[filter] ?? 0
+    /// How many models pass `filter` and match `query`.
+    public func count(
+        _ filter: OpenRouterModelFilter, matching query: OpenRouterSearchQuery = OpenRouterSearchQuery("")
+    ) -> Int {
+        models.count { $0.matches(filter) && $0.matches(query: query) }
     }
 
     /// The models passing `filter` and matching `query`, in `sort` order: the first `limit`, or all of them.

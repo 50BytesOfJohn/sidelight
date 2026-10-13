@@ -8,9 +8,11 @@ import Testing
 
 struct OpenRouterSurfaceTests {
     @Test func `details retain public demand independently of an unseen covered main surface`() {
-        let widget = WidgetInstance(settings: .openRouterModels(.init(sync: .manual)))
+        let widget = WidgetInstance(settings: .openRouter(.init(sync: .manual)))
         var config = AppConfiguration()
-        config.sections = [PanelSection(widgets: [widget, WidgetInstance(kind: .openRouterCredits)])]
+        config.sections = [
+            PanelSection(widgets: [widget, WidgetInstance(settings: .openRouter(.init(preset: .credits)))])
+        ]
         let session = DetailsSession(
             displayID: "fixture-display", widgetID: widget.id,
             request: .openRouterModels(filter: .all, sort: .latestAdded))
@@ -19,7 +21,7 @@ struct OpenRouterSurfaceTests {
         demand.merge(session.openRouterDemand(in: config))
         #expect(demand.catalogue == .manual && !demand.needsAccount)
         let preview = config.openRouterDemand(panels: [], previewsEveryWidget: true)
-        #expect(preview.catalogue == .manual && preview.balance == nil && preview.activity.isEmpty)
+        #expect(preview.catalogue == .manual && !preview.needsAccount)
     }
 
     @Test func `session replacement resets browsing state and leaves the previous browser intact`() {

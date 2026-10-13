@@ -29,6 +29,45 @@ struct OpenRouterModelTests {
         #expect(!unknown.matches(.textOutput))
     }
 
+    @Test func `inputs narrow to models reading all of them and nothing else means only those`() {
+        let vision = OpenRouterModel(
+            id: "v", name: "V", inputModalities: ["text", "image", "file"], outputModalities: ["text"])
+        let painter = OpenRouterModel(
+            id: "p", name: "P", inputModalities: ["text", "image"], outputModalities: ["text", "image"])
+        let embedder = OpenRouterModel(id: "e", name: "E", inputModalities: ["text"], outputModalities: ["embeddings"])
+        let readsImages = OpenRouterModelFilter(inputs: [.image])
+        #expect(vision.matches(readsImages) && painter.matches(readsImages) && !embedder.matches(readsImages))
+        let readsFiles = OpenRouterModelFilter(output: .text, inputs: [.image, .file])
+        #expect(vision.matches(readsFiles) && !painter.matches(readsFiles))
+        #expect(painter.matches(.init(output: .image)) && !painter.matches(.init(output: .image, isExact: true)))
+        #expect(painter.matches(.init(inputs: [.text, .image], isExact: true)))
+        #expect(!vision.matches(.init(inputs: [.text, .image], isExact: true)))
+        #expect(embedder.matches(.init(output: .embeddings)) && !embedder.matches(.textOutput))
+    }
+
+    @Test func `the catalogue lists outputs in OpenRouter's order with new kinds last and counts searches`() {
+        let models = [
+            OpenRouterModel(id: "a", name: "Alpha", inputModalities: ["file"], outputModalities: ["embeddings"]),
+            OpenRouterModel(id: "b", name: "Beta", inputModalities: ["text"], outputModalities: ["hologram"]),
+            OpenRouterModel(id: "c", name: "Gamma", inputModalities: ["image"], outputModalities: ["text"]),
+        ]
+        let catalogue = OpenRouterCatalogue(models: models, fetchedAt: .now)
+        #expect(catalogue.outputs.map(\.rawValue) == ["text", "embeddings", "hologram"])
+        #expect(catalogue.inputs == [.text, .image, .file])
+        #expect(catalogue.count(.all, matching: OpenRouterSearchQuery("a")) == 3)
+        #expect(catalogue.count(.textOutput, matching: OpenRouterSearchQuery("gam")) == 1)
+    }
+
+    @Test func `filters save their inputs in a stable order and an odd filter falls back`() throws {
+        let filter = OpenRouterModelFilter(output: .text, inputs: [.video, .text, .file])
+        let json = String(decoding: try JSONEncoder().encode(filter), as: UTF8.self)
+        #expect(json.contains(#""inputs":["text","file","video"]"#))
+        #expect(try JSONDecoder().decode(OpenRouterModelFilter.self, from: Data(json.utf8)) == filter)
+        let list = try JSONDecoder().decode(
+            OpenRouterModelListOptions.self, from: Data(#"{"filter":"textOnly"}"#.utf8))
+        #expect(list.filter == .textOutput)
+    }
+
     @Test func `sorts have stable ID ties unknowns last and limit after filtering`() {
         let recent = Date(timeIntervalSince1970: 100)
         let a = OpenRouterModel(id: "a", name: "Same", created: recent, contextLength: 200, inputPrice: .perToken(1))

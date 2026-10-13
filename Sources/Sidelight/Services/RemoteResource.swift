@@ -10,6 +10,14 @@ enum RefreshPolicy: Equatable {
     case every(Duration)
     /// Once each UTC day, `delay` after midnight UTC: for data counted in UTC days, which only changes then.
     case dailyUTC(delay: Duration)
+
+    /// What a widget's `cadence` asks for.
+    init(_ cadence: RefreshCadence) {
+        switch cadence {
+        case .manual: self = .manual
+        case .minutes(let minutes): self = .every(.seconds(minutes * 60))
+        }
+    }
 }
 
 /// What one fetch of a ``RemoteResource`` came back with.

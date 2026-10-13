@@ -31,7 +31,7 @@ enum DetailsContent {
     /// Whose icon the header shows.
     var kind: WidgetKind {
         switch self {
-        case .openRouterModels: .openRouterModels
+        case .openRouterModels: .openRouter
         }
     }
 }
@@ -65,7 +65,7 @@ final class DetailsSession {
     func openRouterDemand(in configuration: AppConfiguration) -> OpenRouterDemand {
         switch content {
         case .openRouterModels:
-            guard case .openRouterModels(let settings) = configuration.widget(widgetID)?.settings else {
+            guard case .openRouter(let settings) = configuration.widget(widgetID)?.settings else {
                 return OpenRouterDemand()
             }
             return OpenRouterDemand(catalogue: settings.sync)
