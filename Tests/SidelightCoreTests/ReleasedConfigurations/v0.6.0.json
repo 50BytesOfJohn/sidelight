@@ -70,49 +70,51 @@
     },
     "customBackground" : {
       "blur" : {
-        "material" : "regular",
-        "radius" : 30,
+        "material" : "dark",
+        "radius" : 55,
         "tint" : {
-          "amount" : 0,
-          "color" : "#000000"
+          "amount" : 0.25,
+          "color" : "#802020"
         }
       },
       "color" : {
-        "angle" : 120,
-        "color" : "#1C1C1E",
-        "fill" : "gradient",
+        "angle" : 45,
+        "color" : "#33AA77CC",
+        "fill" : "solid",
         "gradient" : [
-          "#3A2A7A",
-          "#0E1530"
+          "#FF0055",
+          "#FFAA00",
+          "#00CCFF80"
         ],
-        "isAnimated" : false,
-        "opacity" : 1
+        "isAnimated" : true,
+        "opacity" : 0.8
       },
       "glass" : {
         "tint" : {
-          "amount" : 0,
-          "color" : "#000000"
+          "amount" : 0.4,
+          "color" : "#2040A0"
         },
-        "variant" : "regular"
+        "variant" : "clear"
       },
-      "grain" : 0,
+      "grain" : 0.35,
       "image" : {
-        "blur" : 0,
-        "dim" : 0.3,
+        "blur" : 0.05,
+        "dim" : 0.5,
         "effect" : {
-          "highlights" : "#FFFFFF",
-          "kind" : "none",
-          "levels" : 4,
-          "shadows" : "#000000",
-          "size" : 4
+          "highlights" : "#F5E6C8",
+          "kind" : "dither",
+          "levels" : 6,
+          "shadows" : "#0B1020",
+          "size" : 8
         },
-        "fade" : 0.6,
+        "fade" : 0.2,
+        "path" : "/Users/example/Pictures/wallpaper.heic",
         "tint" : {
-          "amount" : 0,
-          "color" : "#000000"
+          "amount" : 0.2,
+          "color" : "#101030"
         }
       },
-      "kind" : "glass"
+      "kind" : "image"
     },
     "usesCustomStyle" : true
   },
