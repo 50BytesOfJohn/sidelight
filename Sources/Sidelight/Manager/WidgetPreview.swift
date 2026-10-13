@@ -5,10 +5,13 @@ import SwiftUI
 struct WidgetPreview: View {
     let settings: WidgetSettings
     let layout: WidgetLayout
+    /// The panel's card style for previews. Views showing many previews read it once and pass it in: reading the
+    /// configuration here would redraw every preview whenever anything in it changes.
+    var appearance: CardAppearance?
     @Environment(ConfigurationStore.self) private var store
 
     var body: some View {
-        let appearance = CardAppearance(store.configuration.appearance).forPreview
+        let appearance = appearance ?? CardAppearance(store.configuration.appearance).forPreview
         Group {
             if layout == .bar {
                 WidgetCard(settings: settings, layout: layout, appearance: appearance)
@@ -47,9 +50,9 @@ extension WidgetLayout {
     var galleryTileMinimumWidth: CGFloat {
         switch self {
         case .regular: 330
-        case .compact: 230
-        case .minimal: 170
-        case .bar: 250
+        case .compact: 240
+        case .minimal: 200
+        case .bar: 260
         }
     }
 
@@ -58,7 +61,16 @@ extension WidgetLayout {
         case .regular: 250
         case .compact: 170
         case .minimal: 130
-        case .bar: 80
+        case .bar: 72
+        }
+    }
+
+    /// The inspector's preview stage: tall enough for the widget, without leaving a big empty stage for small ones.
+    var inspectorStageHeight: CGFloat? {
+        switch self {
+        case .regular, .compact: nil
+        case .minimal: 130
+        case .bar: 64
         }
     }
 }

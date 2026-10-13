@@ -107,7 +107,6 @@ struct RailwaySettingsEditor: View {
 
     var body: some View {
         BlockPresetPicker(settings: $settings)
-        Divider()
         RailwayWidgetOptions(settings: $settings)
     }
 }
@@ -119,47 +118,39 @@ struct RailwayWidgetOptions: View {
 
     var body: some View {
         let connection = service.connection(for: settings.account)
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Sign in with", selection: $settings.account) {
-                ForEach(RailwayAccountChoice.allCases) { Text($0.title).tag($0) }
-            }
-            signInStatus(connection)
-            if service.resolved(settings.account) == .token || service.hasToken {
-                RailwayTokenField()
-            }
-            SettingsCaption(accountCaption)
+        Picker(selection: $settings.account) {
+            ForEach(RailwayAccountChoice.allCases) { Text($0.title).tag($0) }
+        } label: {
+            InfoLabel("Sign in with", info: accountCaption)
         }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Workspace", selection: workspace(connection)) {
-                Text("First workspace").tag(String?.none)
-                ForEach(workspaces(connection), id: \.id) { Text($0.name).tag(Optional($0.id)) }
-            }
-            Picker("Project", selection: project(connection)) {
-                Text("All projects").tag(String?.none)
-                ForEach(projects(connection), id: \.id) { Text($0.name).tag(Optional($0.id)) }
-            }
-            Picker("Environment", selection: $settings.environmentName) {
-                Text("Primary").tag(String?.none)
-                ForEach(environmentNames(connection), id: \.self) { Text($0).tag(Optional($0)) }
-            }
-            SettingsCaption("The primary environment is usually production.")
+        signInStatus(connection)
+        if service.resolved(settings.account) == .token || service.hasToken {
+            RailwayTokenField()
         }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Refresh", selection: $settings.refreshMinutes) {
-                Text("Automatic").tag(Int?.none)
-                ForEach(RailwaySettings.refreshMinuteChoices, id: \.self) { minutes in
-                    Text(minutes == 1 ? "Every minute" : "Every \(minutes) minutes").tag(Optional(minutes))
-                }
-            }
-            SettingsCaption(refreshCaption(connection))
+        Picker("Workspace", selection: workspace(connection)) {
+            Text("First workspace").tag(String?.none)
+            ForEach(workspaces(connection), id: \.id) { Text($0.name).tag(Optional($0.id)) }
         }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Minimal and bar show", selection: $settings.glance) {
-                ForEach(RailwayGlance.allCases) { Text($0.title).tag($0) }
+        Picker("Project", selection: project(connection)) {
+            Text("All projects").tag(String?.none)
+            ForEach(projects(connection), id: \.id) { Text($0.name).tag(Optional($0.id)) }
+        }
+        Picker(selection: $settings.environmentName) {
+            Text("Primary").tag(String?.none)
+            ForEach(environmentNames(connection), id: \.self) { Text($0).tag(Optional($0)) }
+        } label: {
+            InfoLabel("Environment", info: "The primary environment is usually production.")
+        }
+        Picker(selection: $settings.refreshMinutes) {
+            Text("Automatic").tag(Int?.none)
+            ForEach(RailwaySettings.refreshMinuteChoices, id: \.self) { minutes in
+                Text(minutes == 1 ? "Every minute" : "Every \(minutes) minutes").tag(Optional(minutes))
             }
+        } label: {
+            InfoLabel("Refresh", info: refreshCaption(connection))
+        }
+        Picker("Minimal and bar show", selection: $settings.glance) {
+            ForEach(RailwayGlance.allCases) { Text($0.title).tag($0) }
         }
     }
 
@@ -321,8 +312,9 @@ private struct RailwayBlockOptionsEditor: View {
     var body: some View {
         switch block {
         case .summary:
-            Toggle("Show the workspace", isOn: $settings.blockOptions.summary.showsWorkspace)
-            SettingsCaption("Next to the project's name, when the widget shows one project.")
+            Toggle(isOn: $settings.blockOptions.summary.showsWorkspace) {
+                InfoLabel("Show the workspace", info: "Next to the project's name, when the widget shows one project.")
+            }
         case .services:
             Picker("Order", selection: $settings.blockOptions.services.order) {
                 ForEach(RailwayServiceOrder.allCases) { Text($0.title).tag($0) }
@@ -331,17 +323,28 @@ private struct RailwayBlockOptionsEditor: View {
                 Text("Up to \(settings.blockOptions.services.maximumRows) services")
             }
             Toggle("Show asleep services", isOn: $settings.blockOptions.services.showsSleeping)
-            Toggle("Show commit messages", isOn: $settings.blockOptions.services.showsCommit)
-            SettingsCaption(
-                "The latest deploy's commit, or its image. Asked for once per new deploy, in the regular size only.")
+            Toggle(isOn: $settings.blockOptions.services.showsCommit) {
+                InfoLabel(
+                    "Show commit messages",
+                    info: "The latest deploy's commit, or its image. Fetched once per new deploy, in regular cards "
+                        + "only.")
+            }
         case .usage:
-            Toggle("Show the estimate", isOn: $settings.blockOptions.usage.showsEstimate)
-            SettingsCaption("Where the bill is heading by the end of the billing period, at the current rate.")
-            Toggle("Show the usage limit", isOn: $settings.blockOptions.usage.showsLimit)
-            SettingsCaption("The bill against the hard limit, or the soft one, set in your workspace's usage settings.")
+            Toggle(isOn: $settings.blockOptions.usage.showsEstimate) {
+                InfoLabel(
+                    "Show the estimate", info: "The bill at the end of the billing period, at the current rate.")
+            }
+            Toggle(isOn: $settings.blockOptions.usage.showsLimit) {
+                InfoLabel(
+                    "Show the usage limit",
+                    info: "The bill against the hard limit, or the soft one, from your workspace's usage settings.")
+            }
         case .incidents:
-            Toggle("Include planned maintenance", isOn: $settings.blockOptions.incidents.showsMaintenance)
-            SettingsCaption("From status.railway.com. The block shows only while Railway reports something.")
+            Toggle(isOn: $settings.blockOptions.incidents.showsMaintenance) {
+                InfoLabel(
+                    "Include planned maintenance",
+                    info: "From status.railway.com. The block shows only while Railway reports something.")
+            }
         case .service(let id):
             RailwayServiceBlockEditor(id: id, settings: $settings)
         }
@@ -355,17 +358,21 @@ private struct RailwayServiceBlockEditor: View {
     @Environment(RailwayService.self) private var service
 
     var body: some View {
-        Picker("Service", selection: chosen) {
+        Picker(selection: chosen) {
             Text("Choose…").tag(String?.none)
             ForEach(choices, id: \.key) { choice in
                 Text(choice.title).tag(Optional(choice.key))
             }
+        } label: {
+            InfoLabel("Service", info: "From the widget's projects, in its environment.")
         }
-        SettingsCaption("From the widget's projects, in its environment.")
         Toggle("Show the commit", isOn: option(\.showsCommit))
-        Toggle("Show CPU and memory", isOn: option(\.showsMetrics))
-        Toggle("Show recent deploys", isOn: option(\.showsHistory))
-        SettingsCaption("CPU, memory and deploys ride along with each refresh, in the same request.")
+        Toggle(isOn: option(\.showsMetrics)) {
+            InfoLabel("Show CPU and memory", info: "Fetched with each refresh, in the same request. No extra cost.")
+        }
+        Toggle(isOn: option(\.showsHistory)) {
+            InfoLabel("Show recent deploys", info: "Fetched with each refresh, in the same request. No extra cost.")
+        }
     }
 
     private struct Choice {

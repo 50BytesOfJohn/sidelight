@@ -6,8 +6,9 @@ extension WidgetMetadata {
         title: "Codex sessions",
         systemImage: "rectangle.stack.badge.play",
         tint: .orange,
-        summary: "Codex sessions in the terminal, the desktop app and IDEs: what needs your approval, what's working "
-            + "and on which step of its plan, what just finished. Built from blocks.",
+        summary: "Codex sessions and their plans",
+        details: "Sessions in the terminal, the desktop app and IDEs. Which need your approval, which are working "
+            + "and on which step of the plan, and which just finished. Built from blocks.",
         isBeta: true
     )
 }
@@ -161,7 +162,6 @@ struct CodexSessionsSettingsEditor: View {
 
     var body: some View {
         BlockPresetPicker(settings: $settings)
-        Divider()
         CodexSessionsWidgetOptions(settings: $settings)
     }
 }
@@ -172,19 +172,17 @@ struct CodexSessionsWidgetOptions: View {
     @Environment(CodexSessionsService.self) private var service
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            KeepFinishedPicker(hours: $settings.recentHours, choices: CodexSessionsSettings.recentHourChoices)
-            SettingsCaption(
-                "Sessions that are working or need you always show. Finished, idle and closed ones stay this long.")
-            Toggle("Include codex exec runs", isOn: $settings.includesExec)
-            SettingsCaption("Sessions started by scripts and CI. Codex's own session list leaves them out too.")
+        KeepFinishedPicker(hours: $settings.recentHours, choices: CodexSessionsSettings.recentHourChoices)
+        Toggle(isOn: $settings.includesExec) {
+            InfoLabel(
+                "Include codex exec runs",
+                info: "Sessions started by scripts and CI. Codex's own session list leaves them out too.")
         }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            StatusRow(color: service.codexFound ? Color.green : .orange, text: statusText)
-            SettingsCaption(
+        StatusRow(color: service.codexFound ? Color.green : .orange, text: statusText) {
+            Spacer(minLength: 4)
+            InfoButton(
                 "Reads what Codex keeps in ~/.codex: its thread index, which sessions a Codex process has open, and "
-                    + "each session's log. Nothing to set up; it updates the moment a turn starts or ends.")
+                    + "each session's log. Nothing to set up. It updates the moment a turn starts or ends.")
         }
     }
 
@@ -202,25 +200,33 @@ private struct CodexSessionsBlockOptionsEditor: View {
     var body: some View {
         switch block {
         case .spotlight:
-            Toggle("Plan", isOn: $settings.blockOptions.spotlight.showsPlan)
-            SettingsCaption("The steps Codex planned for the turn and which it's on, when it made a plan.")
-            Toggle("Details", isOn: $settings.blockOptions.spotlight.showsDetails)
-            SettingsCaption("Context left, files changed, agents working, and the model.")
-            Toggle("Last message", isOn: $settings.blockOptions.spotlight.showsLastMessage)
-            SettingsCaption("The start of Codex's reply, once a turn is over.")
+            Toggle(isOn: $settings.blockOptions.spotlight.showsPlan) {
+                InfoLabel(
+                    "Plan", info: "The steps Codex planned for the turn and which one it's on, when it made a plan.")
+            }
+            Toggle(isOn: $settings.blockOptions.spotlight.showsDetails) {
+                InfoLabel("Details", info: "Context left, files changed, agents working, and the model.")
+            }
+            Toggle(isOn: $settings.blockOptions.spotlight.showsLastMessage) {
+                InfoLabel("Last message", info: "The start of Codex's reply, once a turn is over.")
+            }
         case .sessions:
             Stepper(
                 "Rows: \(settings.blockOptions.sessions.maximumRows)",
                 value: $settings.blockOptions.sessions.maximumRows, in: CodexSessionListOptions.rowCountRange)
-            Toggle("Branch", isOn: $settings.blockOptions.sessions.showsBranch)
-            SettingsCaption("The git branch each session started on, next to its folder.")
+            Toggle(isOn: $settings.blockOptions.sessions.showsBranch) {
+                InfoLabel("Branch", info: "The git branch each session started on, next to its folder.")
+            }
         case .limits:
             Picker("Show", selection: $settings.blockOptions.limits.reading) {
                 ForEach(UsageReading.allCases) { Text($0.title).tag($0) }
             }
-            Toggle("Weekly limit", isOn: $settings.blockOptions.limits.showsWeeklyLimit)
-            SettingsCaption(
-                "Codex logs your limits after every turn. They're shown as of the latest one, at no extra cost.")
+            Toggle(isOn: $settings.blockOptions.limits.showsWeeklyLimit) {
+                InfoLabel(
+                    "Weekly limit",
+                    info: "Codex logs your limits after every turn. The block shows them as of the latest turn, at "
+                        + "no extra cost.")
+            }
         }
     }
 }

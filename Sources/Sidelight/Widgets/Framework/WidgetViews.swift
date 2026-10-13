@@ -26,6 +26,12 @@ struct WidgetContent: View {
     }
 }
 
+extension WidgetKind {
+    /// Its editor lays out its own form sections, for settings that fall into separate groups. Every other editor's
+    /// rows go in the inspector's one Settings section.
+    var editorHasSections: Bool { self == .aiUsage }
+}
+
 /// The inspector's settings form for a widget.
 struct WidgetSettingsEditor: View {
     @Binding var settings: WidgetSettings
@@ -51,7 +57,7 @@ struct WidgetSettingsEditor: View {
             AgentSessionsSettingsEditor(settings: binding(settings, WidgetSettings.agentSessions))
         case .openRouter(let settings):
             OpenRouterSettingsEditor(settings: binding(settings, WidgetSettings.openRouter))
-        case .nowPlaying: Text("No options.").foregroundStyle(.secondary)
+        case .nowPlaying: Text("Nothing to set").foregroundStyle(.secondary)
         }
     }
 

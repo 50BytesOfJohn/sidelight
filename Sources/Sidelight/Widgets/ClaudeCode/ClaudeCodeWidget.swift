@@ -7,7 +7,8 @@ extension WidgetMetadata {
         title: "Claude Code",
         systemImage: "asterisk",
         tint: .claude,
-        summary: "Claude plan limits: the 5-hour session and the week, when they reset, and whether they'll last."
+        summary: "Claude plan limits",
+        details: "The 5-hour session and the week, when they reset, and whether they'll last."
     )
 }
 
@@ -28,9 +29,7 @@ struct ClaudeCodeSettingsEditor: View {
 
     var body: some View {
         Toggle("Show weekly limit", isOn: $settings.showsWeeklyLimit)
-        Divider()
         AnthropicRefreshSettings(isOn: $settings.refreshesFromAnthropic, minutes: $settings.refreshMinutes)
-        Divider()
         StatusLineSetup()
     }
 }
@@ -43,18 +42,14 @@ struct AnthropicRefreshSettings: View {
     @Environment(ClaudeCodeService.self) private var claude
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            RefreshIntervalPicker(
-                title: "Refresh from Anthropic", isOn: $isOn, minutes: $minutes,
-                choices: ClaudeCodeSettings.refreshMinuteChoices)
-            SettingsCaption(
-                "Asks Anthropic for your plan's usage the way /usage does, signed in as Claude Code is, so it also "
-                    + "counts claude.ai and your other devices. The sign-in is read from your keychain for each "
-                    + "request and never stored. It's an undocumented endpoint, so it may stop working."
-            )
-            if isOn {
-                status
-            }
+        RefreshIntervalPicker(
+            title: "Refresh from Anthropic",
+            info: "Asks Anthropic for your plan's usage like /usage does, signed in as Claude Code is, so it also "
+                + "counts claude.ai and your other devices. Sidelight reads the sign-in from your keychain for each "
+                + "request and never stores it. The endpoint is undocumented, so this may stop working.",
+            isOn: $isOn, minutes: $minutes, choices: ClaudeCodeSettings.refreshMinuteChoices)
+        if isOn {
+            status
         }
     }
 
@@ -80,30 +75,36 @@ struct StatusLineSetup: View {
     @State private var didCopy = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            status
-            if let script = ClaudeCodeService.bridgeScriptURL {
+        status
+        if let script = ClaudeCodeService.bridgeScriptURL {
+            ExpandableRow(title: "Set up live limits") {
                 let snippet = Self.snippet(script: script)
-                Text(
-                    "Claude Code hands its status line your plan's limits after every response. For live updates, "
-                        + "point it at Sidelight's bridge in ~/.claude/settings.json:"
-                )
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                Text(snippet)
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .textSelection(.enabled)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.06)))
-                Button(didCopy ? "Copied" : "Copy", systemImage: didCopy ? "checkmark" : "doc.on.doc") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(snippet, forType: .string)
-                    didCopy = true
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(
+                        "Claude Code passes your plan's limits to its status line after every response. Point the "
+                            + "status line at Sidelight's bridge in ~/.claude/settings.json:"
+                    )
+                    .settingsFootnote()
+                    Text(snippet)
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.06)))
+                    HStack {
+                        Button(didCopy ? "Copied" : "Copy", systemImage: didCopy ? "checkmark" : "doc.on.doc") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(snippet, forType: .string)
+                            didCopy = true
+                        }
+                        Spacer()
+                        InfoButton(
+                            "Already have a status line? Put its command after the bridge's path and it keeps "
+                                + "working.")
+                    }
                 }
-                SettingsCaption(
-                    "Already have a status line? Put its command after the bridge's path and it keeps working.")
+                .padding(.vertical, 4)
             }
         }
     }
@@ -112,14 +113,13 @@ struct StatusLineSetup: View {
         StatusRow(color: claude.statusLineUsage != nil ? Color.green : Color.secondary.opacity(0.5)) {
             Group {
                 if let live = claude.statusLineUsage {
-                    Text("Live · updated \(live.capturedAt, format: .relative(presentation: .named))")
+                    Text("Status line live · updated \(live.capturedAt, format: .relative(presentation: .named))")
                 } else if claude.accountState?.usage != nil {
-                    Text("Not live · showing what /usage last fetched")
+                    Text("Status line not live · showing the last /usage")
                 } else {
-                    Text("Not connected")
+                    Text("Status line not connected")
                 }
             }
-            .font(.callout.weight(.medium))
         }
     }
 

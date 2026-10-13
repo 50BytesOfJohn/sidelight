@@ -6,10 +6,10 @@ extension WidgetMetadata {
         title: "Agent sessions",
         systemImage: "sparkles.rectangle.stack",
         tint: .indigo,
-        summary: "Codex and Claude Code sessions, with recent Cursor chats and OpenCode sessions, in one list: what "
-            + "needs you, what's working, what just finished. Click a Codex or Claude Code session to open it, or a "
-            + "Cursor chat to open its project. OpenCode sessions can't be opened from here: right-click one to copy "
-            + "its ID or folder.",
+        summary: "Every agent's sessions in one list",
+        details: "Codex and Claude Code sessions, recent Cursor chats and OpenCode sessions, most urgent first. "
+            + "Click a Codex or Claude Code session to open it, or a Cursor chat to open its project. Right-click "
+            + "an OpenCode session to copy its ID or folder.",
         isBeta: true
     )
 }
@@ -147,57 +147,53 @@ struct AgentSessionsSettingsEditor: View {
     @Environment(AgentSessionSources.self) private var sources
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(AgentProvider.allCases) { provider in
-                VStack(alignment: .leading, spacing: 2) {
-                    Toggle(isOn: included(provider)) {
-                        Label {
+        ForEach(AgentProvider.allCases) { provider in
+            Toggle(isOn: included(provider)) {
+                HStack(spacing: 4) {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
                             Text(provider.title)
-                        } icon: {
-                            ProviderLogo(provider: provider, size: 16)
+                            sourceProblem(of: provider)
                         }
+                    } icon: {
+                        ProviderLogo(provider: provider, size: 16)
                     }
-                    // One agent at least: an empty card would only say so.
-                    .disabled(settings.providers == [provider])
-                    sourceStatus(of: provider)
-                        .padding(.leading, 22)
+                    if let info = Self.info(about: provider) { InfoButton(info) }
                 }
             }
-        }
-        VStack(alignment: .leading, spacing: 8) {
-            SessionsListedStepper(count: $settings.sessionCount, range: AgentSessionsSettings.sessionCountRange)
-            KeepFinishedPicker(hours: $settings.recentHours, choices: AgentSessionsSettings.recentHourChoices)
-            SettingsCaption(
-                "Sessions that are working or need you always show. Finished, idle and closed ones stay this long, "
-                    + "and so do chats and sessions shown only by when they last changed.")
-            if settings.includes(.codex) {
-                Toggle("Include codex exec runs", isOn: $settings.includesCodexExec)
-                SettingsCaption(
-                    "Codex sessions started by scripts and CI. Codex's own session list leaves them out too.")
+            // One agent at least: an empty card would only say so.
+            .disabled(settings.providers == [provider])
+            if provider == .codex && settings.includes(.codex) {
+                Toggle(isOn: $settings.includesCodexExec) {
+                    InfoLabel(
+                        "Include codex exec runs",
+                        info: "Codex sessions started by scripts and CI. Codex's own session list leaves them out too.")
+                }
+                .padding(.leading, 24)
             }
         }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            SettingsCaption(
-                "Reads what each agent keeps on this Mac, with nothing to set up and nothing sent anywhere: Claude "
-                    + "Code's session list in ~/.claude, Codex's in ~/.codex, Cursor's chat list, and OpenCode 2's "
-                    + "session list in ~/.local/share/opencode. The same reading serves the Claude Code and Codex "
-                    + "sessions widgets.")
-            if settings.includes(.cursor) {
-                SettingsCaption(
-                    "Cursor doesn't record whether a chat is working or waiting, so its chats show when they last "
-                        + "changed. Cursor can't be asked to open one particular chat either: clicking one asks Cursor "
-                        + "to open the chat's project folder, or opens Cursor when the folder is gone. Cursor decides "
-                        + "which window it shows.")
-            }
-            if settings.includes(.openCode) {
-                SettingsCaption(
-                    "OpenCode doesn't record whether a session is working or waiting where other apps can read it, "
-                        + "so its sessions show when they last changed. Subagent and archived sessions are left out. "
-                        + "Sessions aren't opened from here: no way to open one particular session in OpenCode's app "
-                        + "from outside it is known, and Sidelight can't tell which OpenCode server would resume it. "
-                        + "Right-click one to copy its session ID or folder.")
-            }
+        SessionsListedStepper(count: $settings.sessionCount, range: AgentSessionsSettings.sessionCountRange)
+        KeepFinishedPicker(
+            hours: $settings.recentHours, choices: AgentSessionsSettings.recentHourChoices,
+            alsoKept: "So do chats and sessions shown only by when they last changed.")
+    }
+
+    /// Where each agent's sessions come from, and what Sidelight can't know about them.
+    private static func info(about provider: AgentProvider) -> String? {
+        switch provider {
+        case .claudeCode:
+            "Reads Claude Code's session list in ~/.claude. Nothing to set up, and nothing leaves this Mac."
+        case .codex:
+            "Reads Codex's session list in ~/.codex. Nothing to set up, and nothing leaves this Mac."
+        case .cursor:
+            "Reads Cursor's chat list. Cursor doesn't record whether a chat is working or waiting, so chats show "
+                + "when they last changed. Clicking a chat opens its project folder in Cursor, since Cursor can't "
+                + "open one particular chat."
+        case .openCode:
+            "Reads OpenCode 2's sessions in ~/.local/share/opencode. OpenCode doesn't record whether a session is "
+                + "working or waiting where other apps can read it, so sessions show when they last changed. "
+                + "Subagent and archived sessions are left out. Sessions can't be opened from here. Right-click "
+                + "one to copy its ID or folder."
         }
     }
 
@@ -209,22 +205,16 @@ struct AgentSessionsSettingsEditor: View {
         }
     }
 
+    /// Why an agent's sessions can't be listed, if they can't. Nothing while they can: the list itself shows them.
     @ViewBuilder
-    private func sourceStatus(of provider: AgentProvider) -> some View {
-        let (color, text) = describe(sources.state(of: provider), of: provider)
-        StatusRow(color: color, dotSize: 6) {
-            Text(text).font(.caption).foregroundStyle(.secondary)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private func describe(_ state: AgentSessionSources.State, of provider: AgentProvider) -> (Color, String) {
-        if let problem = state.problem(of: provider) { return (.orange, problem) }
-        return switch state {
-        case .found(let open?): (.green, open == 1 ? "1 open session" : "\(open) open sessions")
-        case .found(nil): (.green, provider == .cursor ? "Chat list found" : "Session list found")
-        case .notFound: (.orange, "\(provider.title) not found on this Mac")
-        case .reading, .unsupported, .unreadable: (.secondary, "Reading…")
+    private func sourceProblem(of provider: AgentProvider) -> some View {
+        let state = sources.state(of: provider)
+        if let problem = state.problem(of: provider) ?? (state == .notFound ? "Not found on this Mac" : nil) {
+            StatusRow(color: .orange, dotSize: 6) {
+                Text(problem).font(.caption).foregroundStyle(.secondary)
+            }
+            .lineLimit(2)
+            .accessibilityElement(children: .combine)
         }
     }
 }

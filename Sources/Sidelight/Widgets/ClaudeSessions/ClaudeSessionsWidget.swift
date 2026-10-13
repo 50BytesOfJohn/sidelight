@@ -6,8 +6,9 @@ extension WidgetMetadata {
         title: "Claude Code sessions",
         systemImage: "rectangle.stack",
         tint: .claude,
-        summary: "Claude Code sessions in the terminal, the desktop app and IDEs: what's working, what needs you, "
-            + "what just finished."
+        summary: "Claude Code sessions and their status",
+        details: "Sessions in the terminal, the desktop app and IDEs. Which are working, which need you, and which "
+            + "just finished."
     )
 }
 
@@ -88,18 +89,12 @@ struct ClaudeSessionsSettingsEditor: View {
 
     var body: some View {
         SessionsListedStepper(count: $settings.sessionCount, range: ClaudeSessionsSettings.sessionCountRange)
-        VStack(alignment: .leading, spacing: 8) {
-            KeepFinishedPicker(hours: $settings.recentHours, choices: ClaudeSessionsSettings.recentHourChoices)
-            SettingsCaption(
-                "Sessions that are working or need input always show. Finished, idle and closed ones stay this long.")
-        }
-        Divider()
-        VStack(alignment: .leading, spacing: 8) {
-            StatusRow(color: service.registryExists ? Color.green : .orange, text: statusText)
-            SettingsCaption(
-                "Reads the status Claude Code keeps for its own sessions list in ~/.claude/sessions, and titles "
-                    + "from its transcripts. Nothing to set up; it updates the moment a session changes."
-            )
+        KeepFinishedPicker(hours: $settings.recentHours, choices: ClaudeSessionsSettings.recentHourChoices)
+        StatusRow(color: service.registryExists ? Color.green : .orange, text: statusText) {
+            Spacer(minLength: 4)
+            InfoButton(
+                "Reads the status Claude Code keeps for its sessions list in ~/.claude/sessions, and titles from its "
+                    + "transcripts. Nothing to set up. It updates the moment a session changes.")
         }
     }
 

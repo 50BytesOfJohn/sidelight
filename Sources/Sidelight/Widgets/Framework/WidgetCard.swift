@@ -104,14 +104,21 @@ extension View {
 private struct CardChrome: ViewModifier {
     let appearance: CardAppearance
     let cornerRadius: CGFloat
+    @Environment(\.isWidgetPreview) private var isPreview
     @State private var isHovered = false
 
     func body(content: Content) -> some View {
-        styled(content, shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .scaleEffect(isHovered ? 1.012 : 1)
-            .onHover { hovering in
-                withAnimation(Motion.snappy) { isHovered = hovering }
-            }
+        let styled = styled(content, shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        // Previews can't be clicked, and a window can hold dozens of them: no hover tracking for them.
+        if isPreview {
+            styled
+        } else {
+            styled
+                .scaleEffect(isHovered ? 1.012 : 1)
+                .onHover { hovering in
+                    withAnimation(Motion.snappy) { isHovered = hovering }
+                }
+        }
     }
 
     @ViewBuilder
@@ -122,7 +129,8 @@ private struct CardChrome: ViewModifier {
         case .none:
             content.background(shape.fill(Color.primary.opacity(isHovered ? 0.05 : 0)))
         case .glass:
-            content.glassEffect(.regular.tint(cards.tint.amount > 0 ? Color(cards.tint) : nil).interactive(), in: shape)
+            content.glassEffect(
+                .regular.tint(cards.tint.amount > 0 ? Color(cards.tint) : nil).interactive(!isPreview), in: shape)
         case .blur:
             content
                 .background(

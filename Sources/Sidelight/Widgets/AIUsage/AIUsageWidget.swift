@@ -7,8 +7,9 @@ extension WidgetMetadata {
         title: "AI Usage",
         systemImage: "gauge.with.dots.needle.67percent",
         tint: .indigo,
-        summary:
-            "Codex, Claude Code and Cursor in one card: each one's limit closest to running out, and when it resets."
+        summary: "Codex, Claude and Cursor limits together",
+        details: "Each agent's limit closest to running out, as that agent reports it, and when it resets. Agents "
+            + "measure different things over different windows, so Sidelight doesn't add them up."
     )
 }
 
@@ -52,55 +53,46 @@ extension AIUsageSettings {
 
 // MARK: - Settings
 
-/// Which agents to show and how, plus each one's source: the same opt-ins and setup as their own widgets, kept
-/// separately for this one, so it works without them.
+/// How limits read, then a section per agent: whether the card shows it, and while it does, where its numbers
+/// come from. The same opt-ins and setup as the agents' own widgets, kept separately for this one, so it works
+/// without them.
 struct AIUsageSettingsEditor: View {
     @Binding var settings: AIUsageSettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(AIUsageProvider.allCases) { provider in
-                Toggle(isOn: included(provider)) {
-                    Label {
-                        Text(provider.title)
-                    } icon: {
-                        ProviderLogo(provider: provider.agent, size: 16)
-                    }
-                }
-                // One agent at least: an empty card would only say so.
-                .disabled(settings.providers == [provider])
-            }
-            SettingsCaption(
-                "Each agent's limit closest to running out, as that agent reports it. Agents measure different "
-                    + "things over different windows, so nothing is added up across them.")
-        }
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Limits show", selection: $settings.reading) {
+        Section("Settings") {
+            Picker(selection: $settings.reading) {
                 ForEach(UsageReading.allCases) { Text($0.title).tag($0) }
+            } label: {
+                InfoLabel(
+                    "Limits show",
+                    info: settings.reading == .used
+                        ? "Meters fill as you use each agent, and the tick moves with the window's time. A meter past "
+                            + "its tick runs out before the reset."
+                        : "Like Codex's /status. Meters drain as you use each agent, and the tick drains with the "
+                            + "window's time. A meter below its tick runs out before the reset.")
             }
             .pickerStyle(.segmented)
-            SettingsCaption(
-                settings.reading == .used
-                    ? "Meters fill as you use each agent, and their tick moves with the window's time: a meter that "
-                        + "passes its tick runs out before the reset."
-                    : "Like Codex's /status. Meters drain as you use each agent, and their tick drains with the "
-                        + "window's time: a meter that falls short of its tick runs out before the reset."
-            )
+            Toggle(isOn: $settings.showsOtherLimits) {
+                InfoLabel(
+                    "Show other limits",
+                    info: "Each agent's other windows or pools next to its main one, in regular and compact cards.")
+            }
         }
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Show other limits", isOn: $settings.showsOtherLimits)
-            SettingsCaption(
-                "Each agent's other windows or pools next to its main one, in the regular and compact sizes.")
-        }
-        ForEach(settings.providers) { provider in
-            Divider()
-            VStack(alignment: .leading, spacing: 10) {
-                Label {
-                    Text(provider.title).font(.headline)
-                } icon: {
-                    ProviderLogo(provider: provider.agent, size: 18)
+        ForEach(AIUsageProvider.allCases) { provider in
+            Section {
+                Toggle("Show in this card", isOn: included(provider).animation(Motion.snappy))
+                    // One agent at least: an empty card would only say so.
+                    .disabled(settings.providers == [provider])
+                if settings.includes(provider) {
+                    source(of: provider)
                 }
-                source(of: provider)
+            } header: {
+                Label {
+                    Text(provider.title)
+                } icon: {
+                    ProviderLogo(provider: provider.agent, size: 14)
+                }
             }
         }
     }
@@ -113,9 +105,7 @@ struct AIUsageSettingsEditor: View {
         case .claudeCode:
             AnthropicRefreshSettings(
                 isOn: $settings.refreshesClaudeFromAnthropic, minutes: $settings.claudeRefreshMinutes)
-            DisclosureGroup("Live limits from the status line") {
-                StatusLineSetup().padding(.top, 6)
-            }
+            StatusLineSetup()
         case .cursor:
             CursorFetchSettings(isOn: $settings.refreshesCursor, minutes: $settings.cursorRefreshMinutes)
         }

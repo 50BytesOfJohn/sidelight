@@ -7,12 +7,9 @@ struct BlockPresetPicker<Widget: BlockBuiltWidget>: View {
     @Binding var settings: Widget
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Layout", selection: preset) {
-                ForEach(Widget.presets) { Text($0.title).tag(Optional($0.id)) }
-                if preset.wrappedValue == nil { Text("Custom").tag(String?.none) }
-            }
-            SettingsCaption("Open the builder to arrange the blocks and set each one's options.")
+        Picker("Layout", selection: preset) {
+            ForEach(Widget.presets) { Text($0.title).tag(Optional($0.id)) }
+            if preset.wrappedValue == nil { Text("Custom").tag(String?.none) }
         }
     }
 

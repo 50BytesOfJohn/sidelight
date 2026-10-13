@@ -7,8 +7,9 @@ extension WidgetMetadata {
         title: "Railway",
         systemImage: "tram.fill",
         tint: .purple,
-        summary:
-            "Your Railway services and their deploys, the bill so far, and Railway's incidents. Built from blocks.",
+        summary: "Deploys, the bill and incidents",
+        details: "Your Railway services and their deploys, the bill so far, and Railway's incidents. Built from "
+            + "blocks.",
         logo: "RailwayLogo",
         isBeta: true
     )
