@@ -50,6 +50,7 @@ private struct PanelWidgets: View {
 
     var body: some View {
         let position = layout.position
+        let displayID = layout.displayID
         let sections = configuration.visibleSections(at: position, length: layout.length)
         let appearance = CardAppearance(configuration.appearance)
         if position.isBar {
@@ -62,6 +63,9 @@ private struct PanelWidgets: View {
                             HStack(spacing: 6) {
                                 ForEach(section.widgets) { widget in
                                     WidgetCard(settings: widget.settings, layout: .bar, appearance: appearance)
+                                        .environment(
+                                            \.widgetPlacement,
+                                            WidgetPlacement(displayID: displayID, widgetID: widget.id))
                                         .transition(.scale(scale: 0.85).combined(with: .opacity))
                                 }
                             }
@@ -95,6 +99,9 @@ private struct PanelWidgets: View {
                             MasonryLayout(columns: columns.count, spacing: spacing) {
                                 ForEach(Array(section.widgets.enumerated()), id: \.element.id) { index, widget in
                                     WidgetCard(settings: widget.settings, layout: layout, appearance: appearance)
+                                        .environment(
+                                            \.widgetPlacement,
+                                            WidgetPlacement(displayID: displayID, widgetID: widget.id))
                                         .staggeredEntrance(index: firstIndex + index)
                                         .transition(
                                             .asymmetric(

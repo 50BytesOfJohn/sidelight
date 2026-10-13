@@ -17,6 +17,8 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public var windowAvoidance: WindowAvoidanceMode = .smart
     public var hotkey: Hotkey = .defaultToggle
     public var updates = UpdateSettings()
+    /// The details panel widgets open in place of the side panel.
+    public var details = DetailsPanelSettings()
     /// The panel's sections along its edge, each with its own widgets. Every panel shows at least one.
     public var sections: [PanelSection] = [PanelSection(widgets: AppConfiguration.defaultWidgets)]
     /// Per-display overrides of ``panel``.
@@ -70,6 +72,24 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
 }
 
 extension AppConfiguration {
+    private enum CodingKeys: String, CodingKey {
+        case panel, appearance, windowAvoidance, hotkey, updates, details, sections, displays
+    }
+
+    /// Every setting released versions saved is required, as it always was. Settings added since take their
+    /// defaults when missing, so a configuration saved by an earlier release still loads.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        panel = try container.decode(PanelDefaults.self, forKey: .panel)
+        appearance = try container.decode(Appearance.self, forKey: .appearance)
+        windowAvoidance = try container.decode(WindowAvoidanceMode.self, forKey: .windowAvoidance)
+        hotkey = try container.decode(Hotkey.self, forKey: .hotkey)
+        updates = try container.decode(UpdateSettings.self, forKey: .updates)
+        details = try container.decode(.details, or: DetailsPanelSettings())
+        sections = try container.decode([PanelSection].self, forKey: .sections)
+        displays = try container.decode([DisplayProfile].self, forKey: .displays)
+    }
+
     public init(json: Data) throws {
         self = try JSONDecoder().decode(AppConfiguration.self, from: json)
     }
@@ -119,7 +139,7 @@ public struct ServiceDemand: Equatable, Sendable {
             case .codexSessions: providers.insert(.codex)
             case .agentSessions(let settings): providers.formUnion(settings.providers)
             case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .system, .noodleComputer,
-                .railway:
+                .railway, .openRouterCredits, .openRouterModels:
                 break
             }
         }
@@ -178,7 +198,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 claudeMinutes += [settings.claudeRefreshMinutesIfOptedIn].compactMap(\.self)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
             case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway,
-                .agentSessions:
+                .agentSessions, .openRouterCredits, .openRouterModels:
                 break
             }
         }

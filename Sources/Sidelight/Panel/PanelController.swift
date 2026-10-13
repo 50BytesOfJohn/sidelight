@@ -152,11 +152,11 @@ final class PanelController {
         onOcclusionChange(isOccluded)
     }
 
-    /// The area other windows should stay out of, or `nil` while the panel is hidden or fading out. Always the
-    /// whole strip, so the panel fitting its content never makes windows move.
+    /// The area other windows should stay out of, or `nil` while the panel is hidden. Always the whole strip, so
+    /// the panel fitting its content never makes windows move. Logical rather than visual: a panel fading out to
+    /// slide in at another edge already reserves its new strip, and never its old one again.
     var occupiedFrame: CGRect? {
-        guard window.isVisible, window.alphaValue > 0.5 else { return nil }
-        return placement.strip
+        layout.isShown ? placement.strip : nil
     }
 
     /// The window's frame for the current placement and content.

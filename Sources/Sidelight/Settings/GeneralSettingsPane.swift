@@ -9,6 +9,23 @@ struct GeneralSettingsPane: View {
     @Environment(LoginItem.self) private var loginItem
     @Environment(Updater.self) private var updater
 
+    /// What's wrong with the shortcuts, one line each.
+    private var problems: [String] {
+        let configuration = store.configuration
+        var problems: [String] = []
+        if case .unavailable(let status) = hotkeys.problems[.togglePanels] {
+            problems.append(
+                "The show or hide shortcut couldn't be registered (status \(status)); another app may be using it.")
+        }
+        if configuration.details.closeHotkey == configuration.hotkey {
+            problems.append("The close shortcut is the same as show or hide, so it only shows or hides the panel.")
+        } else if case .unavailable(let status) = hotkeys.problems[.closeDetails] {
+            problems.append(
+                "The close shortcut couldn't be registered (status \(status)); another app may be using it.")
+        }
+        return problems
+    }
+
     var body: some View {
         @Bindable var store = store
 
@@ -52,16 +69,24 @@ struct GeneralSettingsPane: View {
                 LabeledContent("Show or hide the panel") {
                     HotkeyRecorder(hotkey: $store.configuration.hotkey)
                 }
+                LabeledContent {
+                    HotkeyRecorder(hotkey: $store.configuration.details.closeHotkey)
+                } label: {
+                    Text("Close the details panel")
+                    Text("Only taken while a details panel is open.")
+                }
             } header: {
                 Text("Keyboard")
             } footer: {
-                if let status = hotkeys.registrationError {
-                    Text("This shortcut couldn't be registered (status \(status)); another app may be using it.")
-                        .foregroundStyle(.orange)
-                        .settingsFootnote()
-                } else {
-                    Text("Works from any app. Click the shortcut, then press a new one; Esc cancels.")
-                        .settingsFootnote()
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(problems, id: \.self) { problem in
+                        Text(problem).foregroundStyle(.orange).settingsFootnote()
+                    }
+                    Text(
+                        "Both work from any app. Click a shortcut, then press a new one; Esc cancels. Hiding the panel "
+                            + "hides an open details panel too, and showing it brings that back."
+                    )
+                    .settingsFootnote()
                 }
             }
 

@@ -42,6 +42,8 @@ final class AppController {
             systemStats: SystemStatsService(),
             noodleComputer: NoodleComputerService(),
             railway: RailwayService(),
+            openRouter: OpenRouterService(),
+            details: DetailsPresenter(),
             hotkeys: HotkeyCenter(),
             windowAvoider: WindowAvoider(),
             loginItem: LoginItem(),
@@ -64,8 +66,11 @@ final class AppController {
         avoider.mode = configuration.windowAvoidance
         avoider.start(promptingForAccess: true)
 
-        environment.hotkeys.onPress = { [weak panels] in panels?.toggle() }
-        environment.hotkeys.register(configuration.hotkey)
+        environment.hotkeys.handlers = [
+            .togglePanels: { [weak panels] in panels?.toggle() },
+            .closeDetails: { [weak panels] in panels?.closeDetails() },
+        ]
+        environment.hotkeys.register(configuration.hotkey, for: .togglePanels)
 
         environment.updater.onSettingsChange = { [store] in store.configuration.updates = $0 }
         environment.updater.start(with: configuration.updates)
@@ -81,6 +86,8 @@ final class AppController {
     func stop() {
         for observation in observations { observation.cancel() }
         pendingAvoidance.cancel()
+        // Windows the panels moved go back where they were, unless someone moved them since.
+        environment.windowAvoider.releaseAll()
         store.flush()
         for service in environment.dataServices { service.stop() }
     }
@@ -103,7 +110,7 @@ final class AppController {
         let previousFrames = panels.targetFrames
         panels.apply(configuration, displays: displays)
         environment.windowAvoider.mode = configuration.windowAvoidance
-        environment.hotkeys.register(configuration.hotkey)
+        environment.hotkeys.register(configuration.hotkey, for: .togglePanels)
         environment.updater.apply(configuration.updates)
         if panels.targetFrames != previousFrames { avoidWindowsAfterPanelChange() }
     }
@@ -115,11 +122,18 @@ final class AppController {
         pendingAvoidance.schedule(after: Self.avoidanceDelayAfterPanelChange) { avoider.avoidAllWindows() }
     }
 
+    /// What the data services have to do, from everything on screen.
+    private struct Demand: Equatable {
+        var services: ServiceDemand
+        var openRouter: OpenRouterDemand
+    }
+
     /// Runs each data service only while a widget that needs it is visible on some display, or while the manager
     /// window (which previews every widget) is open. Panels hidden with the shortcut show nothing, so they need
-    /// nothing; nor do panels nobody has seen for a minute, on a sleeping or locked screen. Codex, Claude Code and Cursor are each needed by their own
-    /// widget and by an AI Usage widget showing them; they run once for all of them, and fetch on a timer only as
-    /// often as the most frequent of those that opted in asks.
+    /// nothing; nor do panels nobody has seen for a minute, on a sleeping or locked screen, nor a panel the details
+    /// panel has stood in for a few seconds. Codex, Claude Code and Cursor are each needed by their own widget and by
+    /// an AI Usage widget showing them; they run once for all of them, and fetch on a timer only as often as the most
+    /// frequent of those that opted in asks. The details panel needs only what it shows.
     private func observeServiceDemand() {
         let store = store
         let windows = windows
@@ -130,16 +144,40 @@ final class AppController {
                 let demand = Observations {
                     let configuration = store.configuration
                     let unseen = coordinator.unseenDisplays
-                    let displays = coordinator.isHidden ? [] : monitor.displays.filter { !unseen.contains($0.id) }
-                    let panels = displays.map { $0.panel(in: configuration) }.filter(\.showsPanel)
-                    return configuration.serviceDemand(
-                        at: panels.map(\.position), previewsEveryWidget: windows.previewsEveryWidget)
+                    let covered = coordinator.coveredDisplay
+                    let displays =
+                        coordinator.isHidden
+                        ? [] : monitor.displays.filter { !unseen.contains($0.id) && $0.id != covered }
+                    let panels = displays.map { (display: $0, panel: $0.panel(in: configuration)) }
+                        .filter { $0.panel.showsPanel }
+                    let previews = windows.previewsEveryWidget
+                    let shown = panels.map {
+                        ShownPanel(
+                            position: $0.panel.position,
+                            density: PanelMetrics.columns(of: $0.panel, on: $0.display).density)
+                    }
+                    var openRouter = configuration.openRouterDemand(panels: shown, previewsEveryWidget: previews)
+                    if !coordinator.isHidden, let details = coordinator.details, !unseen.contains(details.displayID) {
+                        openRouter.merge(details.openRouterDemand(in: configuration))
+                    }
+                    return Demand(
+                        services: configuration.serviceDemand(
+                            at: panels.map(\.panel.position), previewsEveryWidget: previews),
+                        openRouter: openRouter)
                 }
                 for await demand in demand {
-                    self?.runServices(for: demand)
+                    self?.runServices(for: demand.services)
+                    self?.runOpenRouter(for: demand.openRouter)
                 }
             }
         )
+    }
+
+    /// One service for both OpenRouter widgets and the catalogue's details panel. Only placed widgets count, so the
+    /// gallery's previews never fetch, nor read the key.
+    private func runOpenRouter(for demand: OpenRouterDemand) {
+        environment.openRouter.demand = demand
+        environment.openRouter.setRunning(!demand.isEmpty)
     }
 
     private func runServices(for demand: ServiceDemand) {
@@ -177,6 +215,8 @@ final class AppController {
                 // Not for the Widgets window's previews alone: Railway's sign-in isn't read until a widget is added.
                 environment.railway.needs = demand.railway
                 environment.railway.setRunning(isNeeded && !demand.railway.isEmpty)
+            // Theirs goes by the OpenRouter demand, which also counts the details panel.
+            case .openRouterCredits, .openRouterModels: break
             }
         }
     }

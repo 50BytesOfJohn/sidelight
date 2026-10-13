@@ -20,6 +20,9 @@ struct AppEnvironment {
     let systemStats: SystemStatsService
     let noodleComputer: NoodleComputerService
     let railway: RailwayService
+    let openRouter: OpenRouterService
+    /// How widgets open the details panel in place of their panel.
+    let details: DetailsPresenter
     let hotkeys: HotkeyCenter
     let windowAvoider: WindowAvoider
     let loginItem: LoginItem
@@ -32,7 +35,7 @@ extension AppEnvironment {
     var dataServices: [any DataService] {
         [
             calendar, codex, claudeCode, cursor, nowPlaying, claudeSessions, codexSessions, cursorChats,
-            openCodeSessions, systemStats, noodleComputer, railway,
+            openCodeSessions, systemStats, noodleComputer, railway, openRouter,
         ]
     }
 
@@ -72,6 +75,8 @@ extension View {
             .environment(app.systemStats)
             .environment(app.noodleComputer)
             .environment(app.railway)
+            .environment(app.openRouter)
+            .environment(app.details)
             .environment(app.hotkeys)
             .environment(app.windowAvoider)
             .environment(app.loginItem)

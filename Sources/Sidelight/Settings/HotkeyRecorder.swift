@@ -25,8 +25,8 @@ struct HotkeyRecorder: View {
 
     private func startRecording() {
         isRecording = true
-        // Free the current shortcut so it can be recorded again.
-        hotkeys.unregister()
+        // Free every shortcut, so the current one (or another of Sidelight's) can be recorded too.
+        hotkeys.suspend()
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if Int(event.keyCode) == kVK_Escape {
                 stopRecording()
@@ -43,6 +43,6 @@ struct HotkeyRecorder: View {
         monitor = nil
         guard isRecording else { return }
         isRecording = false
-        hotkeys.register(hotkey)
+        hotkeys.resume()
     }
 }

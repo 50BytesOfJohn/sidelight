@@ -28,6 +28,7 @@ struct SettingsView: View {
                 case .panel: PanelSettingsPane()
                 case .appearance: AppearanceSettingsPane()
                 case .windows: WindowsSettingsPane()
+                case .connections: ConnectionsSettingsPane()
                 case .general: GeneralSettingsPane()
                 }
             }
@@ -39,7 +40,7 @@ struct SettingsView: View {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case panel, appearance, windows, general
+    case panel, appearance, windows, connections, general
 
     var id: Self { self }
 
@@ -48,6 +49,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .panel: "Panel & Displays"
         case .appearance: "Appearance"
         case .windows: "Window Avoidance"
+        case .connections: "Connections"
         case .general: "General"
         }
     }
@@ -56,7 +58,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .panel: "Panel"
         case .windows: "Windows"
-        case .appearance, .general: title
+        case .appearance, .connections, .general: title
         }
     }
 
@@ -65,6 +67,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .panel: "sidebar.left"
         case .appearance: "paintbrush.fill"
         case .windows: "macwindow.on.rectangle"
+        case .connections: "key.fill"
         case .general: "gearshape.fill"
         }
     }
@@ -74,6 +77,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .panel: .blue
         case .appearance: .pink
         case .windows: .orange
+        case .connections: .indigo
         case .general: .gray
         }
     }

@@ -20,5 +20,7 @@ public enum Log {
     public static let calendar = Logger(subsystem: subsystem, category: "calendar")
     public static let noodleComputer = Logger(subsystem: subsystem, category: "noodle-computer")
     public static let railway = Logger(subsystem: subsystem, category: "railway")
+    public static let openRouter = Logger(subsystem: subsystem, category: "openrouter")
+    public static let details = Logger(subsystem: subsystem, category: "details")
     public static let process = Logger(subsystem: subsystem, category: "process")
 }
