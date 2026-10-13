@@ -21,6 +21,7 @@ struct WidgetPreview: View {
             }
         }
         .environment(\.colorScheme, .dark)
+        .environment(\.isWidgetPreview, true)
         .animation(Motion.layout, value: layout)
     }
 }

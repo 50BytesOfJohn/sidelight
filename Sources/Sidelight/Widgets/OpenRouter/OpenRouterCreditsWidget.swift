@@ -7,7 +7,8 @@ extension WidgetMetadata {
         systemImage: "creditcard.fill",
         tint: .indigo,
         summary: "Your OpenRouter account's balance, and what it spent each UTC day. Needs a management key.",
-        isBeta: true
+        isBeta: true,
+        family: "OpenRouter"
     )
 }
 
@@ -26,6 +27,7 @@ struct OpenRouterCreditsWidgetView: View {
     let settings: OpenRouterCreditsSettings
     let layout: WidgetLayout
     @Environment(OpenRouterService.self) private var service
+    @Environment(\.isWidgetPreview) private var isPreview
 
     var body: some View {
         WidgetClock { now in
@@ -36,24 +38,26 @@ struct OpenRouterCreditsWidgetView: View {
     @ViewBuilder
     private func content(now: Date) -> some View {
         let balance = service.balance
-        if let value = balance.value {
+        if isPreview {
+            // The Widgets window and the builder show what the widget looks like, with an example marked as one: never
+            // the account's money, and the key is never read for it.
+            OpenRouterCreditsContent(
+                balance: .example(at: now), problem: nil, isFetching: false,
+                chart: settings.chart.isShown ? .example(at: now) : nil, settings: settings, layout: layout,
+                now: now, isExample: true, refresh: nil)
+        } else if let value = balance.value {
+            // A key OpenRouter rejected isn't tried again until it's replaced: nothing to refresh until then.
             OpenRouterCreditsContent(
                 balance: value, problem: balance.problem, isFetching: balance.isFetching, chart: chart(now: now),
-                settings: settings, layout: layout, now: now,
-                refresh: { service.refreshAccount(scope: settings.chart.spendScope) })
-        } else if service.demand.balance == nil {
-            // Fetched for no widget: a preview in the Widgets window before a Credits widget is added. The key isn't
-            // read until then, so this shows what the widget looks like.
-            OpenRouterCreditsContent(
-                balance: .sample(at: now), problem: nil, isFetching: false,
-                chart: settings.chart.isShown ? .sample(at: now, days: settings.chart.days) : nil, settings: settings,
-                layout: layout, now: now, refresh: nil)
+                settings: settings, layout: layout, now: now, isExample: false,
+                refresh: balance.problem?.needsKey == true
+                    ? nil : { service.refreshAccount(scope: settings.chart.spendScope) })
         } else if let problem = balance.problem {
             let retry = WidgetMessage.Action(title: "Try Again", isDisabled: balance.isFetching) {
                 service.refreshAccount(scope: settings.chart.spendScope)
             }
             WidgetMessage(
-                title: problem.needsKey ? "Add an OpenRouter management key" : problem.title,
+                title: problem == .noKey ? "Add an OpenRouter management key" : problem.title,
                 detail: problem.advice,
                 systemImage: problem.needsKey ? "key" : "exclamationmark.triangle",
                 layout: layout,
@@ -102,6 +106,8 @@ private struct OpenRouterCreditsContent: View {
     let settings: OpenRouterCreditsSettings
     let layout: WidgetLayout
     let now: Date
+    /// An example in a preview, not the account's money: it says so.
+    let isExample: Bool
     /// `nil` in previews, which never fetch.
     let refresh: (() -> Void)?
 
@@ -114,7 +120,7 @@ private struct OpenRouterCreditsContent: View {
             let isCompact = layout == .compact
             VStack(alignment: .leading, spacing: isCompact ? 4 : 6) {
                 if !isCompact {
-                    Text("Account balance · USD".uppercased())
+                    Text((isExample ? "Example balance · USD" : "Account balance · USD").uppercased())
                         .font(.system(size: 9, weight: .semibold))
                         .tracking(0.8)
                         .foregroundStyle(.secondary)
@@ -139,8 +145,10 @@ private struct OpenRouterCreditsContent: View {
                 }
                 if let chart {
                     OpenRouterSpendChart(
-                        state: chart, settings: settings.chart, isCompact: isCompact, now: now, retry: refresh)
-                        .padding(.top, isCompact ? 2 : 6)
+                        state: chart, settings: settings.chart, isCompact: isCompact, now: now, isExample: isExample,
+                        retry: refresh
+                    )
+                    .padding(.top, isCompact ? 2 : 6)
                 }
             }
         case .minimal:
@@ -170,7 +178,8 @@ private struct OpenRouterCreditsContent: View {
             .opacity(isStale ? 0.6 : 1)
             .contentTransition(.numericText())
             .animation(Motion.gentle, value: balance.remaining)
-            .accessibilityLabel("Account balance \(OpenRouterFormat.dollars(balance.remaining))")
+            .accessibilityLabel(
+                "\(isExample ? "Example balance" : "Account balance") \(OpenRouterFormat.dollars(balance.remaining))")
     }
 
     private var staleDot: some View {
@@ -179,12 +188,14 @@ private struct OpenRouterCreditsContent: View {
 
     /// `Updated 4m ago`, or why it's older than it should be.
     private var updated: String {
+        guard !isExample else { return "An example: the panel shows your balance" }
         let age = UsageFormat.age(of: balance.fetchedAt, now: now)
         guard let problem else { return "Updated \(age)" }
         return "\(problem.title) · \(age)"
     }
 
     private var tooltip: String {
+        guard !isExample else { return "An example of the OpenRouter account balance, not yours" }
         var lines = ["OpenRouter account balance: \(OpenRouterFormat.dollars(balance.remaining))"]
         lines.append("Updated \(UsageFormat.age(of: balance.fetchedAt, now: now))")
         if let problem { lines.append("\(problem.title). \(problem.advice)") }
@@ -201,6 +212,8 @@ struct OpenRouterSpendChart: View {
     let settings: OpenRouterSpendChartSettings
     let isCompact: Bool
     let now: Date
+    /// An example in a preview, not the account's spending.
+    let isExample: Bool
     let retry: (() -> Void)?
 
     var body: some View {
@@ -259,6 +272,7 @@ struct OpenRouterSpendChart: View {
     /// `$1.55 · last 7 UTC days`, or `Key "dev-laptop" · $1.55 · last 7 UTC days`.
     private func caption(total: Decimal) -> String {
         let span = "\(OpenRouterFormat.dollars(total)) · last \(settings.days) UTC days"
+        guard !isExample else { return "Example · \(span)" }
         guard settings.scope == .key else { return span }
         return "Key “\(settings.keyName ?? "chosen key")” · \(span)"
     }
@@ -266,6 +280,7 @@ struct OpenRouterSpendChart: View {
     private func help(
         total: Decimal, byok: Decimal?, activity: OpenRouterActivity, problem: OpenRouterProblem?
     ) -> String {
+        guard !isExample else { return "An example of spending by UTC day, not yours" }
         var lines = [
             "Charged to your credits over the last \(settings.days) completed UTC days: "
                 + OpenRouterFormat.dollars(total)
@@ -341,15 +356,15 @@ private struct SpendBars: View {
 // MARK: - Previews
 
 extension OpenRouterBalance {
-    /// What the Widgets window shows before a Credits widget is added. Not anyone's money.
-    static func sample(at now: Date) -> OpenRouterBalance {
+    /// What previews show, marked as an example. Not anyone's money.
+    static func example(at now: Date) -> OpenRouterBalance {
         OpenRouterBalance(totalCredits: 100, totalUsage: Decimal(string: "25.75")!, fetchedAt: now)
     }
 }
 
 extension OpenRouterSpendChartState {
-    /// What the Widgets window shows before a Credits widget is added.
-    static func sample(at now: Date, days: Int) -> OpenRouterSpendChartState {
+    /// What previews show, marked as an example.
+    static func example(at now: Date) -> OpenRouterSpendChartState {
         let amounts = ["0.42", "0.18", "0.61", "0.05", "0.33", "0.27", "0.9"]
         let lastDay = UTCDay(now).adding(days: -1)
         let rows = (0..<OpenRouterActivity.reportedDays).compactMap { offset -> (UTCDay, Decimal, Decimal?)? in

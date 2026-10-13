@@ -32,8 +32,18 @@ struct GalleryColumn: View {
                     columns: [GridItem(.adaptive(minimum: previewLayout.galleryTileMinimumWidth), spacing: 14)],
                     spacing: 14
                 ) {
-                    ForEach(WidgetKind.allCases) { kind in
-                        GalleryTile(kind: kind, previewLayout: previewLayout) { add(kind) }
+                    ForEach(GalleryGroup.all) { group in
+                        Section {
+                            ForEach(group.kinds) { kind in
+                                GalleryTile(kind: kind, previewLayout: previewLayout) { add(kind) }
+                            }
+                        } header: {
+                            if let family = group.family {
+                                SectionLabel(family)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.top, 8)
+                            }
+                        }
                     }
                 }
                 .padding(20)
@@ -46,6 +56,30 @@ struct GalleryColumn: View {
         withAnimation(Motion.layout) { store.configuration.addWidget(widget, near: selection) }
         selection = .widget(widget.id)
     }
+}
+
+/// Kinds in the gallery's order, the kinds of one family together under its name.
+private struct GalleryGroup: Identifiable {
+    let family: String?
+    var kinds: [WidgetKind]
+
+    var id: String { family ?? kinds.first?.rawValue ?? "" }
+
+    /// Every kind: runs of kinds without a family, and each family's kinds where its first one is.
+    static let all: [GalleryGroup] = {
+        var groups: [GalleryGroup] = []
+        for kind in WidgetKind.allCases {
+            let family = kind.metadata.family
+            if let family, let index = groups.firstIndex(where: { $0.family == family }) {
+                groups[index].kinds.append(kind)
+            } else if family == nil, let last = groups.indices.last, groups[last].family == nil {
+                groups[last].kinds.append(kind)
+            } else {
+                groups.append(GalleryGroup(family: family, kinds: [kind]))
+            }
+        }
+        return groups
+    }()
 }
 
 private struct GalleryTile: View {

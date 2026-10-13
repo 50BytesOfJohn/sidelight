@@ -276,14 +276,16 @@ private struct OpenRouterModelDetail: View {
             .buttonStyle(.borderless)
             .font(.system(size: 11))
             .padding(.top, 2)
-            Text("Prices are the top provider's, per token type; requests may cost more for images, search or long "
-                + "prompts.")
+            Text(Self.priceNote)
                 .font(.system(size: 9.5))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 2)
     }
+
+    private static let priceNote =
+        "Prices are the top provider's, per token type; requests may cost more for images, search or long prompts."
 
     private func row(_ title: String, _ value: String, monospaced: Bool = false) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {

@@ -13,17 +13,21 @@ struct GeneralSettingsPane: View {
     private var problems: [String] {
         let configuration = store.configuration
         var problems: [String] = []
-        if case .unavailable(let status) = hotkeys.problems[.togglePanels] {
-            problems.append(
-                "The show or hide shortcut couldn't be registered (status \(status)); another app may be using it.")
-        }
-        if configuration.details.closeHotkey == configuration.hotkey {
+        if let problem = unavailable(.togglePanels, named: "show or hide") { problems.append(problem) }
+        if configuration.details.closeHotkey.isSameShortcut(as: configuration.hotkey) {
             problems.append("The close shortcut is the same as show or hide, so it only shows or hides the panel.")
-        } else if case .unavailable(let status) = hotkeys.problems[.closeDetails] {
-            problems.append(
-                "The close shortcut couldn't be registered (status \(status)); another app may be using it.")
+        } else if let problem = unavailable(.closeDetails, named: "close") {
+            problems.append(problem)
         }
         return problems
+    }
+
+    /// Why `action`'s shortcut couldn't be registered, and which one still works instead, if any.
+    private func unavailable(_ action: HotkeyAction, named name: String) -> String? {
+        guard case .unavailable(let status) = hotkeys.problems[action] else { return nil }
+        let problem = "The \(name) shortcut couldn't be registered (status \(status)); another app may be using it."
+        guard let working = hotkeys.workingHotkey(for: action) else { return problem }
+        return problem + " \(working.displayString) still works meanwhile."
     }
 
     var body: some View {
@@ -67,10 +71,14 @@ struct GeneralSettingsPane: View {
 
             Section {
                 LabeledContent("Show or hide the panel") {
-                    HotkeyRecorder(hotkey: $store.configuration.hotkey)
+                    HotkeyRecorder(
+                        hotkey: $store.configuration.hotkey,
+                        others: [(store.configuration.details.closeHotkey, "closes the details panel")])
                 }
                 LabeledContent {
-                    HotkeyRecorder(hotkey: $store.configuration.details.closeHotkey)
+                    HotkeyRecorder(
+                        hotkey: $store.configuration.details.closeHotkey,
+                        others: [(store.configuration.hotkey, "shows or hides the panel")])
                 } label: {
                     Text("Close the details panel")
                     Text("Only taken while a details panel is open.")

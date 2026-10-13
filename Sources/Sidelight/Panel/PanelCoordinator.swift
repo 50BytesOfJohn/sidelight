@@ -7,17 +7,14 @@ import os
 /// connected displays change, and shows or hides them all together.
 ///
 /// It also owns the details panel, which stands in for one display's panel while a widget shows more in it. Every
-/// change to what the panels reserve (the details panel opening or closing, the panels hiding or showing) goes to
-/// window avoidance as one step, from the strips before to the strips after.
+/// change to what the panels reserve (the details panel opening or closing, the panels hiding or showing, a panel
+/// moving or resizing) goes to window avoidance as one step, from the strips before to the strips after.
 @Observable
 final class PanelCoordinator: DetailsPresenting {
     @ObservationIgnored private let environment: AppEnvironment
     @ObservationIgnored private var panels: [Display.ID: PanelController] = [:]
     @ObservationIgnored private var displays: [Display] = []
     @ObservationIgnored private var configuration = AppConfiguration()
-    /// The strip each panel reserves, by display; changes when panels resize, move or appear, but not when a
-    /// fitted panel follows its content.
-    @ObservationIgnored private(set) var targetFrames: [Display.ID: CGRect] = [:]
     /// Hidden with the shortcut or the menu; not persisted. Hidden panels need no data and draw nothing.
     private(set) var isHidden = false
     /// Displays whose panel nobody has been able to see for ``unseenDelay``: the display sleeps, the screen is
@@ -29,13 +26,20 @@ final class PanelCoordinator: DetailsPresenting {
     private(set) var details: DetailsSession?
     /// The display whose panel the details panel has stood in for long enough that its widgets need no data.
     private(set) var coveredDisplay: Display.ID?
+    /// Nobody has been able to see the details panel for ``unseenDelay``, as for a display's panel: it needs no data
+    /// then. Watched on the details panel itself, never on the panel it covers, which is ordered out on purpose.
+    private(set) var isDetailsUnseen = false
     @ObservationIgnored private var detailsPanel: DetailsPanelController?
     @ObservationIgnored private let pendingCover = DelayedTask()
+    @ObservationIgnored private let pendingDetailsUnseen = DelayedTask()
 
     /// Long enough that Mission Control, or a screen blanking for a moment, doesn't stop and restart services.
     static let unseenDelay: Duration = .seconds(60)
     /// Long enough that a quick look at the details panel doesn't stop and restart the covered panel's services.
     static let coverDelay: Duration = .seconds(5)
+    /// After a panel moves or resizes: long enough for its animation to finish, and for a dragged width slider to
+    /// settle, before windows move out of its way.
+    static let avoidanceSettleDelay: Duration = .milliseconds(600)
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -89,10 +93,8 @@ final class PanelCoordinator: DetailsPresenting {
         self.configuration = configuration
 
         let shown = newDisplays.filter { $0.panel(in: configuration).showsPanel }
-        targetFrames = [:]
         for display in shown {
             let placement = PanelMetrics.placement(of: display.panel(in: configuration), on: display)
-            targetFrames[display.id] = placement.strip
             if let panel = panels[display.id] {
                 panel.move(to: placement, animated: animated)
             } else {
@@ -111,7 +113,21 @@ final class PanelCoordinator: DetailsPresenting {
             panels[id] = nil
             occlusionChanged(of: id, isOccluded: false)
         }
-        updateDetailsAfterChange(from: before)
+        updateDetailsAfterChange()
+        // Windows move once the panels have settled, in one step with the details panel's changes.
+        if !Self.reserveSame(before, occupiedRegions) {
+            reservationsChanged(from: before, settlingFor: Self.avoidanceSettleDelay)
+        }
+    }
+
+    /// Stops everything that runs on its own, before the app quits. Window avoidance puts windows back itself.
+    func stop() {
+        pendingCover.cancel()
+        pendingDetailsUnseen.cancel()
+        for pending in pendingUnseen.values { pending.cancel() }
+        pendingUnseen = [:]
+        detailsPanel?.close()
+        detailsPanel = nil
     }
 
     private func occlusionChanged(of id: Display.ID, isOccluded: Bool) {
@@ -150,17 +166,15 @@ final class PanelCoordinator: DetailsPresenting {
         let before = occupiedRegions
         if let previous = details {
             // Another display's details panel gives way: its panel comes back, in the same step as this one opens.
-            detailsPanel?.close()
-            detailsPanel = nil
+            endDetails()
             panels[previous.displayID]?.show()
         }
         let session = DetailsSession(displayID: display.id, widgetID: placement.widgetID, request: request)
         let controller = DetailsPanelController(
             session: session, placement: DetailsPlacement(display: display, replacing: panel.position),
-            environment: environment
-        ) { [weak self] in
-            self?.closeDetails()
-        }
+            environment: environment,
+            close: { [weak self] in self?.closeDetails() },
+            onVisibilityChange: { [weak self] in self?.detailsVisibilityChanged(isOnScreen: $0) })
         details = session
         detailsPanel = controller
         environment.hotkeys.register(configuration.details.closeHotkey, for: .closeDetails)
@@ -174,43 +188,57 @@ final class PanelCoordinator: DetailsPresenting {
     }
 
     /// Closes the details panel and gives its display its panel back. Search and choices are forgotten. With the
-    /// panels hidden, it just ends the session: nothing shows.
+    /// panels hidden, it just ends the session: nothing shows, and nothing moves.
     func closeDetails() {
         guard let session = details else { return }
         let before = occupiedRegions
-        details = nil
-        detailsPanel?.close()
-        detailsPanel = nil
-        environment.hotkeys.unregister(.closeDetails)
+        endDetails()
         if !isHidden { panels[session.displayID]?.show() }
-        updateCover()
         Log.details.info("Closed details")
         reservationsChanged(from: before)
     }
 
+    /// Forgets the session and releases the details panel, leaving window avoidance to the caller.
+    private func endDetails() {
+        details = nil
+        detailsPanel?.close()
+        detailsPanel = nil
+        environment.hotkeys.unregister(.closeDetails)
+        pendingDetailsUnseen.cancel()
+        if isDetailsUnseen { isDetailsUnseen = false }
+        updateCover()
+    }
+
+    /// The details panel can be seen again, or nobody can see it: after ``unseenDelay`` it needs no data, as a
+    /// display's panel nobody can see.
+    private func detailsVisibilityChanged(isOnScreen: Bool) {
+        guard !isOnScreen else {
+            pendingDetailsUnseen.cancel()
+            if isDetailsUnseen { isDetailsUnseen = false }
+            return
+        }
+        pendingDetailsUnseen.schedule(after: Self.unseenDelay, tolerance: .seconds(5)) { [weak self] in
+            guard let self, details != nil else { return }
+            isDetailsUnseen = true
+        }
+    }
+
     /// After the configuration or the displays changed: the details panel closes if what opened it is gone, and
-    /// otherwise follows its display's new geometry. Window avoidance hears of it in the same step.
-    private func updateDetailsAfterChange(from before: [PanelRegion]) {
+    /// otherwise follows its display's new geometry. The caller tells window avoidance, in one step with the panels.
+    private func updateDetailsAfterChange() {
         guard let session = details else { return }
         let display = displays.first { $0.id == session.displayID }
         let panel = display.map { $0.panel(in: configuration) }
         let widget = configuration.widget(session.widgetID)
         guard let display, let panel, panel.showsPanel, let widget, widget.isVisible(at: panel.position) else {
             // Its display was disconnected or stopped showing a panel, or the widget was removed or hidden there.
-            closeDetails()
+            Log.details.info("Closed details: what opened them is gone")
+            endDetails()
+            if !isHidden { panels[session.displayID]?.show() }
             return
         }
         environment.hotkeys.register(configuration.details.closeHotkey, for: .closeDetails)
         detailsPanel?.move(to: DetailsPlacement(display: display, replacing: panel.position))
-        let old = before.first { $0.displayID == display.id }
-        let new = occupiedRegions.first { $0.displayID == display.id }
-        let isChanged =
-            switch (old, new) {
-            case (nil, nil): false
-            case (let old?, let new?): !old.reservesSame(as: new)
-            default: true
-            }
-        if isChanged { reservationsChanged(from: before) }
     }
 
     /// The covered panel's widgets keep their data for ``coverDelay``, so a quick look doesn't stop and restart their
@@ -234,7 +262,17 @@ final class PanelCoordinator: DetailsPresenting {
         }
     }
 
-    private func reservationsChanged(from before: [PanelRegion]) {
-        environment.windowAvoider.reservationsChanged(from: before)
+    /// Tells window avoidance the strips changed from `before`: now, for a handoff someone asked for, or once the
+    /// panels have settled.
+    private func reservationsChanged(from before: [PanelRegion], settlingFor delay: Duration? = nil) {
+        environment.windowAvoider.reservationsChanged(from: before, settlingFor: delay)
+    }
+
+    /// Whether `old` and `new` keep the same strips clear on every display.
+    private static func reserveSame(_ old: [PanelRegion], _ new: [PanelRegion]) -> Bool {
+        guard old.count == new.count else { return false }
+        return old.allSatisfy { region in
+            new.contains { $0.displayID == region.displayID && $0.reservesSame(as: region) }
+        }
     }
 }

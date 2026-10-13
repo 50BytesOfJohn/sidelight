@@ -4,7 +4,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: AppController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let controller = AppController()
+        let controller = AppController(composition: .launch)
         controller.start()
         self.controller = controller
     }

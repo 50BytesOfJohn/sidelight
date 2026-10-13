@@ -35,7 +35,8 @@ struct DetailsPanelView: View {
         }
         .padding(margin)
         .environment(\.colorScheme, appearance.colorScheme(system: systemColorScheme, imageURL: imageURL))
-        .environment(\.isPanelShown, layout.isShown)
+        // Stops minute redraws while it's hidden with the panels, or nobody can see it.
+        .environment(\.isPanelShown, layout.isOnScreen)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(content.title)
     }

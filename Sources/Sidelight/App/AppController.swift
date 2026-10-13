@@ -12,20 +12,16 @@ final class AppController {
     private let panels: PanelCoordinator
     private var statusItem: StatusItemController?
     private var observations: [Task<Void, Never>] = []
-    private let pendingAvoidance = DelayedTask()
-
-    /// Long enough for a resize animation to finish, and for a dragged width slider to settle.
-    static let avoidanceDelayAfterPanelChange: Duration = .milliseconds(600)
 
     private var store: ConfigurationStore { environment.configurationStore }
 
-    init() {
+    init(composition: AppComposition = .standard) {
         let claudeSessions = ClaudeSessionsService()
         let codexSessions = CodexSessionsService()
         let cursorChats = CursorChatsService.cursor()
         let openCodeSessions = OpenCodeSessionsService.openCode()
         let environment = AppEnvironment(
-            configurationStore: ConfigurationStore(),
+            configurationStore: ConfigurationStore(fileURL: composition.configurationFile),
             displays: DisplayMonitor(),
             desktopPictures: DesktopPictures(),
             calendar: CalendarService(),
@@ -42,10 +38,11 @@ final class AppController {
             systemStats: SystemStatsService(),
             noodleComputer: NoodleComputerService(),
             railway: RailwayService(),
-            openRouter: OpenRouterService(),
+            openRouter: OpenRouterService(
+                transport: composition.openRouterTransport, keyStore: composition.openRouterKeyStore),
             details: DetailsPresenter(),
             hotkeys: HotkeyCenter(),
-            windowAvoider: WindowAvoider(),
+            windowAvoider: WindowAvoider(includes: composition.movesWindows),
             loginItem: LoginItem(),
             rectangle: RectangleIntegration(),
             updater: Updater()
@@ -85,9 +82,10 @@ final class AppController {
     /// Stops helper processes and flushes unsaved configuration. Call before the app terminates.
     func stop() {
         for observation in observations { observation.cancel() }
-        pendingAvoidance.cancel()
-        // Windows the panels moved go back where they were, unless someone moved them since.
+        // Windows the panels moved go back where they were, unless someone moved them since; then nothing is watched.
         environment.windowAvoider.releaseAll()
+        environment.windowAvoider.stop()
+        panels.stop()
         store.flush()
         for service in environment.dataServices { service.stop() }
     }
@@ -106,20 +104,12 @@ final class AppController {
         )
     }
 
+    /// Window avoidance hears of panels moving or resizing from the panels themselves, once they've settled.
     private func apply(_ configuration: AppConfiguration, displays: [Display]) {
-        let previousFrames = panels.targetFrames
         panels.apply(configuration, displays: displays)
         environment.windowAvoider.mode = configuration.windowAvoidance
         environment.hotkeys.register(configuration.hotkey, for: .togglePanels)
         environment.updater.apply(configuration.updates)
-        if panels.targetFrames != previousFrames { avoidWindowsAfterPanelChange() }
-    }
-
-    /// Window avoidance reacts to other windows moving; when a panel grows or moves instead, the windows it now
-    /// covers are moved once it has settled.
-    private func avoidWindowsAfterPanelChange() {
-        let avoider = environment.windowAvoider
-        pendingAvoidance.schedule(after: Self.avoidanceDelayAfterPanelChange) { avoider.avoidAllWindows() }
     }
 
     /// What the data services have to do, from everything on screen.
@@ -133,7 +123,8 @@ final class AppController {
     /// nothing; nor do panels nobody has seen for a minute, on a sleeping or locked screen, nor a panel the details
     /// panel has stood in for a few seconds. Codex, Claude Code and Cursor are each needed by their own widget and by
     /// an AI Usage widget showing them; they run once for all of them, and fetch on a timer only as often as the most
-    /// frequent of those that opted in asks. The details panel needs only what it shows.
+    /// frequent of those that opted in asks. The details panel needs only what it shows, while it can be seen: it's
+    /// watched on its own, as the panel it covers is ordered out on purpose.
     private func observeServiceDemand() {
         let store = store
         let windows = windows
@@ -157,7 +148,7 @@ final class AppController {
                             density: PanelMetrics.columns(of: $0.panel, on: $0.display).density)
                     }
                     var openRouter = configuration.openRouterDemand(panels: shown, previewsEveryWidget: previews)
-                    if !coordinator.isHidden, let details = coordinator.details, !unseen.contains(details.displayID) {
+                    if !coordinator.isHidden, !coordinator.isDetailsUnseen, let details = coordinator.details {
                         openRouter.merge(details.openRouterDemand(in: configuration))
                     }
                     return Demand(
@@ -174,7 +165,7 @@ final class AppController {
     }
 
     /// One service for both OpenRouter widgets and the catalogue's details panel. Only placed widgets count, so the
-    /// gallery's previews never fetch, nor read the key.
+    /// gallery's previews never fetch, and previews of Credits never read the key.
     private func runOpenRouter(for demand: OpenRouterDemand) {
         environment.openRouter.demand = demand
         environment.openRouter.setRunning(!demand.isEmpty)

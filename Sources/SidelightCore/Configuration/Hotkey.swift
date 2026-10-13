@@ -47,6 +47,11 @@ public struct Hotkey: Codable, Hashable, Sendable {
 
     public var isValid: Bool { !modifiers.isDisjoint(with: .required) }
 
+    /// Whether the two are pressed the same way, whatever their keys are called.
+    public func isSameShortcut(as other: Hotkey) -> Bool {
+        keyCode == other.keyCode && modifiers == other.modifiers
+    }
+
     /// The shortcut as shown in menus, e.g. `⌥⌘S`.
     public var displayString: String { modifiers.symbols + key }
 }

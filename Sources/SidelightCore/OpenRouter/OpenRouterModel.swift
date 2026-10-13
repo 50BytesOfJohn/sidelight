@@ -9,14 +9,18 @@ public enum OpenRouterTokenPrice: Hashable, Sendable {
     /// Not listed, or not a price.
     case unknown
 
-    /// From the decimal string OpenRouter lists, such as `"0.0000005"`.
+    /// From the decimal string OpenRouter lists, such as `"0.0000005"`. Anything that isn't wholly a number is
+    /// unknown, never a price.
     public init(listed: String?) {
-        guard let listed, let value = Decimal(string: listed, locale: Locale(identifier: "en_US_POSIX")),
-            !value.isNaN
-        else {
+        guard let listed, let value = Decimal(exactText: listed) else {
             self = .unknown
             return
         }
+        self.init(value)
+    }
+
+    /// From a listed number: a price when it's zero or more, ``varies`` for the routers' `-1`.
+    public init(_ value: Decimal) {
         if value >= 0 {
             self = .perToken(value)
         } else {

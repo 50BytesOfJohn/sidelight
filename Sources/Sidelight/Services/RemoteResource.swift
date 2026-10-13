@@ -14,12 +14,14 @@ enum RefreshPolicy: Equatable {
 
 /// What one fetch of a ``RemoteResource`` came back with.
 enum FetchResult<Value, Problem> {
-    case success(Value)
+    /// The value, and when the answer came, if the fetch knows: what the value covers is counted from then, so
+    /// a day boundary passing while the result is handed over can't shift it. Otherwise it's when the result arrived.
+    case success(Value, at: Date? = nil)
     case failure(Problem, retry: RetryAdvice)
 
-    init(_ result: Result<Value, Problem>, retry: RetryAdvice) where Problem: Error {
+    init(_ result: Result<Value, Problem>, retry: RetryAdvice, at date: Date? = nil) where Problem: Error {
         switch result {
-        case .success(let value): self = .success(value)
+        case .success(let value): self = .success(value, at: date)
         case .failure(let problem): self = .failure(problem, retry: retry)
         }
     }
@@ -133,25 +135,27 @@ final class RemoteResource<Value, Problem: Equatable> {
 
     private func start(after delay: Duration) {
         stopFetching()
-        task.start(after: delay, tolerance: { min($0 / 10, .seconds(30)) }) { [weak self] in
-            guard let self else { return nil }
-            isFetching = true
-            let result = await fetch()
-            // Stopped or restarted meanwhile: whoever did owns `isFetching` now.
-            guard !Task.isCancelled else { return nil }
-            isFetching = false
-            if let result { record(result) }
-            return delayUntilDue()
-        }
+        task.start(
+            after: delay, tolerance: { min($0 / 10, .seconds(30)) },
+            run: { [weak self] in
+                guard let self else { return nil }
+                isFetching = true
+                let result = await fetch()
+                // Stopped or restarted meanwhile: whoever did owns `isFetching` now.
+                guard !Task.isCancelled else { return nil }
+                isFetching = false
+                if let result { record(result) }
+                return delayUntilDue()
+            })
     }
 
     private func record(_ result: FetchResult<Value, Problem>) {
         let instant = ContinuousClock.now
         lastAttempt = instant
         switch result {
-        case .success(let value):
+        case .success(let value, let date):
             self.value = value
-            fetchedAt = now()
+            fetchedAt = date ?? now()
             problem = nil
             lastSuccess = instant
             consecutiveFailures = 0
@@ -188,9 +192,10 @@ final class RemoteResource<Value, Problem: Equatable> {
             case .every(let interval):
                 due = lastSuccess + interval
             case .dailyUTC(let delay):
+                // The moment itself, then how far off it is: one already past is due now, not `delay` from now.
                 let wallClock = now()
-                let nextDay = UTCDay(fetchedAt ?? wallClock).adding(days: 1).start
-                due = instant + .seconds(max(0, nextDay.timeIntervalSince(wallClock))) + delay
+                let target = UTCDay(fetchedAt ?? wallClock).adding(days: 1).start.addingTimeInterval(delay.timeInterval)
+                due = instant + .seconds(max(0, target.timeIntervalSince(wallClock)))
             }
         } else {
             // Nothing fetched yet.

@@ -14,8 +14,9 @@ public enum OpenRouterChartScope: String, Codable, CaseIterable, Identifiable, S
 public struct OpenRouterSpendChartSettings: Codable, Hashable, Sendable {
     /// What the settings offer for ``days``.
     public static let dayChoices = [7, 14, 30]
-    /// OpenRouter reports the last 30 completed UTC days.
-    public static let dayRange = 1...30
+    /// From the fewest days offered to the 30 completed UTC days OpenRouter reports. Hand-edited numbers are moved
+    /// into it.
+    public static let dayRange = 7...30
 
     public var isShown = true
     public var days = 7
@@ -62,6 +63,8 @@ public struct OpenRouterSpendChartSettings: Codable, Hashable, Sendable {
 public struct OpenRouterCreditsSettings: Codable, Hashable, Sendable {
     /// What the settings offer for ``refresh``, besides manual.
     public static let refreshMinuteChoices = [5, 15, 30, 60]
+    /// The span of those: a hand-edited interval is moved into it.
+    public static let refreshMinuteRange = 5...60
 
     public var refresh = RefreshCadence.minutes(15)
     public var chart = OpenRouterSpendChartSettings()
@@ -71,11 +74,12 @@ public struct OpenRouterCreditsSettings: Codable, Hashable, Sendable {
         self.chart = chart
     }
 
-    /// Missing options take their defaults, and an unreadable interval doesn't fail the whole configuration.
+    /// Missing options take their defaults, an unreadable interval doesn't fail the whole configuration, and a
+    /// hand-edited one is moved into the range the settings offer.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = OpenRouterCreditsSettings()
-        refresh = container.decodeLeniently(.refresh, or: defaults.refresh).clamped(to: UsageRefresh.minuteRange)
+        refresh = container.decodeLeniently(.refresh, or: defaults.refresh).clamped(to: Self.refreshMinuteRange)
         chart = try container.decode(.chart, or: defaults.chart)
     }
 }
@@ -271,6 +275,8 @@ public enum OpenRouterModelsPreset: String, CaseIterable, Identifiable, Sendable
 public struct OpenRouterModelsSettings: Codable, Hashable, Sendable {
     /// What the settings offer for ``sync``, besides manual.
     public static let syncMinuteChoices = [15, 30, 60, 180, 360]
+    /// The span of those: a hand-edited interval is moved into it.
+    public static let syncMinuteRange = 15...360
 
     public var sync = RefreshCadence.minutes(60)
     public var glance = OpenRouterModelsGlance.newest
@@ -288,12 +294,12 @@ public struct OpenRouterModelsSettings: Codable, Hashable, Sendable {
         blocks = BlockLayout(shown: preset.blocks)
     }
 
-    /// Missing options take their defaults, unknown choices don't fail the whole configuration, and only the lists
-    /// the layout has keep their options.
+    /// Missing options take their defaults, unknown choices don't fail the whole configuration, a hand-edited
+    /// interval is moved into the range the settings offer, and only the lists the layout has keep their options.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = OpenRouterModelsSettings()
-        sync = container.decodeLeniently(.sync, or: defaults.sync).clamped(to: UsageRefresh.minuteRange)
+        sync = container.decodeLeniently(.sync, or: defaults.sync).clamped(to: Self.syncMinuteRange)
         glance = container.decodeLeniently(.glance, or: defaults.glance)
         blocks = container.decodeLeniently(.blocks, or: defaults.blocks)
         summary = try container.decode(.summary, or: defaults.summary)
@@ -420,19 +426,22 @@ public struct ShownPanel: Hashable, Sendable {
 }
 
 extension AppConfiguration {
-    /// What the OpenRouter widgets on `panels` need. While `previewsEveryWidget`, every OpenRouter widget in the
-    /// configuration counts, at its richest: the Widgets window previews them at every size. Widgets not in the
-    /// configuration never count, so the gallery's previews alone never fetch, or read a credential.
+    /// What the OpenRouter widgets on `panels` need.
+    ///
+    /// While `previewsEveryWidget` (the Widgets window or the builder is open), the Models widgets in the configuration
+    /// count too, so their previews show the live public catalogue. Credits previews never do: they show an example,
+    /// and never read the key or ask OpenRouter about the account. Widgets not in the configuration never count.
     public func openRouterDemand(panels: [ShownPanel], previewsEveryWidget: Bool = false) -> OpenRouterDemand {
         var demand = OpenRouterDemand(
             keepsAccountData: widgets.contains { $0.kind == .openRouterCredits })
-        if previewsEveryWidget {
-            for widget in widgets { demand.add(widget, showsCharts: true) }
-            return demand
-        }
         for panel in panels {
             for widget in widgets where widget.isVisible(at: panel.position) {
                 demand.add(widget, showsCharts: panel.showsCharts)
+            }
+        }
+        if previewsEveryWidget {
+            for case .openRouterModels(let settings) in widgets.map(\.settings) {
+                demand.catalogue = demand.catalogue.merged(with: settings.sync)
             }
         }
         return demand

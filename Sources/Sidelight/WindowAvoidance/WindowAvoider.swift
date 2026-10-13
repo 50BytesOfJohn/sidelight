@@ -30,6 +30,10 @@ struct PanelRegion: Equatable {
 /// details panel gives way to the side panel again) windows nobody touched since go back. See
 /// ``ReservationTransition`` for exactly what moves.
 ///
+/// It only ever moves a window it can be sure of: a standard window of an eligible app, on the active Space as the
+/// window server lists it, and told apart from that app's other windows (see ``OnScreenWindows``). Anything less
+/// certain is left alone. Every move, whether avoidance, putting back or following an edge, goes through that check.
+///
 /// With avoidance off it watches nothing, asks for nothing and remembers nothing, so it costs nothing.
 @Observable
 final class WindowAvoider {
@@ -85,9 +89,11 @@ final class WindowAvoider {
     @ObservationIgnored private var isStarted = false
     /// Windows Sidelight moved and may put back. Only ever in memory, and only for this run.
     @ObservationIgnored private var movedWindows: [MovedWindow] = []
-    /// The strips before a change that's waiting for the mouse button to come up. Later changes keep this start
-    /// and go to wherever things are by then, so a change undone meanwhile moves nothing.
+    /// The strips before a change that's waiting: for a panel to settle, or the mouse button to come up. Later
+    /// changes keep this start and go to wherever things are by then, so a change undone meanwhile moves nothing,
+    /// and a change replaced by another moves windows once.
     @ObservationIgnored private var pendingTransitionStart: [PanelRegion]?
+    @ObservationIgnored private let settlingTransition = DelayedTask()
 
     private let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
     /// Which apps' windows it may move, besides being regular apps other than Sidelight.
@@ -120,6 +126,14 @@ final class WindowAvoider {
         if trustPoll.isRunning { pollForTrust() }
     }
 
+    /// Stops observing, and drops every pending change and what it remembered. Call before the app quits, after
+    /// ``releaseAll()``.
+    func stop() {
+        guard isStarted else { return }
+        deactivate()
+        isStarted = false
+    }
+
     /// Moves every overlapping window right now. Returns how many were moved.
     @discardableResult
     func avoidAllWindows() -> Int {
@@ -135,27 +149,43 @@ final class WindowAvoider {
     // MARK: Reservation changes
 
     /// The strips to keep clear changed from `previous` to what ``occupiedRegions`` returns now, in one step: the
-    /// details panel opened or closed, or the panels were hidden or shown. Windows move once, straight to where they
-    /// belong (see ``ReservationTransition``). While the mouse button is down, this waits for it to come up.
-    func reservationsChanged(from previous: [PanelRegion]) {
+    /// details panel opened or closed, the panels were hidden or shown, or a panel moved or resized. Windows move once,
+    /// straight to where they belong (see ``ReservationTransition``).
+    ///
+    /// - Parameter delay: How long to let things settle first, as while a panel animates to a new size or a slider
+    ///   is dragged. Changes meanwhile are folded into one, from the first one's start. Without it the change applies
+    ///   now, along with any still settling. Either way, it waits for the mouse button to come up.
+    func reservationsChanged(from previous: [PanelRegion], settlingFor delay: Duration? = nil) {
         guard mode != .off, isStarted else { return }
-        let start = pendingTransitionStart ?? previous
-        guard NSEvent.pressedMouseButtons == 0 else {
-            pendingTransitionStart = start
-            waitForMouseUp()
-            return
+        pendingTransitionStart = pendingTransitionStart ?? previous
+        if let delay {
+            settlingTransition.schedule(after: delay) { [weak self] in self?.applyPendingTransition() }
+        } else {
+            settlingTransition.cancel()
+            applyPendingTransition()
         }
-        pendingTransitionStart = nil
-        applyTransition(from: start, to: occupiedRegions())
     }
 
     /// Puts back every window Sidelight moved and nobody touched since, as if the panels were hidden. Call before
     /// the app quits.
     func releaseAll() {
+        settlingTransition.cancel()
+        let start = pendingTransitionStart ?? occupiedRegions()
         pendingTransitionStart = nil
         guard mode != .off, isStarted else { return }
-        applyTransition(from: occupiedRegions(), to: [])
+        applyTransition(from: start, to: [])
         movedWindows = []
+    }
+
+    /// Applies the change waiting since ``pendingTransitionStart``, unless the mouse button is down: then once it's up.
+    private func applyPendingTransition() {
+        guard let start = pendingTransitionStart else { return }
+        guard NSEvent.pressedMouseButtons == 0 else {
+            waitForMouseUp()
+            return
+        }
+        pendingTransitionStart = nil
+        applyTransition(from: start, to: occupiedRegions())
     }
 
     private func applyTransition(from old: [PanelRegion], to new: [PanelRegion]) {
@@ -193,25 +223,26 @@ final class WindowAvoider {
         var counts: [ReservationTransition.Move.Reason: Int] = [:]
         for application in NSWorkspace.shared.runningApplications where isEligible(application) {
             let pid = application.processIdentifier
-            let windows: [(window: AccessibilityElement, frame: CGRect)] = AccessibilityElement.application(pid)
-                .windows.compactMap { window in
-                    guard window.isStandardWindow, !window.isFullScreen, !window.isMinimized,
-                        let frame = window.frame
-                    else { return nil }
-                    return (window, frame)
-                }
-            for (index, (window, frame)) in windows.enumerated() {
+            let allWindows = AccessibilityElement.application(pid).windows
+            let windows: [(window: AccessibilityElement, frame: CGRect)] = allWindows.compactMap { window in
+                guard window.isStandardWindow, !window.isFullScreen, !window.isMinimized, let frame = window.frame
+                else { return nil }
+                return (window, frame)
+            }
+            for (window, frame) in windows {
                 // The display holding most of it, if its strip changed.
                 guard
                     let display = displayFrames.max(by: { area(frame, $0.frame) < area(frame, $1.frame) }),
                     area(frame, display.frame) > 0, changed.contains(display.display.id)
                 else { continue }
                 let entry = remaining.firstIndex { $0.isWindow(window, of: pid) }.map { remaining.remove(at: $0) }
-                let siblings = windows.enumerated().filter { $0.offset != index }.map(\.element.frame)
                 // Another Space, or not told apart from another window: never moved, and no longer put back.
-                guard onScreen.contains(frame, of: pid, siblings: siblings) else { continue }
+                guard mayMove(window, frame: frame, of: application, among: allWindows, onScreen: onScreen) else {
+                    continue
+                }
 
                 let id = display.display.id
+                // An app that quit, and another that got its process identifier since: not the window remembered.
                 let launchDate = application.launchDate
                 let baselines = entry.flatMap { $0.displayID == id && $0.launchDate == launchDate ? $0.baselines : nil }
                 let decision = ReservationTransition.decide(
@@ -276,10 +307,10 @@ final class WindowAvoider {
     /// Notes that avoidance moved `window` from `before` to `accepted` to keep `region` clear, so it can go back.
     /// A window still where Sidelight last left it keeps its earlier baselines; one moved since starts over.
     private func remember(
-        _ window: AccessibilityElement, pid: pid_t, before: CGRect, accepted: CGRect, region: PanelRegion
+        _ window: AccessibilityElement, pid: pid_t, launchDate: Date?, before: CGRect, accepted: CGRect,
+        region: PanelRegion
     ) {
         guard !ReservationTransition.isUnchanged(accepted, since: before) else { return }
-        let launchDate = NSRunningApplication(processIdentifier: pid)?.launchDate
         let previous = movedWindows.firstIndex { $0.isWindow(window, of: pid) }.map { movedWindows.remove(at: $0) }
         var baselines =
             previous.flatMap { entry in
@@ -303,6 +334,8 @@ final class WindowAvoider {
         isTrusted = false
         movedWindows = []
         pendingTransitionStart = nil
+        settlingTransition.cancel()
+        windowsAwaitingMouseUp = []
         for pid in Array(observers.keys) { unregister(pid) }
         pollForTrust()
     }
@@ -330,13 +363,14 @@ final class WindowAvoider {
         mouseUpTask = nil
         windowsAwaitingMouseUp = []
         pendingTransitionStart = nil
+        settlingTransition.cancel()
         movedWindows = []
         for task in pendingRegistrations.values { task.cancel() }
         pendingRegistrations = [:]
         for token in workspaceObservations { NSWorkspace.shared.notificationCenter.removeObserver(token) }
         workspaceObservations = []
         for pid in Array(observers.keys) { unregister(pid) }
-        Log.avoidance.info("Window avoidance is off; stopped observing windows")
+        Log.avoidance.info("Stopped observing windows")
     }
 
     private func pollForTrust() {
@@ -457,7 +491,8 @@ final class WindowAvoider {
         waitForMouseUp()
     }
 
-    /// Once the mouse button is up: the reservation change that waited for it, then the windows that moved meanwhile.
+    /// Once the mouse button is up: the reservation change that waited for it (unless it's still settling), then the
+    /// windows that moved meanwhile.
     private func waitForMouseUp() {
         guard mouseUpTask == nil else { return }
         mouseUpTask = Task { [weak self] in
@@ -466,17 +501,15 @@ final class WindowAvoider {
             }
             guard let self else { return }
             mouseUpTask = nil
-            if let start = pendingTransitionStart {
-                pendingTransitionStart = nil
-                applyTransition(from: start, to: occupiedRegions())
-            }
+            if !settlingTransition.isPending { applyPendingTransition() }
             let pending = windowsAwaitingMouseUp
             windowsAwaitingMouseUp = []
             for item in pending { avoid(item.window, eventDate: item.eventDate, reason: item.reason + "+mouseUp") }
         }
     }
 
-    /// Moves `window` out from under the panel it overlaps, if any. Returns whether it was moved.
+    /// Moves `window` out from under the panel it overlaps, if any, and only when it may move it (see
+    /// ``mayMove(_:frame:of:)``). Returns whether it was moved.
     @discardableResult
     private func avoid(_ window: AccessibilityElement, eventDate: Date, reason: String) -> Bool {
         let regions = occupiedRegions()
@@ -503,6 +536,15 @@ final class WindowAvoider {
             ).map { (plan: $0, region: region) }
         }
         guard let (plan, region) = plans.first else { return false }
+        // Only now that it would move: whether it's this app's window on the active Space, told apart from its others.
+        guard let application = NSRunningApplication(processIdentifier: pid),
+            mayMove(
+                window, frame: windowFrame, of: application,
+                among: AccessibilityElement.application(pid).windows, onScreen: .current())
+        else {
+            Log.avoidance.debug("Left a window alone, not certainly on the active Space: \(reason, privacy: .public)")
+            return false
+        }
         let edge = region.edge
 
         var action = plan.action.rawValue
@@ -514,7 +556,11 @@ final class WindowAvoider {
             window.setFrame(fallback)
         }
         let accepted = window.frame
-        if let accepted { remember(window, pid: pid, before: windowFrame, accepted: accepted, region: region) }
+        if let accepted {
+            remember(
+                window, pid: pid, launchDate: application.launchDate, before: windowFrame, accepted: accepted,
+                region: region)
+        }
 
         let delay = Date.now.timeIntervalSince(eventDate) * 1000
         let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "?"
@@ -527,6 +573,21 @@ final class WindowAvoider {
             """
         )
         return true
+    }
+}
+
+extension WindowAvoider {
+    /// Whether Sidelight may move `window`, now at `frame`: a window of an app it may move, on the active Space as the
+    /// window server shows it in `onScreen`, and told apart from the app's other `windows` by its frame.
+    /// Accessibility can't say which Space a window is on without private API, so anything ambiguous counts as no.
+    /// Every move goes through this.
+    fileprivate func mayMove(
+        _ window: AccessibilityElement, frame: CGRect, of application: NSRunningApplication,
+        among windows: [AccessibilityElement], onScreen: OnScreenWindows
+    ) -> Bool {
+        guard isEligible(application) else { return false }
+        let siblings = windows.filter { !$0.isSameElement(as: window) }.compactMap(\.frame)
+        return onScreen.contains(frame, of: application.processIdentifier, siblings: siblings)
     }
 }
 

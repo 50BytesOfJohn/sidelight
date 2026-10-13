@@ -76,4 +76,8 @@ extension EnvironmentValues {
     /// Whether the panel drawing this can be seen: not hidden with the shortcut, and not on a sleeping or locked
     /// screen. Previews and settings are always shown.
     @Entry var isPanelShown = true
+
+    /// Drawn as a preview, in the Widgets window or the builder, rather than in a panel. Widgets whose data is private
+    /// (an account's money) show a marked example there, never someone's data, and never ask for it.
+    @Entry var isWidgetPreview = false
 }

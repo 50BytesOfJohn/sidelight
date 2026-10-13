@@ -61,10 +61,13 @@ public enum OpenRouterAPI {
             userAgent: userAgent)
     }
 
-    /// One page of the account's keys in its default workspace, disabled ones included so a chosen key that was
-    /// disabled can still be named. Needs a management key.
+    /// One page of the account's keys in its default workspace, disabled and expired ones included so a chosen key
+    /// that was disabled or expired can still be named. Needs a management key.
     public static func keysRequest(key: String, offset: Int, userAgent: String) -> URLRequest {
-        var query = [URLQueryItem(name: "include_disabled", value: "true")]
+        var query = [
+            URLQueryItem(name: "include_disabled", value: "true"),
+            URLQueryItem(name: "include_expired", value: "true"),
+        ]
         if offset > 0 { query.append(URLQueryItem(name: "offset", value: String(offset))) }
         return request(path: "keys", query: query, key: key, userAgent: userAgent)
     }
@@ -80,9 +83,9 @@ public enum OpenRouterAPI {
         request(path: "key", key: key, userAgent: userAgent)
     }
 
-    /// Key hashes are hexadecimal; anything else never goes into a URL.
+    /// Key hashes are 64 hexadecimal digits (a SHA-256); anything else never goes into a URL.
     public static func isPlausibleHash(_ hash: String) -> Bool {
-        !hash.isEmpty && hash.count <= 128 && hash.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
+        hash.utf8.count == 64 && hash.allSatisfy { $0.isASCII && $0.isHexDigit }
     }
 
     private static func request(
@@ -121,13 +124,14 @@ public enum OpenRouterAPI {
     ) -> Result<OpenRouterBalance, OpenRouterProblem> {
         if let problem = problem(in: response, sizeLimit: accountSizeLimit) { return .failure(problem) }
         guard let payload = try? JSONDecoder().decode(ObjectPayload<CreditsPayload>.self, from: response.body),
-            let credits = payload.data.totalCredits, let usage = payload.data.totalUsage
+            case .amount(let credits) = payload.data.totalCredits, case .amount(let usage) = payload.data.totalUsage
         else { return .failure(.unreadable) }
         return .success(OpenRouterBalance(totalCredits: credits, totalUsage: usage, fetchedAt: fetchedAt))
     }
 
     /// Spending by day in `response`. Money is never guessed: a row whose day or amount can't be read makes the
-    /// whole answer unreadable, rather than a total that looks complete but isn't.
+    /// whole answer unreadable, rather than a total that looks complete but isn't. A row without BYOK usage has
+    /// none; one whose BYOK usage is there but unreadable is unreadable too.
     public static func activity(
         _ response: HTTP.Response, key: OpenRouterKey?, fetchedAt: Date
     ) -> Result<OpenRouterActivity, OpenRouterProblem> {
@@ -136,19 +140,31 @@ public enum OpenRouterAPI {
         else { return .failure(.unreadable) }
         var rows: [(day: UTCDay, usage: Decimal, byok: Decimal?)] = []
         for row in payload.data {
-            guard let day = row.day, let usage = row.usage else { return .failure(.unreadable) }
-            rows.append((day, usage, row.byokUsage))
+            guard let day = row.day, case .amount(let usage) = row.usage else { return .failure(.unreadable) }
+            switch row.byokUsage {
+            case .absent: rows.append((day, usage, nil))
+            case .amount(let byok): rows.append((day, usage, byok))
+            case .unreadable: return .failure(.unreadable)
+            }
         }
         return .success(OpenRouterActivity(rows: rows, fetchedAt: fetchedAt, key: key))
     }
 
-    /// One page of keys in `response`. Entries without a hash are skipped.
-    public static func keys(_ response: HTTP.Response) -> Result<[OpenRouterKey], OpenRouterProblem> {
+    /// One page of keys in `response`. Entries without a readable hash are skipped, but still count towards the
+    /// page's length, which says whether more pages follow; a key listed twice is kept once.
+    public static func keyPage(_ response: HTTP.Response) -> Result<OpenRouterKeyPage, OpenRouterProblem> {
         if let problem = problem(in: response, sizeLimit: accountSizeLimit) { return .failure(problem) }
         guard let payload = try? JSONDecoder().decode(ListPayload<KeyPayload>.self, from: response.body) else {
             return .failure(.unreadable)
         }
-        return .success(payload.data.compactMap(\.key))
+        var seen = Set<String>()
+        let keys = payload.data.compactMap(\.key).filter { seen.insert($0.hash).inserted }
+        return .success(OpenRouterKeyPage(keys: keys, entryCount: payload.data.count))
+    }
+
+    /// The keys on one page in `response`; see ``keyPage(_:)``.
+    public static func keys(_ response: HTTP.Response) -> Result<[OpenRouterKey], OpenRouterProblem> {
+        keyPage(response).map(\.keys)
     }
 
     /// The key in `response`; ``OpenRouterProblem/keyNotFound`` when the account doesn't have it.
@@ -222,20 +238,38 @@ private struct ObjectPayload<Object: Decodable>: Decodable {
     let data: Object
 }
 
-/// A number OpenRouter may send as a JSON number or as a decimal string, read without going through `Double`.
-private func decimal(_ container: KeyedDecodingContainer<AnyCodingKey>, _ key: String) -> Decimal? {
-    if let value = container.lenient(Decimal.self, key), !value.isNaN { return value }
-    if let text = container.lenient(String.self, key) {
-        return Decimal(string: text, locale: Locale(identifier: "en_US_POSIX")).flatMap { $0.isNaN ? nil : $0 }
+/// An amount of money in an answer, which OpenRouter may send as a JSON number or as a decimal string. Read without
+/// going through `Double`, and only when all of it is a number.
+private enum ReportedAmount {
+    /// Not in the answer, or `null`.
+    case absent
+    case amount(Decimal)
+    /// There, but not a number: the answer can't be vouched for.
+    case unreadable
+
+    init(_ container: KeyedDecodingContainer<AnyCodingKey>, _ key: String) {
+        let codingKey = AnyCodingKey(key)
+        guard container.contains(codingKey), (try? container.decodeNil(forKey: codingKey)) == false else {
+            self = .absent
+            return
+        }
+        if let value = try? container.decode(Decimal.self, forKey: codingKey), !value.isNaN {
+            self = .amount(value)
+        } else if let text = try? container.decode(String.self, forKey: codingKey),
+            let value = Decimal(exactText: text)
+        {
+            self = .amount(value)
+        } else {
+            self = .unreadable
+        }
     }
-    return nil
 }
 
 /// A price, which OpenRouter lists as a decimal string, but read as a number too.
 private func listedPrice(_ container: KeyedDecodingContainer<AnyCodingKey>?, _ key: String) -> OpenRouterTokenPrice {
     guard let container else { return .unknown }
     if let text = container.lenient(String.self, key) { return OpenRouterTokenPrice(listed: text) }
-    if let value = container.lenient(Decimal.self, key) { return OpenRouterTokenPrice(listed: "\(value)") }
+    if let value = container.lenient(Decimal.self, key), !value.isNaN { return OpenRouterTokenPrice(value) }
     return .unknown
 }
 
@@ -271,31 +305,31 @@ private struct ModelPayload: Decodable {
 }
 
 private struct CreditsPayload: Decodable {
-    let totalCredits: Decimal?
-    let totalUsage: Decimal?
+    let totalCredits: ReportedAmount
+    let totalUsage: ReportedAmount
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: AnyCodingKey.self)
-        totalCredits = decimal(container, "total_credits")
-        totalUsage = decimal(container, "total_usage")
+        totalCredits = ReportedAmount(container, "total_credits")
+        totalUsage = ReportedAmount(container, "total_usage")
     }
 }
 
 private struct ActivityRowPayload: Decodable {
     let day: UTCDay?
-    let usage: Decimal?
-    let byokUsage: Decimal?
+    let usage: ReportedAmount
+    let byokUsage: ReportedAmount
 
     init(from decoder: any Decoder) throws {
         guard let container = try? decoder.container(keyedBy: AnyCodingKey.self) else {
             day = nil
-            usage = nil
-            byokUsage = nil
+            usage = .unreadable
+            byokUsage = .unreadable
             return
         }
         day = container.lenient(String.self, "date").flatMap(UTCDay.init(iso:))
-        usage = decimal(container, "usage")
-        byokUsage = decimal(container, "byok_usage_inference")
+        usage = ReportedAmount(container, "usage")
+        byokUsage = ReportedAmount(container, "byok_usage_inference")
     }
 }
 

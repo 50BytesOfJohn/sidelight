@@ -78,6 +78,11 @@ private struct OpenRouterKeyPicker: View {
         HStack(spacing: 8) {
             if list.isLoading {
                 ProgressView().controlSize(.small)
+            } else if list.problem != nil, !(list.problem?.needsKey ?? false) {
+                Button("Try Again") {
+                    if list.fetchedAt == nil { service.loadKeysIfNeeded() } else { service.loadMoreKeys() }
+                }
+                .controlSize(.small)
             } else if list.hasMore {
                 Button("Load More Keys") { service.loadMoreKeys() }.controlSize(.small)
             }
@@ -85,7 +90,11 @@ private struct OpenRouterKeyPicker: View {
                 Text(problem.title).font(.caption).foregroundStyle(.orange)
             }
         }
-        SettingsCaption("Keys in the account's default workspace, disabled ones included.")
+        SettingsCaption(
+            list.reachedLimit
+                ? "The first \(list.keys.count) keys in the account's default workspace, disabled and expired ones "
+                    + "included. A key past those can't be chosen here."
+                : "Keys in the account's default workspace, disabled and expired ones included.")
     }
 
     private var selection: Binding<String?> {
@@ -123,6 +132,12 @@ struct OpenRouterKeyForm: View {
                     Label("Management key saved in your keychain", systemImage: "key.fill").font(.callout)
                     Spacer()
                     Button("Remove", role: .destructive) { service.removeKey() }.controlSize(.small)
+                }
+                if service.keyRemovalFailed {
+                    Text("Couldn't remove the key from your keychain, so it's still saved and used. Try again.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             case false?:
                 VStack(alignment: .leading, spacing: 6) {

@@ -9,12 +9,14 @@ extension WidgetMetadata {
         tint: .indigo,
         summary: "The newest models on OpenRouter, or any list of them, with prices and context. No key needed. "
             + "Built from blocks.",
-        isBeta: true
+        isBeta: true,
+        family: "OpenRouter"
     )
 }
 
 extension OpenRouterModelsSettings {
-    var summary: String {
+    /// The Widgets window's one-line description. Not ``summary``, the Summary block's options.
+    var layoutSummary: String {
         let lists = shownLists.count
         let layout = preset?.title ?? (lists == 1 ? "1 list" : "\(lists) lists")
         let sync = sync.minutes.map(OpenRouterModelsSettings.syncTitle) ?? "Synced manually"
@@ -39,6 +41,7 @@ struct OpenRouterModelsWidgetView: View {
     @Environment(OpenRouterService.self) private var service
     @Environment(DetailsPresenter.self) private var details
     @Environment(\.widgetPlacement) private var placement
+    @Environment(\.isWidgetPreview) private var isPreview
 
     var body: some View {
         WidgetClock { now in
@@ -49,16 +52,16 @@ struct OpenRouterModelsWidgetView: View {
     @ViewBuilder
     private func content(now: Date) -> some View {
         let resource = service.catalogue
-        if let catalogue = resource.value {
+        if isPreview {
+            // The Widgets window and the builder: the public catalogue once it's fetched for a widget that's been
+            // added, and until then a few models as OpenRouter listed them. Nothing to refresh or open there.
+            OpenRouterModelsContent(
+                catalogue: resource.value ?? .sample(at: now), settings: settings, layout: layout, now: now,
+                problem: nil, isFetching: false, refresh: nil, open: nil)
+        } else if let catalogue = resource.value {
             OpenRouterModelsContent(
                 catalogue: catalogue, settings: settings, layout: layout, now: now, problem: resource.problem,
                 isFetching: resource.isFetching, refresh: service.refreshCatalogue, open: open)
-        } else if service.demand.catalogue == nil {
-            // Fetched for no widget: a preview in the Widgets window before a Models widget is added. OpenRouter
-            // isn't asked until then, so this shows what the widget looks like.
-            OpenRouterModelsContent(
-                catalogue: .sample(at: now), settings: settings, layout: layout, now: now, problem: nil,
-                isFetching: false, refresh: nil, open: nil)
         } else if let problem = resource.problem {
             WidgetMessage(
                 title: "Catalogue unavailable", detail: "\(problem.title). \(problem.advice)",
@@ -491,8 +494,7 @@ struct OpenRouterModelMenu: View {
 // MARK: - Previews
 
 extension OpenRouterCatalogue {
-    /// What the Widgets window shows before a Models widget is added: a few entries as OpenRouter listed them in
-    /// October 2026.
+    /// What previews show until the catalogue is fetched: a few entries as OpenRouter listed them in October 2026.
     static func sample(at now: Date) -> OpenRouterCatalogue {
         func price(_ perMillion: String) -> OpenRouterTokenPrice {
             .perToken(Decimal(string: perMillion)! / 1_000_000)

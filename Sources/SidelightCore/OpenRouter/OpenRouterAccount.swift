@@ -133,6 +133,20 @@ public struct OpenRouterKey: Identifiable, Hashable, Sendable {
     }
 }
 
+/// One page of the key list. The provider's own count of entries decides whether another page follows, whatever
+/// Sidelight could read of them.
+public struct OpenRouterKeyPage: Equatable, Sendable {
+    /// The readable keys on the page, each once.
+    public let keys: [OpenRouterKey]
+    /// How many entries OpenRouter listed on the page, readable or not: where the next page starts.
+    public let entryCount: Int
+
+    public init(keys: [OpenRouterKey], entryCount: Int) {
+        self.keys = keys
+        self.entryCount = entryCount
+    }
+}
+
 /// What OpenRouter says about a key someone is about to save.
 public struct OpenRouterKeyCheck: Equatable, Sendable {
     /// Management keys can read the account's credits and activity, and also create, change and delete keys.

@@ -11,6 +11,9 @@ struct WidgetMetadata {
     var logo: String?
     /// Built on something new or undocumented that may still change under it. The gallery and inspector say so.
     var isBeta = false
+    /// The service several kinds share, like OpenRouter's Credits and Models: the gallery shows them together under
+    /// it. `nil` for a kind of its own.
+    var family: String?
 }
 
 /// Marks a widget kind as beta next to its name.
@@ -65,7 +68,7 @@ extension WidgetSettings {
         case .railway(let settings): settings.summary
         case .agentSessions(let settings): settings.summary
         case .openRouterCredits(let settings): settings.summary
-        case .openRouterModels(let settings): settings.summary
+        case .openRouterModels(let settings): settings.layoutSummary
         case .nowPlaying: kind.metadata.summary
         }
     }

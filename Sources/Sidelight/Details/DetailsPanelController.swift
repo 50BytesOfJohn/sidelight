@@ -79,23 +79,54 @@ final class DetailsLayout {
     var placement: DetailsPlacement
     /// Shown, as opposed to hidden with the panels.
     var isShown = false
+    /// Nothing of it can be seen: the display sleeps, the screen is locked, or something covers it.
+    var isOccluded = false
+
+    /// Shown and visible; anything that ticks on its own pauses otherwise.
+    var isOnScreen: Bool { isShown && !isOccluded }
 
     init(placement: DetailsPlacement) {
         self.placement = placement
     }
 }
 
+/// The app that was frontmost when the details panel took focus, to give it back to on close. Process identifiers are
+/// reused, so the launch date tells a later process apart.
+private struct FocusOwner {
+    let processIdentifier: pid_t
+    let launchDate: Date?
+
+    init?(_ application: NSRunningApplication?) {
+        guard let application, application != .current else { return nil }
+        processIdentifier = application.processIdentifier
+        launchDate = application.launchDate
+    }
+
+    func isSame(as application: NSRunningApplication?) -> Bool {
+        application?.processIdentifier == processIdentifier && application?.launchDate == launchDate
+    }
+}
+
 /// Owns the details panel's window while a session is open: places it, slides it in, gives it focus, and releases
 /// its content when it closes. Nothing is kept around once it's closed.
+///
+/// It watches its own visibility, apart from the panel it stands in for: that panel is ordered out on purpose, and
+/// mustn't make the details panel count as unseen.
 final class DetailsPanelController {
     let window: DetailsWindow
     private let layout: DetailsLayout
+    private var visibility: WindowVisibility?
+    /// Whose window had focus before the details panel took it.
+    private var focusOwner: FocusOwner?
 
     var placement: DetailsPlacement { layout.placement }
 
+    /// - Parameters:
+    ///   - close: Closes the session, from the close button, Escape or ⌘W.
+    ///   - onVisibilityChange: Told when it can no longer be seen at all, or can again.
     init(
         session: DetailsSession, placement: DetailsPlacement, environment: AppEnvironment,
-        close: @escaping () -> Void
+        close: @escaping () -> Void, onVisibilityChange: @escaping (_ isOnScreen: Bool) -> Void
     ) {
         layout = DetailsLayout(placement: placement)
         window = DetailsWindow(
@@ -125,6 +156,11 @@ final class DetailsPanelController {
         let hostingView = NSHostingView(rootView: rootView.environment(environment))
         hostingView.sizingOptions = []
         window.contentView = hostingView
+
+        visibility = WindowVisibility(of: window) { [layout] isOccluded in
+            layout.isOccluded = isOccluded
+            onVisibilityChange(layout.isOnScreen)
+        }
     }
 
     /// Shows the window: sliding in from its edge the first time, or fading in with Reduce Motion. `focusing`
@@ -134,8 +170,7 @@ final class DetailsPanelController {
         let frame = layout.placement.frame
         if slidingIn && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             let offset = PanelMetrics.entranceOffset(for: layout.placement.edge)
-            window.alphaValue = 0
-            window.setFrame(frame.offsetBy(dx: offset.dx, dy: offset.dy), display: true)
+            settle(frame: frame.offsetBy(dx: offset.dx, dy: offset.dy), alpha: 0)
             window.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.3
@@ -144,23 +179,25 @@ final class DetailsPanelController {
                 window.animator().setFrame(frame, display: true)
             }
         } else if slidingIn {
-            window.alphaValue = 0
-            window.setFrame(frame, display: true)
+            settle(frame: frame, alpha: 0)
             window.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.2
                 window.animator().alphaValue = 1
             }
         } else {
-            window.alphaValue = 1
-            window.setFrame(frame, display: true)
+            settle(frame: frame, alpha: 1)
             window.orderFrontRegardless()
         }
-        if focusing { window.makeKey() }
+        if focusing { focus() }
     }
 
-    /// Brings it forward and gives it focus, as asking for the open session again does.
+    /// Brings it forward and gives it focus, as asking for the open session again does. Remembers which app had
+    /// focus before, the first time, to give it back on close.
     func focus() {
+        if !window.isKeyWindow, focusOwner == nil {
+            focusOwner = FocusOwner(NSWorkspace.shared.frontmostApplication)
+        }
         window.orderFrontRegardless()
         window.makeKey()
     }
@@ -168,20 +205,47 @@ final class DetailsPanelController {
     /// Hides it with the panels, keeping its content: search, choices and scroll position come back with it.
     func hide() {
         layout.isShown = false
+        settle(frame: layout.placement.frame, alpha: 1)
         window.orderOut(nil)
     }
 
-    /// Follows its display's new geometry, or the panel's new edge, without animating from a stale frame.
+    /// Follows its display's new geometry, or the panel's new edge, without animating from a stale frame. An
+    /// entrance still under way ends where the panel now goes.
     func move(to placement: DetailsPlacement) {
         guard placement != layout.placement else { return }
         layout.placement = placement
-        window.setFrame(placement.frame, display: true)
+        settle(frame: placement.frame, alpha: window.isVisible ? 1 : window.alphaValue)
     }
 
-    /// Hides it for good and releases its content.
+    /// Hides it for good and releases its content. If it had focus, and the app that had focus before it is still
+    /// the frontmost one, that app gets it back; after switching to another app, focus stays where it went.
     func close() {
+        let hadFocus = window.isKeyWindow
         layout.isShown = false
+        settle(frame: layout.placement.frame, alpha: 1)
         window.orderOut(nil)
         window.contentView = nil
+        visibility?.invalidate()
+        visibility = nil
+        if hadFocus { returnFocus() }
+        focusOwner = nil
+    }
+
+    private func returnFocus() {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        guard let owner = focusOwner, owner.isSame(as: frontmost), let frontmost else { return }
+        // Sidelight never became active, so it hands activation over explicitly rather than taking it.
+        NSApp.yieldActivation(to: frontmost)
+        _ = frontmost.activate(from: .current, options: [])
+    }
+
+    /// Puts the window at `frame` and `alpha` at once, ending any animation still under way, so a hide, a move or a
+    /// close overtaking the entrance never leaves it heading somewhere stale.
+    private func settle(frame: CGRect, alpha: CGFloat) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            window.animator().alphaValue = alpha
+            window.animator().setFrame(frame, display: true)
+        }
     }
 }

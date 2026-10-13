@@ -27,7 +27,8 @@ extension OpenRouterProblem {
         case .invalidKey:
             "The key may have been deleted or disabled. Add a current management key in Settings, under Connections."
         case .notPermitted:
-            "The key's permissions don't cover this. Check the key in OpenRouter."
+            "The key's permissions don't cover this. Check the key in OpenRouter, then save it again in Settings, "
+                + "under Connections."
         case .notManagementKey:
             "An inference key can't read the account's balance or spending. Create a management key in OpenRouter."
         case .keyNotFound:
@@ -49,10 +50,10 @@ extension OpenRouterProblem {
         }
     }
 
-    /// Fixed only by giving Sidelight another key.
+    /// Fixed only by saving a key again: Sidelight doesn't ask OpenRouter again with a key it rejected.
     var needsKey: Bool {
         switch self {
-        case .noKey, .invalidKey, .notManagementKey: true
+        case .noKey, .invalidKey, .notPermitted, .notManagementKey: true
         default: false
         }
     }

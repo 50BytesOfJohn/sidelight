@@ -26,7 +26,7 @@ enum HotkeyProblem: Equatable {
 /// permission and works while the app is in the background.
 @Observable
 final class HotkeyCenter {
-    /// Why each shortcut that isn't working isn't.
+    /// Why each shortcut that isn't working as asked isn't.
     private(set) var problems: [HotkeyAction: HotkeyProblem] = [:]
 
     /// Called on the main actor when an action's shortcut is pressed.
@@ -42,9 +42,10 @@ final class HotkeyCenter {
     /// 'Sdlt'
     private nonisolated static let signature: OSType = 0x5364_6C74
 
-    /// Gives `action` the shortcut `hotkey`, replacing the one it had.
+    /// Gives `action` the shortcut `hotkey`, replacing the one it had. Asking again for one that didn't work tries
+    /// again.
     func register(_ hotkey: Hotkey, for action: HotkeyAction) {
-        guard requested[action] != hotkey else { return }
+        guard requested[action] != hotkey || problems[action] != nil else { return }
         requested[action] = hotkey
         reconcile()
     }
@@ -68,46 +69,72 @@ final class HotkeyCenter {
         reconcile()
     }
 
-    /// Registers what's requested and isn't yet, in ``HotkeyAction`` order: an action whose shortcut an earlier one
-    /// already has gets none, so pressing it does one thing, and the toggle never stops working.
+    /// The shortcut that works for `action` right now, which may still be its earlier one when the one asked for
+    /// couldn't be registered; `nil` for none.
+    func workingHotkey(for action: HotkeyAction) -> Hotkey? {
+        registered[action]?.hotkey
+    }
+
+    /// Brings the registrations in line with what's requested, in two steps: first every registration of Sidelight's
+    /// that doesn't fit the new mapping is released, so a shortcut moving from one action to another (or two
+    /// swapping) is free to take; then what's missing is registered, in ``HotkeyAction`` order. An action whose
+    /// shortcut an earlier one already has gets none, so pressing it does one thing. When macOS refuses a new
+    /// shortcut, an action that had a working one keeps it, so the toggle never stops working over a typo.
     private func reconcile() {
         installEventHandlerIfNeeded()
-        var claimed: [Hotkey: HotkeyAction] = [:]
+        var desired: [(action: HotkeyAction, hotkey: Hotkey)] = []
         for action in HotkeyAction.allCases {
-            guard let hotkey = requested[action], !isSuspended else {
-                release(action)
+            guard !isSuspended, let hotkey = requested[action] else {
                 setProblem(nil, for: action)
                 continue
             }
-            if let owner = claimed[hotkey] {
-                release(action)
-                setProblem(.sameAs(owner), for: action)
+            if let owner = desired.first(where: { $0.hotkey.isSameShortcut(as: hotkey) }) {
+                setProblem(.sameAs(owner.action), for: action)
                 continue
             }
-            claimed[hotkey] = action
-            if registered[action]?.hotkey == hotkey { continue }
-            release(action)
+            desired.append((action, hotkey))
+        }
 
-            var reference: EventHotKeyRef?
-            let identifier = EventHotKeyID(signature: Self.signature, id: action.rawValue)
-            let status = RegisterEventHotKey(
-                hotkey.keyCode,
-                hotkey.modifiers.rawValue,
-                identifier,
-                GetApplicationEventTarget(),
-                0,
-                &reference
-            )
-            if status == noErr, let reference {
-                registered[action] = (hotkey, reference)
+        var previous: [HotkeyAction: Hotkey] = [:]
+        for (action, registration) in registered {
+            let wanted = desired.first { $0.action == action }?.hotkey
+            guard wanted.map({ !$0.isSameShortcut(as: registration.hotkey) }) ?? true else { continue }
+            previous[action] = registration.hotkey
+            release(action)
+        }
+
+        for (action, hotkey) in desired where registered[action] == nil {
+            let status = acquire(hotkey, for: action)
+            guard status != noErr else {
                 setProblem(nil, for: action)
-            } else {
-                if problems[action] != .unavailable(status) {
-                    Log.app.error("Can't register hotkey \(hotkey.displayString, privacy: .public): status \(status)")
-                }
-                setProblem(.unavailable(status), for: action)
+                continue
+            }
+            if problems[action] != .unavailable(status) {
+                Log.app.error("Can't register hotkey \(hotkey.displayString, privacy: .public): status \(status)")
+            }
+            setProblem(.unavailable(status), for: action)
+            // Keep the shortcut that worked, unless another action now has it.
+            if let fallback = previous[action], !desired.contains(where: { $0.hotkey.isSameShortcut(as: fallback) }) {
+                _ = acquire(fallback, for: action)
             }
         }
+    }
+
+    /// Registers `hotkey` for `action`; returns Carbon's status.
+    private func acquire(_ hotkey: Hotkey, for action: HotkeyAction) -> OSStatus {
+        var reference: EventHotKeyRef?
+        let identifier = EventHotKeyID(signature: Self.signature, id: action.rawValue)
+        let status = RegisterEventHotKey(
+            hotkey.keyCode,
+            hotkey.modifiers.rawValue,
+            identifier,
+            GetApplicationEventTarget(),
+            0,
+            &reference
+        )
+        guard status == noErr, let reference else { return status == noErr ? OSStatus(eventInternalErr) : status }
+        registered[action] = (hotkey, reference)
+        return noErr
     }
 
     private func release(_ action: HotkeyAction) {
