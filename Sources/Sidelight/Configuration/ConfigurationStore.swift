@@ -36,7 +36,7 @@ final class ConfigurationStore {
     static let reloadDelay: Duration = .milliseconds(150)
 
     /// Debug builds (`make dev`) keep their own configuration, so trying changes never touches the installed app's.
-    static var defaultFileURL: URL {
+    nonisolated static var defaultFileURL: URL {
         #if DEBUG
         let directory = "Sidelight Dev"
         #else

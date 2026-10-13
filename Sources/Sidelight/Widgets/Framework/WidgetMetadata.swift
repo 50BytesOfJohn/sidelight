@@ -42,6 +42,7 @@ extension WidgetKind {
         case .noodleComputer: .noodleComputer
         case .railway: .railway
         case .agentSessions: .agentSessions
+        case .openRouter: .openRouter
         }
     }
 }
@@ -62,6 +63,7 @@ extension WidgetSettings {
         case .noodleComputer(let settings): settings.summary
         case .railway(let settings): settings.summary
         case .agentSessions(let settings): settings.summary
+        case .openRouter(let settings): settings.layoutSummary
         case .nowPlaying: kind.metadata.summary
         }
     }

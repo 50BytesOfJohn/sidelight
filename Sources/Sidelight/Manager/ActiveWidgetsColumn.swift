@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 struct ActiveWidgetsColumn: View {
     @Binding var selection: ManagerSelection?
     @Environment(ConfigurationStore.self) private var store
+    @Environment(OpenRouterService.self) private var openRouter
 
     var body: some View {
         let configuration = store.configuration
@@ -141,8 +142,12 @@ struct ActiveWidgetsColumn: View {
 
     private func duplicate(_ widget: WidgetInstance) {
         let copy = widget.duplicated()
-        withAnimation(Motion.layout) { store.configuration.insertWidget(copy, after: widget.id) }
-        selection = .widget(copy.id)
+        Task {
+            // Its Balance blocks with their own key read the same accounts as the original's.
+            await openRouter.copyOwnKeys(of: widget, to: copy.id)
+            withAnimation(Motion.layout) { store.configuration.insertWidget(copy, after: widget.id) }
+            selection = .widget(copy.id)
+        }
     }
 
     private func addSection() {

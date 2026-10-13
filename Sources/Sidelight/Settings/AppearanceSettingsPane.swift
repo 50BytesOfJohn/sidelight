@@ -3,43 +3,108 @@ import SidelightCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The panel's background, cards and text, with a live preview on the desktop picture.
+/// Which panel's look the pane edits.
+private enum AppearanceSurface: String, CaseIterable, Identifiable {
+    case panel
+    /// The details panel widgets open in place of the panel.
+    case details
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .panel: "Panel"
+        case .details: "Details Panel"
+        }
+    }
+}
+
+/// The panel's background, cards and text, with a live preview on the desktop picture. The details panel uses the
+/// panel's background, or its own with a custom style.
 struct AppearanceSettingsPane: View {
     @Environment(ConfigurationStore.self) private var store
     @Environment(DisplayMonitor.self) private var monitor
+    @State private var surface = AppearanceSurface.panel
 
     var body: some View {
         @Bindable var store = store
-        let appearance = store.configuration.appearance
+        let configuration = store.configuration
+        let appearance = configuration.appearance
+        let details = configuration.details
         let display = monitor.displays.first { $0.isMain } ?? monitor.displays.first
+        let editsDetails = surface == .details
+        let shown = editsDetails ? appearance.forDetailsPanel(details) : appearance
 
         Form {
             Section {
-                AppearancePreview(appearance: appearance, display: display)
+                Picker("Edit", selection: $surface.animation(Motion.layout)) {
+                    ForEach(AppearanceSurface.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                AppearancePreview(appearance: shown, display: display)
                     .frame(height: 210)
             }
 
-            Section {
-                TilePicker(
-                    values: BackgroundKind.allCases,
-                    selection: $store.configuration.appearance.background.kind,
-                    title: \.title
-                ) { kind, _ in
-                    BackgroundTile(kind: kind, appearance: appearance, display: display)
+            if editsDetails {
+                Section {
+                    Toggle(isOn: customStyle) {
+                        Text("Custom style")
+                        Text("Its own background, rather than the panel's. Cards and text always follow the panel.")
+                    }
+                } header: {
+                    Text("Details Panel")
+                } footer: {
+                    Text(
+                        details.usesCustomStyle
+                            ? "Turning this off keeps the custom style for next time."
+                            : "The details panel follows the panel's background as you change it."
+                    )
+                    .settingsFootnote()
                 }
-            } header: {
-                Text("Background")
-            } footer: {
-                Text(appearance.background.kind.explanation).settingsFootnote()
             }
 
-            BackgroundOptions(background: $store.configuration.appearance.background)
-            CardsSection(appearance: $store.configuration.appearance)
-            TextSection(appearance: $store.configuration.appearance)
+            if !editsDetails || details.usesCustomStyle {
+                let background = editsDetails ? detailsBackground : $store.configuration.appearance.background
+                Section {
+                    TilePicker(values: BackgroundKind.allCases, selection: background.kind, title: \.title) { kind, _ in
+                        BackgroundTile(kind: kind, appearance: shown, display: display)
+                    }
+                } header: {
+                    Text("Background")
+                } footer: {
+                    Text(shown.background.kind.explanation).settingsFootnote()
+                }
+
+                BackgroundOptions(background: background)
+            }
+            if !editsDetails {
+                CardsSection(appearance: $store.configuration.appearance)
+                TextSection(appearance: $store.configuration.appearance)
+            }
         }
-        .animation(Motion.layout, value: appearance.background.kind)
+        .animation(Motion.layout, value: shown.background.kind)
         .animation(Motion.layout, value: appearance.cards.style)
         .animation(Motion.layout, value: appearance.cards.showsTitles)
+        .animation(Motion.layout, value: details.usesCustomStyle)
+    }
+
+    /// The details panel's own background, starting from the panel's the first time it's given one.
+    private var detailsBackground: Binding<BackgroundSettings> {
+        Binding {
+            store.configuration.details.customBackground ?? store.configuration.appearance.background
+        } set: { background in
+            store.configuration.details.customBackground = background
+        }
+    }
+
+    private var customStyle: Binding<Bool> {
+        Binding {
+            store.configuration.details.usesCustomStyle
+        } set: { isOn in
+            let panel = store.configuration.appearance.background
+            store.configuration.details.setUsesCustomStyle(isOn, startingFrom: panel)
+        }
     }
 }
 

@@ -4,63 +4,176 @@ import Observation
 import SidelightCore
 import os
 
-/// Registers the global "toggle panel" shortcut.
+/// What a global shortcut does.
+enum HotkeyAction: UInt32, CaseIterable {
+    /// Shows or hides the panels, and the details panel with them. Registered all the time.
+    case togglePanels = 1
+    /// Closes the details panel. Registered only while one is open, so it takes nothing from other apps otherwise.
+    case closeDetails = 2
+}
+
+/// Why a shortcut isn't working.
+enum HotkeyProblem: Equatable {
+    /// macOS refused it, usually because another app uses it (the status from `RegisterEventHotKey`).
+    case unavailable(OSStatus)
+    /// Another of Sidelight's shortcuts is the same, and goes first.
+    case sameAs(HotkeyAction)
+}
+
+/// Registers Sidelight's global shortcuts, each for its own action.
 ///
 /// Uses Carbon's `RegisterEventHotKey`, which (unlike an `NSEvent` global monitor) needs no Accessibility
 /// permission and works while the app is in the background.
 @Observable
 final class HotkeyCenter {
-    /// The status of the last failed registration (usually: the shortcut is taken by another app).
-    private(set) var registrationError: OSStatus?
+    /// Why each shortcut that isn't working as asked isn't.
+    private(set) var problems: [HotkeyAction: HotkeyProblem] = [:]
 
-    /// Called on the main actor when the shortcut is pressed.
-    @ObservationIgnored var onPress: () -> Void = {}
+    /// Called on the main actor when an action's shortcut is pressed.
+    @ObservationIgnored var handlers: [HotkeyAction: () -> Void] = [:]
 
-    /// The last shortcut we tried to register, whether or not that worked.
-    @ObservationIgnored private var requestedHotkey: Hotkey?
-    @ObservationIgnored private var hotKeyReference: EventHotKeyRef?
+    /// The shortcut each action should have, whether or not that worked.
+    @ObservationIgnored private var requested: [HotkeyAction: Hotkey] = [:]
+    @ObservationIgnored private var registered: [HotkeyAction: (hotkey: Hotkey, reference: EventHotKeyRef)] = [:]
+    /// The shortcut that last registered for each action, kept while recording frees them all and while a new one is
+    /// refused: it's what the action falls back to. Forgotten only when the action's shortcut is taken away.
+    @ObservationIgnored private var lastWorking: [HotkeyAction: Hotkey] = [:]
+    /// While a shortcut is being recorded, none is registered, so pressing one reaches the recorder.
+    @ObservationIgnored private var isSuspended = false
     @ObservationIgnored private var eventHandler: EventHandlerRef?
 
     /// 'Sdlt'
-    private static let signature: OSType = 0x5364_6C74
+    private nonisolated static let signature: OSType = 0x5364_6C74
 
-    func register(_ hotkey: Hotkey) {
-        guard hotkey != requestedHotkey else { return }
-        unregister()
-        requestedHotkey = hotkey
+    /// Gives `action` the shortcut `hotkey`, replacing the one it had. Asking again for one that didn't work tries
+    /// again.
+    func register(_ hotkey: Hotkey, for action: HotkeyAction) {
+        guard requested[action] != hotkey || problems[action] != nil else { return }
+        requested[action] = hotkey
+        reconcile()
+    }
+
+    /// Takes `action`'s shortcut away, with what it would fall back to.
+    func unregister(_ action: HotkeyAction) {
+        guard requested[action] != nil else { return }
+        requested[action] = nil
+        lastWorking[action] = nil
+        reconcile()
+    }
+
+    /// Frees every shortcut while a new one is recorded.
+    func suspend() {
+        isSuspended = true
+        reconcile()
+    }
+
+    /// Registers the shortcuts again after recording.
+    func resume() {
+        isSuspended = false
+        reconcile()
+    }
+
+    /// The shortcut that works for `action` right now, which may still be its earlier one when the one asked for
+    /// couldn't be registered; `nil` for none.
+    func workingHotkey(for action: HotkeyAction) -> Hotkey? {
+        registered[action]?.hotkey
+    }
+
+    /// Brings the registrations in line with what's requested, in two steps: first every registration of Sidelight's
+    /// that doesn't fit the new mapping is released, so a shortcut moving from one action to another (or two
+    /// swapping) is free to take; then what's missing is registered, in ``HotkeyAction`` order. An action whose
+    /// shortcut an earlier one already has gets none, so pressing it does one thing. When macOS refuses a new
+    /// shortcut, an action that had a working one gets it back, even after recording freed it, so the toggle never
+    /// stops working over a shortcut another app has. A fallback another action now uses isn't taken.
+    private func reconcile() {
         installEventHandlerIfNeeded()
+        var desired: [(action: HotkeyAction, hotkey: Hotkey)] = []
+        for action in HotkeyAction.allCases {
+            guard !isSuspended, let hotkey = requested[action] else {
+                setProblem(nil, for: action)
+                continue
+            }
+            if let owner = desired.first(where: { $0.hotkey.isSameShortcut(as: hotkey) }) {
+                setProblem(.sameAs(owner.action), for: action)
+                continue
+            }
+            desired.append((action, hotkey))
+        }
 
-        let identifier = EventHotKeyID(signature: Self.signature, id: 1)
+        for (action, registration) in registered {
+            let wanted = desired.first { $0.action == action }?.hotkey
+            guard wanted.map({ !$0.isSameShortcut(as: registration.hotkey) }) ?? true else { continue }
+            release(action)
+        }
+
+        for (action, hotkey) in desired where registered[action] == nil {
+            let status = acquire(hotkey, for: action)
+            guard status != noErr else {
+                setProblem(nil, for: action)
+                continue
+            }
+            if problems[action] != .unavailable(status) {
+                Log.app.error("Can't register hotkey \(hotkey.displayString, privacy: .public): status \(status)")
+            }
+            setProblem(.unavailable(status), for: action)
+            // Back to the shortcut that worked, unless it's the one refused or another action wants or has it.
+            if let fallback = lastWorking[action], !fallback.isSameShortcut(as: hotkey),
+                !desired.contains(where: { $0.action != action && $0.hotkey.isSameShortcut(as: fallback) }),
+                !registered.values.contains(where: { $0.hotkey.isSameShortcut(as: fallback) })
+            {
+                _ = acquire(fallback, for: action)
+            }
+        }
+    }
+
+    /// Registers `hotkey` for `action`; returns Carbon's status.
+    private func acquire(_ hotkey: Hotkey, for action: HotkeyAction) -> OSStatus {
+        var reference: EventHotKeyRef?
+        let identifier = EventHotKeyID(signature: Self.signature, id: action.rawValue)
         let status = RegisterEventHotKey(
             hotkey.keyCode,
             hotkey.modifiers.rawValue,
             identifier,
             GetApplicationEventTarget(),
             0,
-            &hotKeyReference
+            &reference
         )
-        if status == noErr {
-            registrationError = nil
-        } else {
-            registrationError = status
-            Log.app.error("Can't register hotkey \(hotkey.displayString, privacy: .public): status \(status)")
-        }
+        guard status == noErr, let reference else { return status == noErr ? OSStatus(eventInternalErr) : status }
+        registered[action] = (hotkey, reference)
+        lastWorking[action] = hotkey
+        return noErr
     }
 
-    func unregister() {
-        if let hotKeyReference { UnregisterEventHotKey(hotKeyReference) }
-        hotKeyReference = nil
-        requestedHotkey = nil
+    private func release(_ action: HotkeyAction) {
+        guard let registration = registered.removeValue(forKey: action) else { return }
+        UnregisterEventHotKey(registration.reference)
+    }
+
+    private func setProblem(_ problem: HotkeyProblem?, for action: HotkeyAction) {
+        if problems[action] != problem { problems[action] = problem }
+    }
+
+    private func pressed(_ identifier: UInt32) {
+        guard let action = HotkeyAction(rawValue: identifier) else { return }
+        handlers[action]?()
     }
 
     private func installEventHandlerIfNeeded() {
         guard eventHandler == nil else { return }
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        let handler: EventHandlerUPP = { _, _, context in
-            guard let context else { return OSStatus(eventNotHandledErr) }
+        let handler: EventHandlerUPP = { _, event, context in
+            guard let context, let event else { return OSStatus(eventNotHandledErr) }
+            var identifier = EventHotKeyID()
+            let status = GetEventParameter(
+                event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
+                MemoryLayout<EventHotKeyID>.size, nil, &identifier)
+            guard status == noErr, identifier.signature == HotkeyCenter.signature else {
+                return OSStatus(eventNotHandledErr)
+            }
             let center = Unmanaged<HotkeyCenter>.fromOpaque(context).takeUnretainedValue()
+            let id = identifier.id
             // Let Carbon finish dispatching before reacting.
-            Task { @MainActor in center.onPress() }
+            Task { @MainActor in center.pressed(id) }
             return noErr
         }
         InstallEventHandler(

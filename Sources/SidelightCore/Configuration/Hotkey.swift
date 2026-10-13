@@ -42,7 +42,15 @@ public struct Hotkey: Codable, Hashable, Sendable {
     /// ⌥⌘S
     public static let defaultToggle = Hotkey(keyCode: 1, modifiers: [.command, .option], key: "S")
 
+    /// ⌃⌥⌘S, next to the toggle. Not ⇧⌥⌘S, which many apps use for Save As.
+    public static let defaultCloseDetails = Hotkey(keyCode: 1, modifiers: [.control, .option, .command], key: "S")
+
     public var isValid: Bool { !modifiers.isDisjoint(with: .required) }
+
+    /// Whether the two are pressed the same way, whatever their keys are called.
+    public func isSameShortcut(as other: Hotkey) -> Bool {
+        keyCode == other.keyCode && modifiers == other.modifiers
+    }
 
     /// The shortcut as shown in menus, e.g. `⌥⌘S`.
     public var displayString: String { modifiers.symbols + key }

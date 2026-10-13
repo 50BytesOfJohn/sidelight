@@ -16,10 +16,10 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         case manager, settings
     }
 
-    /// The manager and the builder show live previews of widgets, so their data services must run while either is
-    /// open.
+    /// The manager shows live previews of every widget, so their data services must run while it's open.
     private(set) var previewsEveryWidget = false
-    /// The widget the builder window edits, while it's open.
+    /// The widget the builder window edits, while it's open. It previews only that widget, so only that widget's
+    /// data services run for it.
     private(set) var builderWidgetID: WidgetInstance.ID?
 
     @ObservationIgnored private let environment: AppEnvironment
@@ -63,7 +63,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func updatePreviews() {
-        let previews = windows[.manager] != nil || builderWindow != nil
+        let previews = windows[.manager] != nil
         if previews != previewsEveryWidget { previewsEveryWidget = previews }
     }
 

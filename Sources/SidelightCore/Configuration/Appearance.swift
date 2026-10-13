@@ -181,10 +181,13 @@ extension Appearance {
     /// The text that reads best on what's directly behind it: `.automatic` means follow the system appearance,
     /// which glass and blurred materials adapt to.
     ///
-    /// - Parameter imageLuminance: Average relative luminance of the background image, if it's known.
-    public func resolvedText(imageLuminance: Double?) -> TextAppearance {
+    /// - Parameters:
+    ///   - imageLuminance: Average relative luminance of the background image, if it's known.
+    ///   - onCards: Whether the text sits on the cards. A surface that draws no cards, like the details panel, reads
+    ///     on the background alone.
+    public func resolvedText(imageLuminance: Double?, onCards: Bool = true) -> TextAppearance {
         guard text == .automatic else { return text }
-        if cards.style == .solid, cards.fill.amount >= 0.6 {
+        if onCards, cards.style == .solid, cards.fill.amount >= 0.6 {
             return Self.text(on: cards.fill.color.luminance)
         }
         switch background.kind {

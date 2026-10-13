@@ -20,11 +20,13 @@ paths: Sources/**, Tests/**, Package.swift
   and not on a sleeping or locked screen for over a minute), or the Widgets window, needs it.
 - Timing comes from the primitives in `Services/`, owned by the service and stopped in `stop()`: `RepeatingTask`
   for a sweep or sample, `CoalescedReload` to turn bursts of file events into one read, `FetchSchedule` for
-  fetching from a provider with backoff, `PacedTask` for a loop whose every run picks the next wait,
-  `DelayedTask` for one run later (a debounce, a retry, a watchdog). No `Timer`, no Combine, no hand-rolled
+  fetching from a provider with backoff, `RemoteResource` for a fetched value with its problem, `Retry-After` and
+  daily-UTC timing (one per kind of data, shared by every widget showing it), `PacedTask` for a loop whose every
+  run picks the next wait, `DelayedTask` for one run later (a debounce, a retry, a watchdog). No `Timer`, no Combine, no hand-rolled
   `Task { sleep; … }`. After every `await`, check `Task.isCancelled`
   and publish nothing once it's set.
-- File and network work runs off the main actor: `@concurrent` functions, `HTTP.send`, `Keychain`. Watch files
+- File and network work runs off the main actor: `@concurrent` functions, `HTTP.send`, `Keychain`
+  (other apps' items), `KeychainItem` (a secret typed into Sidelight, never in `config.json`). Watch files
   with `FileWatcher` / `FileEventStream` (their `onMainActor` initializers).
 
 ## Data and UI

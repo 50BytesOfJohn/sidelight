@@ -40,6 +40,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let toggle = NSMenuItem(panels.isHidden ? "Show Panel" : "Hide Panel") { [panels] in panels.toggle() }
         toggle.toolTip = "Global shortcut: \(configuration.hotkey.displayString)"
         menu.addItem(toggle)
+        if panels.details != nil {
+            let close = NSMenuItem("Close Details Panel") { [panels] in panels.closeDetails() }
+            close.toolTip = "Global shortcut: \(configuration.details.closeHotkey.displayString)"
+            menu.addItem(close)
+        }
         menu.addItem(NSMenuItem("Widgets…") { [windows] in windows.show(.manager) })
         menu.addItem(NSMenuItem("Settings…") { [windows] in windows.show(.settings) })
         menu.addItem(.separator())

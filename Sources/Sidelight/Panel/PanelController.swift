@@ -73,13 +73,7 @@ final class PanelController {
     private var isChangingEdge = false
     /// Bumped on every transition so a stale completion handler can tell it was superseded.
     private var transitionGeneration = 0
-    private var occlusionObserver: (any NSObjectProtocol)?
-    /// Display sleep and fast user switching, which AppKit doesn't promise to report as window occlusion.
-    private var workspaceObservers: [any NSObjectProtocol] = []
-    private var areScreensAsleep = false
-    private var isSessionInactive = false
-    /// Told when the panel can no longer be seen at all, or can again.
-    private let onOcclusionChange: (_ isOccluded: Bool) -> Void
+    private var visibility: WindowVisibility?
 
     var position: PanelPosition { placement.position }
 
@@ -88,7 +82,6 @@ final class PanelController {
         onOcclusionChange: @escaping (_ isOccluded: Bool) -> Void
     ) {
         self.placement = placement
-        self.onOcclusionChange = onOcclusionChange
         layout = PanelLayout(placement)
         window = PanelWindow(
             contentRect: placement.strip,
@@ -116,47 +109,17 @@ final class PanelController {
         // Measure the content now, so a fitted panel doesn't first show at the strip's full length.
         hostingView.layoutSubtreeIfNeeded()
 
-        occlusionObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.occlusionChanged() }
-        }
-        workspaceObservers = [
-            NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
-            NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification,
-        ]
-        .map { name in
-            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) {
-                [weak self] _ in
-                MainActor.assumeIsolated { self?.workspaceChanged(name) }
-            }
+        visibility = WindowVisibility(of: window) { [layout] isOccluded in
+            layout.isOccluded = isOccluded
+            onOcclusionChange(isOccluded)
         }
     }
 
-    private func workspaceChanged(_ name: Notification.Name) {
-        switch name {
-        case NSWorkspace.screensDidSleepNotification: areScreensAsleep = true
-        case NSWorkspace.screensDidWakeNotification: areScreensAsleep = false
-        case NSWorkspace.sessionDidResignActiveNotification: isSessionInactive = true
-        case NSWorkspace.sessionDidBecomeActiveNotification: isSessionInactive = false
-        default: return
-        }
-        occlusionChanged()
-    }
-
-    /// Combines all the signals, so waking the screens still counts as occluded while the lock screen covers them.
-    private func occlusionChanged() {
-        let isOccluded = areScreensAsleep || isSessionInactive || !window.occlusionState.contains(.visible)
-        guard isOccluded != layout.isOccluded else { return }
-        layout.isOccluded = isOccluded
-        onOcclusionChange(isOccluded)
-    }
-
-    /// The area other windows should stay out of, or `nil` while the panel is hidden or fading out. Always the
-    /// whole strip, so the panel fitting its content never makes windows move.
+    /// The area other windows should stay out of, or `nil` while the panel is hidden. Always the whole strip, so
+    /// the panel fitting its content never makes windows move. Logical rather than visual: a panel fading out to
+    /// slide in at another edge already reserves its new strip, and never its old one again.
     var occupiedFrame: CGRect? {
-        guard window.isVisible, window.alphaValue > 0.5 else { return nil }
-        return placement.strip
+        layout.isShown ? placement.strip : nil
     }
 
     /// The window's frame for the current placement and content.
@@ -188,10 +151,8 @@ final class PanelController {
         layout.isShown = false
         window.orderOut(nil)
         window.contentView = nil
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-        occlusionObserver = nil
-        for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
-        workspaceObservers = []
+        visibility?.invalidate()
+        visibility = nil
     }
 
     /// Moves the panel to `newPlacement`. Edge changes fade out and slide in; other changes animate the frame

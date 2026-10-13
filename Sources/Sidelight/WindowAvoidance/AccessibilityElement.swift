@@ -15,7 +15,13 @@ struct AccessibilityElement {
     }
 
     var windows: [AccessibilityElement] {
-        (attribute(kAXWindowsAttribute) as [AXUIElement]?)?.map(AccessibilityElement.init) ?? []
+        readableWindows ?? []
+    }
+
+    /// The app's windows, or `nil` when they can't be read: unlike ``windows``, an app whose list failed isn't taken
+    /// for one without windows.
+    var readableWindows: [AccessibilityElement]? {
+        (attribute(kAXWindowsAttribute) as [AXUIElement]?)?.map(AccessibilityElement.init)
     }
 
     /// Regular document/app windows, as opposed to panels, sheets, popovers and the like.

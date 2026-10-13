@@ -48,6 +48,11 @@ private struct PanelWidgets: View {
     let layout: PanelLayout
     let onContentLengthChange: (CGFloat) -> Void
 
+    /// Where `widget` is drawn, so it can open the details panel in this panel's place.
+    private func placement(of widget: WidgetInstance) -> WidgetPlacement {
+        WidgetPlacement(displayID: layout.displayID, widgetID: widget.id)
+    }
+
     var body: some View {
         let position = layout.position
         let sections = configuration.visibleSections(at: position, length: layout.length)
@@ -62,6 +67,7 @@ private struct PanelWidgets: View {
                             HStack(spacing: 6) {
                                 ForEach(section.widgets) { widget in
                                     WidgetCard(settings: widget.settings, layout: .bar, appearance: appearance)
+                                        .environment(\.widgetPlacement, placement(of: widget))
                                         .transition(.scale(scale: 0.85).combined(with: .opacity))
                                 }
                             }
@@ -95,6 +101,7 @@ private struct PanelWidgets: View {
                             MasonryLayout(columns: columns.count, spacing: spacing) {
                                 ForEach(Array(section.widgets.enumerated()), id: \.element.id) { index, widget in
                                     WidgetCard(settings: widget.settings, layout: layout, appearance: appearance)
+                                        .environment(\.widgetPlacement, placement(of: widget))
                                         .staggeredEntrance(index: firstIndex + index)
                                         .transition(
                                             .asymmetric(

@@ -1,0 +1,12 @@
+{
+  "evidence": "MOCK ONLY: invented design fixture; never fetched from an account",
+  "credits": {"data": {"total_credits": 100, "total_usage": 25.75}},
+  "ordinary_key": {"data": {"label": "Mock development key", "limit": 20, "limit_remaining": 8.5, "usage": 11.5, "usage_daily": 0.75, "limit_reset": "monthly", "include_byok_in_limit": false}},
+  "activity": {"data": [
+    {"date": "2026-10-08", "endpoint_id": "mock-a", "model": "mock/model-a", "provider_name": "Mock provider", "usage": 0.4, "byok_usage_inference": 0, "requests": 10},
+    {"date": "2026-10-08", "endpoint_id": "mock-b", "model": "mock/model-b", "provider_name": "Mock provider", "usage": 0.2, "byok_usage_inference": 0, "requests": 5},
+    {"date": "2026-10-10", "endpoint_id": "mock-c", "model": "mock/model-c", "provider_name": "Mock provider", "usage": 0.05, "byok_usage_inference": 1.2, "requests": 8},
+    {"date": "2026-10-11", "endpoint_id": "mock-a", "model": "mock/model-a", "provider_name": "Mock provider", "usage": 0.9, "byok_usage_inference": 0, "requests": 20}
+  ]},
+  "design_notes": ["Mock account balance: $74.25", "Mock key budget remaining: $8.50, separate from account balance", "Oct 8 sum of credit usage: $0.60", "Oct 9 omitted: do not assume a failed/partial response proves zero", "Oct 10: $0.05 credit charges and $1.20 external BYOK inference", "No current UTC day in activity fixture"]
+}

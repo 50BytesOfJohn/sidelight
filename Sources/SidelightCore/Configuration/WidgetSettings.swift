@@ -21,6 +21,9 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case railway
     /// Sessions of every agent in one list: Codex, Claude Code and Cursor.
     case agentSessions
+    /// OpenRouter: the newest models or any list of them, and the balance and spending of one or more accounts. Built
+    /// from blocks.
+    case openRouter
 
     public var id: Self { self }
 
@@ -473,6 +476,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case noodleComputer(NoodleComputerSettings)
     case railway(RailwaySettings)
     case agentSessions(AgentSessionsSettings)
+    case openRouter(OpenRouterSettings)
 
     public var kind: WidgetKind {
         switch self {
@@ -489,6 +493,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .noodleComputer: .noodleComputer
         case .railway: .railway
         case .agentSessions: .agentSessions
+        case .openRouter: .openRouter
         }
     }
 
@@ -507,6 +512,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .noodleComputer: .noodleComputer(NoodleComputerSettings())
         case .railway: .railway(RailwaySettings())
         case .agentSessions: .agentSessions(AgentSessionsSettings())
+        case .openRouter: .openRouter(OpenRouterSettings())
         }
     }
 }

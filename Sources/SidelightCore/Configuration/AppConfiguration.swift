@@ -17,6 +17,8 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public var windowAvoidance: WindowAvoidanceMode = .smart
     public var hotkey: Hotkey = .defaultToggle
     public var updates = UpdateSettings()
+    /// The details panel widgets open in place of the side panel.
+    public var details = DetailsPanelSettings()
     /// The panel's sections along its edge, each with its own widgets. Every panel shows at least one.
     public var sections: [PanelSection] = [PanelSection(widgets: AppConfiguration.defaultWidgets)]
     /// Per-display overrides of ``panel``.
@@ -50,9 +52,11 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
 
     /// What the data services have to do for the panels at `positions`. While `previewsEveryWidget` (the Widgets
     /// window shows a live preview of every kind, and of every widget in the configuration), all of them run, and
-    /// every widget's opt-ins count, shown or hidden.
+    /// every widget's opt-ins count, shown or hidden. Otherwise the widgets `previewing` lists (the one a builder
+    /// edits) count too, shown or hidden; nothing else is previewed.
     public func serviceDemand(
-        at positions: some Sequence<PanelPosition>, previewsEveryWidget: Bool = false
+        at positions: some Sequence<PanelPosition>, previewsEveryWidget: Bool = false,
+        previewing: Set<WidgetInstance.ID> = []
     ) -> ServiceDemand {
         let placed = Set(widgets.map(\.kind))
         guard !previewsEveryWidget else {
@@ -62,7 +66,8 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
                 kinds: Set(WidgetKind.allCases), placedKinds: placed, usage: usage,
                 railway: ServiceDemand.railwayNeeds(of: widgets), sessions: Set(AgentProvider.allCases))
         }
-        let visible = visibleWidgets(at: positions)
+        let shown = Set(visibleWidgets(at: positions).map(\.id)).union(previewing)
+        let visible = widgets.filter { shown.contains($0.id) }
         return ServiceDemand(
             kinds: Set(visible.map(\.kind)), placedKinds: placed, usage: UsageServiceDemand(widgets: visible),
             railway: ServiceDemand.railwayNeeds(of: visible), sessions: ServiceDemand.sessionProviders(of: visible))
@@ -70,6 +75,24 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
 }
 
 extension AppConfiguration {
+    private enum CodingKeys: String, CodingKey {
+        case panel, appearance, windowAvoidance, hotkey, updates, details, sections, displays
+    }
+
+    /// Every setting released versions saved is required, as it always was. Settings added since take their
+    /// defaults when missing, so a configuration saved by an earlier release still loads.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        panel = try container.decode(PanelDefaults.self, forKey: .panel)
+        appearance = try container.decode(Appearance.self, forKey: .appearance)
+        windowAvoidance = try container.decode(WindowAvoidanceMode.self, forKey: .windowAvoidance)
+        hotkey = try container.decode(Hotkey.self, forKey: .hotkey)
+        updates = try container.decode(UpdateSettings.self, forKey: .updates)
+        details = try container.decode(.details, or: DetailsPanelSettings())
+        sections = try container.decode([PanelSection].self, forKey: .sections)
+        displays = try container.decode([DisplayProfile].self, forKey: .displays)
+    }
+
     public init(json: Data) throws {
         self = try JSONDecoder().decode(AppConfiguration.self, from: json)
     }
@@ -110,6 +133,35 @@ public struct ServiceDemand: Equatable, Sendable {
         self.sessions = sessions ?? Self.sessionProviders(of: kinds)
     }
 
+    /// Only what widgets of `kinds` need: services that only other kinds of widget use don't run, previews
+    /// included. Codex, Claude Code and Cursor usage run for their own widgets and AI Usage; Claude Code and Codex
+    /// sessions for their own widgets and Agent sessions, which alone lists Cursor's and OpenCode's.
+    public func limited(to kinds: Set<WidgetKind>) -> ServiceDemand {
+        var demand = self
+        demand.kinds.formIntersection(kinds)
+        demand.placedKinds.formIntersection(kinds)
+        demand.usage.providers = usage.providers.filter { provider in
+            let kind: WidgetKind =
+                switch provider {
+                case .codex: .codex
+                case .claudeCode: .claudeCode
+                case .cursor: .cursor
+                }
+            return kinds.contains(kind) || kinds.contains(.aiUsage)
+        }
+        demand.sessions = sessions.filter { provider in
+            let kind: WidgetKind? =
+                switch provider {
+                case .claudeCode: .claudeSessions
+                case .codex: .codexSessions
+                case .cursor, .openCode: nil
+                }
+            return kinds.contains(.agentSessions) || (kind.map { kinds.contains($0) } ?? false)
+        }
+        if !kinds.contains(.railway) { demand.railway = [:] }
+        return demand
+    }
+
     /// The agents whose sessions `widgets` list.
     public static func sessionProviders(of widgets: some Sequence<WidgetInstance>) -> Set<AgentProvider> {
         var providers = Set<AgentProvider>()
@@ -119,7 +171,7 @@ public struct ServiceDemand: Equatable, Sendable {
             case .codexSessions: providers.insert(.codex)
             case .agentSessions(let settings): providers.formUnion(settings.providers)
             case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .system, .noodleComputer,
-                .railway:
+                .railway, .openRouter:
                 break
             }
         }
@@ -178,7 +230,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 claudeMinutes += [settings.claudeRefreshMinutesIfOptedIn].compactMap(\.self)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
             case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway,
-                .agentSessions:
+                .agentSessions, .openRouter:
                 break
             }
         }

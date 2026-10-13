@@ -21,6 +21,7 @@ struct WidgetContent: View {
         case .noodleComputer(let settings): NoodleComputerWidgetView(settings: settings, layout: layout)
         case .railway(let settings): RailwayWidgetView(settings: settings, layout: layout)
         case .agentSessions(let settings): AgentSessionsWidgetView(settings: settings, layout: layout)
+        case .openRouter(let settings): OpenRouterWidgetView(settings: settings, layout: layout)
         }
     }
 }
@@ -48,6 +49,8 @@ struct WidgetSettingsEditor: View {
         case .railway(let settings): RailwaySettingsEditor(settings: binding(settings, WidgetSettings.railway))
         case .agentSessions(let settings):
             AgentSessionsSettingsEditor(settings: binding(settings, WidgetSettings.agentSessions))
+        case .openRouter(let settings):
+            OpenRouterSettingsEditor(settings: binding(settings, WidgetSettings.openRouter))
         case .nowPlaying: Text("No options.").foregroundStyle(.secondary)
         }
     }
@@ -70,4 +73,8 @@ extension EnvironmentValues {
     /// Whether the panel drawing this can be seen: not hidden with the shortcut, and not on a sleeping or locked
     /// screen. Previews and settings are always shown.
     @Entry var isPanelShown = true
+
+    /// Drawn as a preview, in the Widgets window or the builder, rather than in a panel. Widgets whose data is private
+    /// (an account's money) show a marked example there, never someone's data, and never ask for it.
+    @Entry var isWidgetPreview = false
 }
