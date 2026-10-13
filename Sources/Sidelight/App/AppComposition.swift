@@ -9,7 +9,7 @@ struct AppComposition {
     var configurationFile = ConfigurationStore.defaultFileURL
     var openRouterTransport: OpenRouterService.Transport = { try await HTTP.send($0) }
     var openRouterKeys = OpenRouterKeyring.keychain
-    /// Which apps' windows window avoidance may move, besides being regular apps other than Sidelight.
+    /// Which apps' windows window avoidance may move, besides being regular or accessory apps other than Sidelight.
     var movesWindows: (NSRunningApplication) -> Bool = { _ in true }
     /// The kinds of widget whose data services may run, shown or previewed; `nil` for every kind. The others never
     /// start, so nothing they read (sessions, usage, calendars) is read.

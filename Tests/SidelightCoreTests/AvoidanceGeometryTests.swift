@@ -94,6 +94,35 @@ struct AvoidanceGeometryTests {
         #expect(!AvoidanceGeometry.clipWasRefused(requested: requested, actual: requested, edge: .left))
     }
 
+    @Test func `a window clear of the panel needs no clearing`() {
+        let window = CGRect(x: 308, y: 20, width: 692, height: 780)
+        #expect(AvoidanceGeometry.clearing(window, of: leftPanel, edge: .left) == nil)
+        // Rounding into the gap, or a point onto the panel, isn't an overlap.
+        #expect(AvoidanceGeometry.clearing(window.offsetBy(dx: -9, dy: 0), of: leftPanel, edge: .left) == nil)
+    }
+
+    @Test func `a window that refused its size is moved clear keeping it`() {
+        // Asked to shift to 308 at 692 wide, the app kept 900: on the left, its origin already clears the panel…
+        let left = CGRect(x: 200, y: 100, width: 900, height: 300)
+        #expect(
+            AvoidanceGeometry.clearing(left, of: leftPanel, edge: .left)
+                == CGRect(x: 308, y: 100, width: 900, height: 300))
+        // …on the right, the origin was placed for 692 pt, so its far edge sits under the panel until moved back.
+        let rightPanel = CGRect(x: 700, y: 20, width: 300, height: 780)
+        let right = CGRect(x: 0, y: 100, width: 900, height: 300)
+        #expect(
+            AvoidanceGeometry.clearing(right, of: rightPanel, edge: .right)
+                == CGRect(x: -208, y: 100, width: 900, height: 300))
+    }
+
+    @Test func `a window under a bottom bar is lifted clear keeping its height`() {
+        let panel = CGRect(x: 0, y: 756, width: 1000, height: 44)
+        let window = CGRect(x: 100, y: 400, width: 500, height: 400)
+        #expect(
+            AvoidanceGeometry.clearing(window, of: panel, edge: .bottom)
+                == CGRect(x: 100, y: 348, width: 500, height: 400))
+    }
+
     @Test func `converts Cocoa rects to Accessibility space`() {
         let cocoa = CGRect(x: 10, y: 0, width: 100, height: 50)
         #expect(
