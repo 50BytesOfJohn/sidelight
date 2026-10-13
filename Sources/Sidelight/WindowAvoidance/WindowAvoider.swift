@@ -59,9 +59,9 @@ final class WindowAvoider {
     static let recheckDelays: [Duration] = [
         .milliseconds(100), .milliseconds(300), .milliseconds(700), .milliseconds(1500), .seconds(3),
     ]
-    /// After an app starts being watched, its windows are checked once more after this: one it had already created
-    /// may only now be shown, and being shown sends no event.
-    static let registrationFollowUpDelay: Duration = .seconds(1)
+    /// After an app starts being watched, comes to the front or is unhidden, its windows are checked at once and once
+    /// more after this: a window it had already created may only be shown by then, and being shown sends no event.
+    static let followUpDelay: Duration = .seconds(1)
     /// After the Space changes or the screens wake, the window server takes a moment to list what's shown now.
     static let spaceChangeSettleDelay: Duration = .milliseconds(300)
     static let wakeSettleDelay: Duration = .seconds(1)
@@ -118,6 +118,8 @@ final class WindowAvoider {
         let deadline: ContinuousClock.Instant
         let scope: CheckScope
         let reason: String
+        /// The app checked again for a window it couldn't move yet, if that's what this is.
+        let recheck: pid_t?
     }
 
     /// A window Sidelight moved, and where to put it back.
@@ -447,6 +449,7 @@ final class WindowAvoider {
         windowsAwaitingMouseUp = []
         cancelChecks()
         for pid in Array(observers.keys) { unregister(pid) }
+        registrationAttempts = [:]
         pollForTrust()
     }
 
@@ -481,6 +484,7 @@ final class WindowAvoider {
         for token in workspaceObservations { NSWorkspace.shared.notificationCenter.removeObserver(token) }
         workspaceObservations = []
         for pid in Array(observers.keys) { unregister(pid) }
+        registrationAttempts = [:]
         Log.avoidance.info("Stopped observing windows")
     }
 
@@ -516,12 +520,12 @@ final class WindowAvoider {
                 if observers[application.processIdentifier] == nil {
                     register(application)
                 } else {
-                    requestCheck(of: .apps([application.processIdentifier]), reason: "activated")
+                    requestCheckAndFollowUp(of: .apps([application.processIdentifier]), reason: "activated")
                 }
             },
             center.addObserver(of: workspace, for: .didUnhideApplication) { [weak self] message in
                 // Its windows come back where they were, whatever the panels did meanwhile, and say nothing.
-                self?.requestCheck(of: .apps([message.application.processIdentifier]), reason: "unhidden")
+                self?.requestCheckAndFollowUp(of: .apps([message.application.processIdentifier]), reason: "unhidden")
             },
             center.addObserver(of: workspace, for: .didTerminateApplication) { [weak self] message in
                 let pid = message.application.processIdentifier
@@ -546,11 +550,11 @@ final class WindowAvoider {
         }
         Log.avoidance.info("Observing windows of \(self.observers.count) apps")
         // Windows that were already open before we started watching, in one check for every app.
-        requestCheck(of: .all, reason: "registered")
+        requestCheckAndFollowUp(of: .all, reason: "registered")
     }
 
     /// Starts watching `application`'s windows. `checking` checks those it has already, now and once more shortly
-    /// after (see ``registrationFollowUpDelay``).
+    /// after (see ``followUpDelay``).
     private func register(_ application: NSRunningApplication, checking: Bool = true) {
         let pid = application.processIdentifier
         guard mode != .off, isStarted, observers[pid] == nil, isEligible(application), AXIsProcessTrusted()
@@ -565,7 +569,10 @@ final class WindowAvoider {
             }
         }
         var observer: AXObserver?
-        guard AXObserverCreate(pid, callback, &observer) == .success, let observer else { return }
+        guard AXObserverCreate(pid, callback, &observer) == .success, let observer else {
+            retryRegistration(of: application)
+            return
+        }
 
         let applicationElement = AccessibilityElement.application(pid)
         let context = Unmanaged.passUnretained(self).toOpaque()
@@ -591,8 +598,7 @@ final class WindowAvoider {
 
         // Windows that were already open before we started watching.
         if checking {
-            requestCheck(of: .apps([pid]), reason: "registered")
-            requestCheck(of: .apps([pid]), after: Self.registrationFollowUpDelay, reason: "registered+settled")
+            requestCheckAndFollowUp(of: .apps([pid]), reason: "registered")
         }
     }
 
@@ -670,10 +676,12 @@ final class WindowAvoider {
     }
 
     /// Moves `window` out from under the panel it overlaps, if any, and only when it may move it (see
-    /// ``mayMove(_:frame:of:among:onScreen:)``). `onScreen` is a snapshot already taken for this look, if any.
+    /// ``mayMove(_:frame:of:among:onScreen:)``). `windows`, the app's windows, and `onScreen` are what was already read
+    /// for this look, if anything.
     @discardableResult
     private func avoid(
-        _ window: AccessibilityElement, eventDate: Date, reason: String, onScreen: OnScreenWindows? = nil
+        _ window: AccessibilityElement, eventDate: Date, reason: String, among windows: [AccessibilityElement]? = nil,
+        onScreen: OnScreenWindows? = nil
     ) -> Outcome {
         let regions = occupiedRegions()
         guard mode != .off,
@@ -704,7 +712,8 @@ final class WindowAvoider {
             let application = NSRunningApplication(processIdentifier: pid),
             mayMove(
                 window, frame: windowFrame, of: application,
-                among: AccessibilityElement.application(pid).readableWindows, onScreen: onScreen ?? .current())
+                among: windows ?? AccessibilityElement.application(pid).readableWindows,
+                onScreen: onScreen ?? .current())
         else {
             Log.avoidance.debug("Left a window alone for now, not certainly one to move: \(reason, privacy: .public)")
             return .unsure
@@ -739,11 +748,19 @@ final class WindowAvoider {
     // MARK: Checking what's on screen
 
     /// Checks the windows of `scope` that are on screen, after `delay`, with every other check due by then. Waits
-    /// for the mouse button to come up.
-    private func requestCheck(of scope: CheckScope, after delay: Duration = .zero, reason: String) {
+    /// for the mouse button to come up. `recheck` is the app checked again for a window it couldn't move yet.
+    private func requestCheck(
+        of scope: CheckScope, after delay: Duration = .zero, reason: String, recheck: pid_t? = nil
+    ) {
         guard mode != .off, isStarted else { return }
-        pendingChecks.append(PendingCheck(deadline: .now + delay, scope: scope, reason: reason))
+        pendingChecks.append(PendingCheck(deadline: .now + delay, scope: scope, reason: reason, recheck: recheck))
         scheduleNextCheck()
+    }
+
+    /// Checks the windows of `scope` now and once more after ``followUpDelay``.
+    private func requestCheckAndFollowUp(of scope: CheckScope, reason: String) {
+        requestCheck(of: scope, reason: reason)
+        requestCheck(of: scope, after: Self.followUpDelay, reason: reason + "+settled")
     }
 
     private func scheduleNextCheck() {
@@ -766,7 +783,7 @@ final class WindowAvoider {
         if let first = due.first {
             let scope = due.dropFirst().reduce(first.scope) { $0.union($1.scope) }
             let reason = Set(due.map(\.reason)).sorted().joined(separator: "+")
-            check(scope, reason: reason)
+            check(scope, rechecking: Set(due.compactMap(\.recheck)), reason: reason)
         }
         scheduleNextCheck()
     }
@@ -774,8 +791,11 @@ final class WindowAvoider {
     /// Moves the windows of `scope` that overlap a panel on screen now, and checks again later the apps with one it
     /// couldn't be sure of. Only apps the window server shows a window of over a panel are asked anything, so a check
     /// usually costs one call to the window server. Returns how many windows moved.
+    ///
+    /// - Parameter rechecking: Apps checked again for a window they couldn't move yet. One whose window still isn't
+    ///   shown over a panel is checked again later, as it may only be about to be.
     @discardableResult
-    private func check(_ scope: CheckScope, reason: String) -> Int {
+    private func check(_ scope: CheckScope, rechecking: Set<pid_t> = [], reason: String) -> Int {
         let regions = occupiedRegions()
         guard mode != .off, isStarted, isTrusted, !regions.isEmpty, let primaryScreen = NSScreen.primary else {
             return 0
@@ -785,26 +805,31 @@ final class WindowAvoider {
             AvoidanceGeometry.accessibilityRect(fromCocoa: $0.frame, primaryScreenHeight: screenHeight)
         }
         let onScreen = OnScreenWindows.current()
+        let candidates = onScreen.processes(overlapping: panels).filter(scope.contains)
 
         var moved = 0
         var unsure: Set<pid_t> = []
-        for pid in onScreen.processes(overlapping: panels) where scope.contains(pid) {
+        for pid in candidates {
             guard let application = NSRunningApplication(processIdentifier: pid), isEligible(application) else {
                 continue
             }
-            for window in AccessibilityElement.application(pid).windows {
-                switch avoid(window, eventDate: .now, reason: reason, onScreen: onScreen) {
+            // The window server shows one over a panel, but the app can't list its windows right now (it's busy).
+            guard let windows = AccessibilityElement.application(pid).readableWindows else {
+                unsure.insert(pid)
+                continue
+            }
+            for window in windows {
+                switch avoid(window, eventDate: .now, reason: reason, among: windows, onScreen: onScreen) {
                 case .moved: moved += 1
                 case .unsure: unsure.insert(pid)
                 case .clear: break
                 }
             }
         }
-        // Apps it's sure about now start over; the others are checked again, later and later, a few times.
-        for pid in Array(recheckAttempts.keys) where scope.contains(pid) && !unsure.contains(pid) {
-            recheckAttempts[pid] = nil
-        }
-        for pid in unsure { scheduleRecheck(of: pid) }
+        // Apps it looked at and is sure about now start over; the others are checked again, later and later, a few
+        // times: those it's unsure of, and those checked again whose window isn't shown over a panel yet.
+        for pid in candidates where !unsure.contains(pid) { recheckAttempts[pid] = nil }
+        for pid in unsure.union(rechecking.subtracting(candidates)) { scheduleRecheck(of: pid) }
         return moved
     }
 
@@ -817,7 +842,7 @@ final class WindowAvoider {
             return
         }
         recheckAttempts[pid] = attempt + 1
-        requestCheck(of: .apps([pid]), after: Self.recheckDelays[attempt], reason: "recheck")
+        requestCheck(of: .apps([pid]), after: Self.recheckDelays[attempt], reason: "recheck", recheck: pid)
     }
 
     private func cancelChecks() {
