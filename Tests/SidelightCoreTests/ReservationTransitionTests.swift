@@ -172,3 +172,101 @@ struct ReservationTransitionTests {
         #expect(!ReservationTransition.isUnchanged(CGRect(x: 400, y: 50, width: 703, height: 600), since: frame))
     }
 }
+
+extension ReservationTransitionTests {
+    @Test func `unchanged automatically pushed unsnapped contact restores instead of pulling outward`() throws {
+        let before = CGRect(x: 250, y: 50, width: 600, height: 700)
+        let opened = decision(before, from: main, to: details, mode: .smart)
+        guard case .move(let pushed) = opened else {
+            Issue.record("Expected push")
+            return
+        }
+        #expect(pushed.frame.minX == 368)
+        let ledger = try #require(pushed.baselines(accepted: pushed.frame))
+        guard case .move(let closed) = decision(pushed.frame, ledger, from: details, to: main, mode: .smart)
+        else {
+            Issue.record("Expected restore")
+            return
+        }
+        #expect(closed.reason == .restore && closed.frame == before)
+    }
+
+    @Test func `manual contact follows even with an obsolete unsnapped restore baseline`() {
+        let before = CGRect(x: 250, y: 50, width: 600, height: 700)
+        let accepted = CGRect(x: 368, y: 50, width: 600, height: 700)
+        let resized = CGRect(x: 368, y: 100, width: 500, height: 600)
+        let baseline = WindowBaselines(details: before, accepted: accepted)
+        guard case .move(let moved) = decision(resized, baseline, from: details, to: main)
+        else {
+            Issue.record("Expected follow")
+            return
+        }
+        #expect(moved.reason == .follow && moved.frame.minX == 208 && moved.frame.maxX == resized.maxX)
+        #expect(moved.main == nil && moved.details == nil)
+    }
+
+    @Test(arguments: [PanelPosition.top, .bottom])
+    func `bar takeover frees the old axis in one decision and closing restores both layers`(edge: PanelPosition) throws
+    {
+        let bar = Reservation(
+            frame: CGRect(x: 0, y: edge == .top ? 0 : 840, width: 1440, height: 60), edge: edge, role: .main)
+        let original = CGRect(x: 50, y: 0, width: 1000, height: 900)
+        let afterBar = CGRect(x: 50, y: edge == .top ? 68 : 0, width: 1000, height: 832)
+        let baseline = WindowBaselines(main: original, accepted: afterBar)
+        guard case .move(let opened) = decision(afterBar, baseline, from: bar, to: details)
+        else {
+            Issue.record("Expected takeover")
+            return
+        }
+        #expect(opened.frame == CGRect(x: 368, y: 0, width: 682, height: 900))
+        #expect(opened.main == original && opened.details == original)
+        let layer = try #require(opened.baselines(accepted: opened.frame))
+        guard case .move(let closed) = decision(opened.frame, layer, from: details, to: bar)
+        else {
+            Issue.record("Expected bar restore")
+            return
+        }
+        #expect(closed.frame == afterBar && closed.main == original && closed.details == nil)
+        let mainLayer = try #require(closed.baselines(accepted: closed.frame))
+        guard case .move(let hidden) = decision(closed.frame, mainLayer, from: bar, to: nil)
+        else {
+            Issue.record("Expected full restore")
+            return
+        }
+        #expect(hidden.frame == original)
+    }
+
+    @Test func `main resize replans from earliest frame while user edits expire the old baseline`() throws {
+        let original = CGRect(x: 0, y: 50, width: 1000, height: 700)
+        let accepted = CGRect(x: 208, y: 50, width: 792, height: 700)
+        let narrow = Reservation(frame: CGRect(x: 0, y: 0, width: 100, height: 900), edge: .left, role: .main)
+        let baseline = WindowBaselines(main: original, accepted: accepted)
+        guard case .move(let resized) = decision(accepted, baseline, from: main, to: narrow)
+        else {
+            Issue.record("Expected resize")
+            return
+        }
+        #expect(resized.frame == CGRect(x: 108, y: 50, width: 892, height: 700))
+        #expect(resized.main == original)
+        let edited = accepted.offsetBy(dx: 30, dy: 10)
+        #expect(decision(edited, baseline, from: main, to: narrow) == .leave(nil))
+    }
+
+    @Test func `new bar contact stores the unclipped baseline for a later global hide`() throws {
+        let bar = Reservation(frame: CGRect(x: 0, y: 0, width: 1440, height: 60), edge: .top, role: .main)
+        let window = CGRect(x: 360, y: 0, width: 800, height: 900)
+        guard case .move(let closed) = decision(window, from: details, to: bar)
+        else {
+            Issue.record("Expected follow")
+            return
+        }
+        #expect(closed.reason == .follow)
+        let layer = try #require(closed.baselines(accepted: closed.frame))
+        guard case .move(let hidden) = decision(closed.frame, layer, from: bar, to: nil)
+        else {
+            Issue.record("Expected bar release")
+            return
+        }
+        #expect(hidden.frame == CGRect(x: 0, y: 0, width: 1160, height: 900))
+    }
+}

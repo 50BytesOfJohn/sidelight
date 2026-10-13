@@ -249,3 +249,238 @@ private nonisolated final class OpenRouterWriteLog: Sendable {
     func append(_ event: String) { storage.withLock { $0.append(event) } }
     var values: [String] { storage.withLock { $0 } }
 }
+
+extension OpenRouterServiceTests {
+    @Test(arguments: [401, 403])
+    func `rejected connection gates key pages new scopes and manual refresh until resave`(status: Int) async {
+        let requests = OpenRouterRequestLog()
+        let store = OpenRouterMemoryKey("fixture")
+        let service = OpenRouterService(
+            transport: { request in
+                requests.append(request)
+                if request.url?.lastPathComponent == "key" {
+                    return Self.response(#"{"data":{"is_management_key":true}}"#)
+                }
+                return Self.response("{}", status: status)
+            }, keyStore: store.adapter)
+        service.demand = OpenRouterDemand(balance: .manual, keepsAccountData: true)
+        service.start()
+        let problem: OpenRouterProblem = status == 401 ? .invalidKey : .notPermitted
+        #expect(await eventually { service.balance.problem == problem && !service.balance.isFetching })
+        let count = requests.values.count
+        service.loadKeysIfNeeded()
+        service.refreshAccount(scope: nil)
+        service.demand = OpenRouterDemand(balance: .manual, activity: [.account: .manual], keepsAccountData: true)
+        #expect(await eventually { service.activity(for: .account)?.problem == problem })
+        #expect(service.keyList.problem == problem)
+        #expect(requests.values.count == count)
+        #expect(await service.saveKey("fixture") == nil)
+        #expect(await eventually { requests.values.count >= count + 2 })
+        #expect(store.saves == 1)
+        service.stop()
+    }
+
+    @Test(arguments: ["credits", "keys"])
+    func `RetryAfter from any private resource gates all newly requested private scopes`(source: String) async {
+        let requests = OpenRouterRequestLog()
+        let store = OpenRouterMemoryKey("fixture")
+        let service = OpenRouterService(
+            transport: { request in
+                requests.append(request)
+                return HTTP.Response(status: 429, headers: ["rEtRy-AfTeR": "600"], body: Data("{}".utf8))
+            }, keyStore: store.adapter)
+        service.demand = OpenRouterDemand(keepsAccountData: true)
+        service.start()
+        if source == "credits" {
+            service.demand = OpenRouterDemand(balance: .manual, keepsAccountData: true)
+            #expect(await eventually { service.balance.problem == .rateLimited && !service.balance.isFetching })
+        } else {
+            service.loadKeysIfNeeded()
+            #expect(await eventually { service.keyList.problem == .rateLimited && !service.keyList.isLoading })
+        }
+        let count = requests.values.count
+        service.loadMoreKeys()
+        service.loadKeysIfNeeded()
+        service.demand = OpenRouterDemand(
+            balance: .manual, activity: [.account: .manual, .key(String(repeating: "a", count: 64)): .manual],
+            keepsAccountData: true)
+        #expect(await eventually { service.activity(for: .account)?.problem == .rateLimited })
+        service.refreshAccount(scope: .account)
+        try? await Task.sleep(for: .milliseconds(30))
+        #expect(requests.values.count == count)
+        service.stop()
+    }
+
+    @Test func `failed deletion reports truth and retry clears the remaining credential`() async {
+        let store = OpenRouterMemoryKey("fixture")
+        let deletions = OpenRouterWriteLog()
+        let adapter = OpenRouterKeyStore(
+            read: store.adapter.read, save: store.adapter.save,
+            delete: {
+                deletions.append("delete")
+                if deletions.values.count == 1 { return false }
+                return await store.adapter.delete()
+            })
+        let service = OpenRouterService(transport: { _ in Self.response("{}") }, keyStore: adapter)
+        service.lookForKey()
+        #expect(await eventually { service.hasKey == true })
+        service.removeKey()
+        #expect(service.hasKey == false)
+        #expect(await eventually { service.keyRemovalFailed && service.hasKey == true })
+        #expect(store.key == "fixture")
+        service.removeKey()
+        #expect(await eventually { store.key == nil && service.hasKey == false && !service.keyRemovalFailed })
+        service.stop()
+    }
+
+    @Test func `late failed deletion cannot overwrite a newer credential save`() async {
+        let store = OpenRouterMemoryKey("old")
+        let deletion = Answers<Bool>()
+        let adapter = OpenRouterKeyStore(
+            read: store.adapter.read, save: store.adapter.save, delete: { await deletion.next() })
+        let service = OpenRouterService(
+            transport: { _ in Self.response(#"{"data":{"is_management_key":true}}"#) }, keyStore: adapter)
+        service.removeKey()
+        #expect(await eventually { deletion.pendingCount == 1 })
+        let save = Task { await service.saveKey("new") }
+        await deletion.answer(false)
+        #expect(await save.value == nil)
+        #expect(store.key == "new" && service.hasKey == true && !service.keyRemovalFailed)
+        service.stop()
+    }
+
+    @Test func `queued validation overtaken before its write never reaches credential store`() async {
+        let store = OpenRouterMemoryKey()
+        let writes = Answers<Bool>()
+        let events = OpenRouterWriteLog()
+        let adapter = OpenRouterKeyStore(
+            read: store.adapter.read,
+            save: { key in
+                events.append(key)
+                let allowed = await writes.next()
+                guard allowed else { return false }
+                return await store.adapter.save(key)
+            }, delete: store.adapter.delete)
+        let validations = OpenRouterRequestLog()
+        let service = OpenRouterService(
+            transport: { request in
+                validations.append(request)
+                return Self.response(#"{"data":{"is_management_key":true}}"#)
+            }, keyStore: adapter)
+        let first = Task { await service.saveKey("first") }
+        #expect(await eventually { writes.pendingCount == 1 })
+        let middle = Task { await service.saveKey("middle") }
+        #expect(await eventually { validations.values.count == 2 })
+        let last = Task { await service.saveKey("last") }
+        #expect(await eventually { validations.values.count == 3 })
+        await writes.answer(true)
+        #expect(await eventually { writes.pendingCount == 1 })
+        #expect(events.values == ["first", "last"])
+        await writes.answer(true)
+        _ = await first.value
+        _ = await middle.value
+        _ = await last.value
+        #expect(store.key == "last")
+        service.stop()
+    }
+
+    @Test func `cancellation while a validated save waits in the write queue prevents the write`() async {
+        let store = OpenRouterMemoryKey()
+        let firstWrite = Answers<Bool>()
+        let events = OpenRouterWriteLog()
+        let validations = OpenRouterRequestLog()
+        let adapter = OpenRouterKeyStore(
+            read: store.adapter.read,
+            save: { key in
+                events.append(key)
+                if key == "first" { _ = await firstWrite.next() }
+                return await store.adapter.save(key)
+            }, delete: store.adapter.delete)
+        let service = OpenRouterService(
+            transport: { request in
+                validations.append(request)
+                return Self.response(#"{"data":{"is_management_key":true}}"#)
+            }, keyStore: adapter)
+        let first = Task { await service.saveKey("first") }
+        #expect(await eventually { firstWrite.pendingCount == 1 })
+        let cancelled = Task { await service.saveKey("cancelled") }
+        #expect(await eventually { validations.values.count == 2 })
+        // Let the validated candidate enter the serialized queue before cancellation.
+        try? await Task.sleep(for: .milliseconds(30))
+        cancelled.cancel()
+        await firstWrite.answer(true)
+        _ = await first.value
+        _ = await cancelled.value
+        #expect(events.values == ["first"])
+        #expect(store.key == "first")
+        service.stop()
+    }
+
+    @Test func `raw page offsets advance through unreadable rows dedupe across pages and expose limit`() async {
+        let requests = OpenRouterRequestLog()
+        let hash = String(repeating: "b", count: 64)
+        let row = "{\"hash\":\"\(hash)\"}"
+        let page = "{\"data\":[null," + Array(repeating: row, count: 99).joined(separator: ",") + "]}"
+        let store = OpenRouterMemoryKey("fixture")
+        let service = OpenRouterService(
+            transport: { request in
+                requests.append(request)
+                return Self.response(page)
+            }, keyStore: store.adapter)
+        service.loadKeysIfNeeded()
+        #expect(await eventually { service.keyList.fetchedAt != nil && !service.keyList.isLoading })
+        for index in 1..<OpenRouterService.maximumKeyPages {
+            service.loadMoreKeys()
+            #expect(await eventually { !service.keyList.isLoading && requests.values.count == index + 1 })
+        }
+        #expect(service.keyList.keys.count == 1)
+        #expect(service.keyList.nextOffset == 2000 && service.keyList.reachedLimit && !service.keyList.hasMore)
+        #expect(requests.values[1].url?.query?.contains("offset=100") == true)
+        service.loadMoreKeys()
+        #expect(requests.values.count == 20)
+        service.stop()
+    }
+}
+
+extension OpenRouterServiceTests {
+    @Test func `response crossing UTC midnight anchors activity and resource to the same answer time`() async {
+        let before = Date(iso8601: "2026-10-12T23:59:59Z")!
+        let after = Date(iso8601: "2026-10-13T00:00:01Z")!
+        let wall = Mutex(before)
+        let replies = Answers<HTTP.Response>()
+        let store = OpenRouterMemoryKey("fixture")
+        let service = OpenRouterService(
+            transport: { _ in await replies.next() }, keyStore: store.adapter,
+            now: { wall.withLock { $0 } })
+        service.demand = OpenRouterDemand(activity: [.account: .manual], keepsAccountData: true)
+        service.start()
+        #expect(await eventually { replies.pendingCount == 1 })
+        wall.withLock { $0 = after }
+        await replies.answer(Self.response(#"{"data":[{"date":"2026-10-12","usage":".125"}]}"#))
+        #expect(await eventually { service.activity(for: .account)?.value != nil })
+        let resource = service.activity(for: .account)
+        #expect(resource?.fetchedAt == after && resource?.value?.fetchedAt == after)
+        #expect(resource?.value?.lastCompletedDay.description == "2026-10-12")
+        #expect(resource?.value?.days(7).last?.usage == Decimal(string: ".125"))
+        service.stop()
+    }
+
+    @Test func `scoped key lookup rejection gates the activity request and later key pages`() async {
+        let requests = OpenRouterRequestLog()
+        let store = OpenRouterMemoryKey("fixture")
+        let scope = OpenRouterSpendScope.key(String(repeating: "a", count: 64))
+        let service = OpenRouterService(
+            transport: { request in
+                requests.append(request)
+                return Self.response("{}", status: 403)
+            }, keyStore: store.adapter)
+        service.demand = OpenRouterDemand(activity: [scope: .manual], keepsAccountData: true)
+        service.start()
+        #expect(await eventually { service.activity(for: scope)?.problem == .notPermitted })
+        service.loadKeysIfNeeded()
+        #expect(service.keyList.problem == .notPermitted)
+        #expect(requests.values.count == 1)
+        #expect(!requests.values.contains { $0.url?.lastPathComponent == "activity" })
+        service.stop()
+    }
+}

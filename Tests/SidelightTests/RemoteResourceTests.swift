@@ -99,3 +99,36 @@ struct RemoteResourceTests {
         resource.policy = nil
     }
 }
+
+extension RemoteResourceTests {
+    @Test func `overdue UTC resume fetches once immediately and anchors at response time`() async {
+        var now = Date(iso8601: "2026-10-12T12:00:00Z")!
+        var attempts = 0
+        let resource = RemoteResource<Int, OpenRouterProblem>(now: { now })
+        resource.fetch = {
+            attempts += 1
+            return .success(attempts, at: now)
+        }
+        resource.policy = .dailyUTC(delay: .seconds(600))
+        #expect(await eventually { resource.value == 1 && !resource.isFetching })
+        resource.policy = nil
+        now = Date(iso8601: "2026-10-14T12:00:00Z")!
+        resource.policy = .dailyUTC(delay: .seconds(600))
+        #expect(await eventually { resource.value == 2 && !resource.isFetching })
+        #expect(resource.fetchedAt == now)
+        try? await Task.sleep(for: .milliseconds(30))
+        #expect(attempts == 2)
+        resource.policy = nil
+    }
+
+    @Test func `explicit response date is preserved even if delivery crosses midnight`() async {
+        let responseDate = Date(iso8601: "2026-10-12T23:59:59Z")!
+        let deliveryDate = Date(iso8601: "2026-10-13T00:00:01Z")!
+        let resource = RemoteResource<Int, OpenRouterProblem>(now: { deliveryDate })
+        resource.fetch = { .success(7, at: responseDate) }
+        resource.policy = .manual
+        #expect(await eventually { resource.value == 7 && !resource.isFetching })
+        #expect(resource.fetchedAt == responseDate)
+        resource.policy = nil
+    }
+}

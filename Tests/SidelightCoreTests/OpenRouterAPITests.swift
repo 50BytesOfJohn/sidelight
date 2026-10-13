@@ -155,3 +155,41 @@ struct OpenRouterAPITests {
                 == reference.addingTimeInterval(120))
     }
 }
+
+extension OpenRouterAPITests {
+    @Test(arguments: ["null", "true", "{}", "[]", "\"bad\""])
+    func `BYOK null is absent and present malformed values reject the answer`(value: String) throws {
+        let json = "{\"data\":[{\"date\":\"2026-10-12\",\"usage\":\".25\",\"byok_usage_inference\":\(value)}]}"
+        let result = OpenRouterAPI.activity(response(json), key: nil, fetchedAt: now)
+        if value == "null" {
+            let activity = try result.get()
+            #expect(activity.days(7).last?.usage == Decimal(string: ".25"))
+            #expect(activity.days(7).last?.byokUsage == nil)
+        } else {
+            #expect(result == .failure(.unreadable))
+        }
+    }
+
+    @Test func `key page preserves raw count despite malformed rows and duplicates`() throws {
+        let hash = String(repeating: "a", count: 64)
+        let row = "{\"hash\":\"\(hash)\"}"
+        let json = "{\"data\":[null,{}," + Array(repeating: row, count: 98).joined(separator: ",") + "]}"
+        let page = try OpenRouterAPI.keyPage(response(json)).get()
+        #expect(page.entryCount == 100 && page.keys.count == 1)
+        let request = OpenRouterAPI.keysRequest(key: "fixture", offset: 100, userAgent: "Test")
+        #expect(request.url?.query?.contains("include_expired=true") == true)
+    }
+
+    @Test func `financial fractions and exponents are accepted without partial numeric reads`() throws {
+        let balance = try OpenRouterAPI.balance(
+            response(#"{"data":{"total_credits":"2.5e1","total_usage":".125"}}"#), fetchedAt: now
+        ).get()
+        #expect(balance.remaining == Decimal(string: "24.875"))
+        let activity = try OpenRouterAPI.activity(
+            response(#"{"data":[{"date":"2026-10-12","usage":"2.5e-1","byok_usage_inference":".125"}]}"#),
+            key: nil, fetchedAt: now
+        ).get()
+        #expect(activity.days(7).last?.usage == Decimal(string: ".25"))
+        #expect(activity.days(7).last?.byokUsage == Decimal(string: ".125"))
+    }
+}
