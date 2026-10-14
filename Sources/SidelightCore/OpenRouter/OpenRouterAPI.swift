@@ -24,7 +24,7 @@ public enum OpenRouterProblem: Error, Equatable, Sendable {
     case tooLarge
     /// No answer at all: offline, or OpenRouter can't be reached.
     case unreachable
-    /// Saving to or reading from the keychain failed.
+    /// The account's key couldn't be read from the keychain just now.
     case keychain
 }
 
@@ -193,10 +193,10 @@ public enum OpenRouterAPI {
         switch problem {
         case .rateLimited, .unavailable:
             RetryAfter.date(in: headers, now: now).map(RetryAdvice.notBefore) ?? .backoff
-        case .unreachable, .unreadable, .tooLarge:
+        case .unreachable, .unreadable, .tooLarge, .keychain:
             .backoff
         // A deleted key doesn't come back: asking again daily would only cost requests.
-        case .noKey, .invalidKey, .notPermitted, .notManagementKey, .keyNotFound, .badRequest, .keychain:
+        case .noKey, .invalidKey, .notPermitted, .notManagementKey, .keyNotFound, .badRequest:
             .onRequest
         }
     }

@@ -19,11 +19,13 @@
      than once. The builder window (`Builder/BlockBuilder.swift`) comes for free; add the kind to
      `WidgetSettings.hasBuilder` and `WidgetBuilderWindow`. Fetch only what the shown blocks need.
 3. Add the case to the switches in `Widgets/Framework/WidgetViews.swift` and `WidgetMetadata.swift`.
-4. If it has a service: make it a `DataService`, create it in `AppController`, add it to `AppEnvironment` and its
+4. If it signs in to a provider, it uses accounts (see SKILL.md): add the provider to `AccountProvider`, save an
+   `account: AccountID?` in its settings, and let the Accounts pane and `AccountKeySheet` add keys for it.
+5. If it has a service: make it a `DataService`, create it in `AppController`, add it to `AppEnvironment` and its
    `dataServices`, and start/stop it in `AppController.runServices(for:)`.
-5. Give it, and any option you add to a widget later, a non-default value in
+6. Give it, and any option you add to a widget later, a non-default value in
    `Tests/SidelightCoreTests/ReleasedConfigurationFixture.swift`, so the next release's saved configuration
    covers it.
-6. `make check`, then look at it in all four sizes in the Widgets window (`make dev`).
+7. `make check`, then look at it in all four sizes in the Widgets window (`make dev`).
 
 The compiler flags every switch that's missing the new case.

@@ -14,8 +14,9 @@ public enum Keychain {
     }
 }
 
-/// A secret someone typed into Sidelight (an API token, a management key), kept in their login keychain as a generic
-/// password of Sidelight's own rather than in `config.json`. Every call runs off the main actor.
+/// A secret someone typed into Sidelight (an account's API token or management key), kept in their login keychain as
+/// a generic password of Sidelight's own rather than in `config.json`. Every call runs off the main actor. Only the
+/// account layer uses these: ``AccountSecrets`` in the app.
 public struct KeychainItem: Hashable, Sendable {
     public let service: String
     public let account: String
@@ -36,17 +37,25 @@ public struct KeychainItem: Hashable, Sendable {
         ]
     }
 
-    /// The saved secret; `nil` when there's none, or it can't be read.
+    /// The saved secret; `nil` when there's none. Throws when the keychain can't say (it's locked, say), so that
+    /// isn't mistaken for there being none.
     @concurrent
-    public func read() async -> String? {
+    public func read() async throws(KeychainUnavailable) -> String? {
         var query = query
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else {
+        switch SecItemCopyMatching(query as CFDictionary, &item) {
+        case errSecSuccess:
+            guard let data = item as? Data, let secret = String(data: data, encoding: .utf8) else {
+                throw KeychainUnavailable()
+            }
+            return secret
+        case errSecItemNotFound:
             return nil
+        default:
+            throw KeychainUnavailable()
         }
-        return String(data: data, encoding: .utf8)
     }
 
     /// Saves `secret`, replacing any saved before; returns whether it was saved.
@@ -69,4 +78,9 @@ public struct KeychainItem: Hashable, Sendable {
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
     }
+}
+
+/// The keychain couldn't be asked, or what it holds couldn't be read. Asking again later may work.
+public struct KeychainUnavailable: Error, Equatable {
+    public init() {}
 }

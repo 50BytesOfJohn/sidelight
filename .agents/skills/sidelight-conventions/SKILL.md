@@ -26,8 +26,12 @@ paths: Sources/**, Tests/**, Package.swift
   `Task { sleep; … }`. After every `await`, check `Task.isCancelled`
   and publish nothing once it's set.
 - File and network work runs off the main actor: `@concurrent` functions, `HTTP.send`, `Keychain`
-  (other apps' items), `KeychainItem` (a secret typed into Sidelight, never in `config.json`). Watch files
-  with `FileWatcher` / `FileEventStream` (their `onMainActor` initializers).
+  (other apps' items). Watch files with `FileWatcher` / `FileEventStream` (their `onMainActor` initializers).
+- Credentials belong to accounts, never to widgets. A widget saves an account reference (`AccountID?`, `nil` for
+  the provider's default) and picks it with `AccountPicker`; `AccountStore.resolve` says which account that is, and
+  `AccountMessage` what to show without one. Its service reads secrets only through `AccountAccess` (one keychain
+  item per key account, under its ID) and reports each account's `AccountStatus` from its own fetches. Views never
+  see a secret. Another app's sign-in is a read-only app sign-in with a fixed ID, like `railway.cli`.
 
 ## Data and UI
 

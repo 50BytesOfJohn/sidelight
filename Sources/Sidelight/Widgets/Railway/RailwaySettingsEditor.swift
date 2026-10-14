@@ -71,16 +71,6 @@ extension RailwaySettings: BlockBuiltWidget {
     }
 }
 
-extension RailwayAccountChoice {
-    var title: String {
-        switch self {
-        case .automatic: "Automatic"
-        case .cli: "Railway CLI"
-        case .token: "API token"
-        }
-    }
-}
-
 extension RailwayServiceOrder {
     var title: String {
         switch self {
@@ -115,18 +105,12 @@ struct RailwaySettingsEditor: View {
 struct RailwayWidgetOptions: View {
     @Binding var settings: RailwaySettings
     @Environment(RailwayService.self) private var service
+    @Environment(AccountStore.self) private var accounts
 
     var body: some View {
-        let connection = service.connection(for: settings.account)
-        Picker(selection: $settings.account) {
-            ForEach(RailwayAccountChoice.allCases) { Text($0.title).tag($0) }
-        } label: {
-            InfoLabel("Sign in with", info: accountCaption)
-        }
+        let connection = connection
+        AccountPicker(provider: .railway, selection: $settings.account)
         signInStatus(connection)
-        if service.resolved(settings.account) == .token || service.hasToken {
-            RailwayTokenField()
-        }
         Picker("Workspace", selection: workspace(connection)) {
             Text("First workspace").tag(String?.none)
             ForEach(workspaces(connection), id: \.id) { Text($0.name).tag(Optional($0.id)) }
@@ -154,49 +138,41 @@ struct RailwayWidgetOptions: View {
         }
     }
 
+    /// The account the widget uses, and Railway as it sees it once the widget has fetched with it.
+    private var resolution: AccountResolution { accounts.resolve(settings.account, at: .railway) }
+
+    private var connection: RailwayConnection? {
+        resolution.accountID.flatMap(service.connection)
+    }
+
     @ViewBuilder
-    private func signInStatus(_ connection: RailwayConnection) -> some View {
-        let (text, color) = signInText(connection)
-        StatusRow(color: color, text: text) {
-            Spacer(minLength: 0)
-            if connection.problem != nil || connection.snapshot != nil {
-                Button("Refresh") { service.refreshNow() }
-                    .controlSize(.small)
-                    .disabled(connection.isFetching)
+    private func signInStatus(_ connection: RailwayConnection?) -> some View {
+        if let (text, color) = signInText(connection) {
+            StatusRow(color: color, text: text) {
+                Spacer(minLength: 0)
+                if let connection, connection.problem != nil || connection.snapshot != nil {
+                    Button("Refresh") { service.refreshNow() }
+                        .controlSize(.small)
+                        .disabled(connection.isFetching)
+                }
             }
         }
     }
 
-    private func signInText(_ connection: RailwayConnection) -> (String, Color) {
-        if let problem = connection.problem { return (problem.title, problem.needsSignIn ? .orange : .yellow) }
-        if connection.snapshot != nil {
-            let who = connection.snapshot?.userName.map { " as \($0)" } ?? ""
-            let via = connection.source == .cli ? "Railway CLI" : "API token"
-            return ("Signed in\(who) with the \(via)", .green)
+    private func signInText(_ connection: RailwayConnection?) -> (String, Color)? {
+        guard let id = resolution.accountID else { return nil }
+        if let problem = connection?.problem { return (problem.title, problem.needsSignIn ? .orange : .yellow) }
+        if let snapshot = connection?.snapshot {
+            let who = snapshot.userName.map { "Signed in as \($0)" } ?? "Signed in"
+            return (who, .green)
         }
-        switch service.resolved(settings.account) {
-        case .cli:
-            if service.cliExecutable == nil && !service.cliIsSignedIn { return ("Railway CLI not found", .secondary) }
-            return service.cliIsSignedIn ? ("Railway CLI signed in", .blue) : ("Railway CLI not signed in", .orange)
-        case .token:
-            return service.hasToken ? ("Token saved", .blue) : ("No token saved", .orange)
-        }
+        guard id == .railwayCLI else { return nil }
+        if service.cliExecutable == nil && !service.cliIsSignedIn { return ("Railway CLI not found", .secondary) }
+        return service.cliIsSignedIn ? ("Railway CLI signed in", .blue) : ("Railway CLI not signed in", .orange)
     }
 
-    private var accountCaption: String {
-        switch settings.account {
-        case .automatic:
-            "Uses the Railway CLI's sign-in (railway login) when it has one, otherwise a token saved here. The CLI renews "
-                + "its sign-in itself; Sidelight only reads it."
-        case .cli:
-            "Uses the Railway CLI's sign-in from railway login. Sidelight only reads it, and runs the CLI to renew it."
-        case .token:
-            "An account token from railway.com/account/tokens, kept in your keychain. It sees what your account sees."
-        }
-    }
-
-    private func refreshCaption(_ connection: RailwayConnection) -> String {
-        let limit = connection.rateLimit?.hourlyLimit.map { Int($0) }
+    private func refreshCaption(_ connection: RailwayConnection?) -> String {
+        let limit = connection?.rateLimit?.hourlyLimit.map { Int($0) }
         let share = limit.map {
             " Railway allows this account \($0.formatted()) requests an hour, shared with the CLI."
         }
@@ -209,16 +185,16 @@ struct RailwayWidgetOptions: View {
 
     // MARK: Scope
 
-    private func workspaces(_ connection: RailwayConnection) -> [RailwayAPI.Account.Workspace] {
-        var workspaces = connection.account?.workspaces ?? []
+    private func workspaces(_ connection: RailwayConnection?) -> [RailwayAPI.Account.Workspace] {
+        var workspaces = connection?.account?.workspaces ?? []
         if let id = settings.workspaceID, !workspaces.contains(where: { $0.id == id }) {
             workspaces.append(.init(id: id, name: settings.workspaceName ?? "Chosen workspace"))
         }
         return workspaces
     }
 
-    private func projects(_ connection: RailwayConnection) -> [(id: String, name: String)] {
-        var projects = (connection.snapshot?.workspace(id: settings.workspaceID)?.projects ?? []).map {
+    private func projects(_ connection: RailwayConnection?) -> [(id: String, name: String)] {
+        var projects = (connection?.snapshot?.workspace(id: settings.workspaceID)?.projects ?? []).map {
             (id: $0.id, name: $0.name)
         }
         if let id = settings.projectID, !projects.contains(where: { $0.id == id }) {
@@ -227,15 +203,15 @@ struct RailwayWidgetOptions: View {
         return projects
     }
 
-    private func environmentNames(_ connection: RailwayConnection) -> [String] {
-        let projects = (connection.snapshot?.workspace(id: settings.workspaceID)?.projects ?? [])
+    private func environmentNames(_ connection: RailwayConnection?) -> [String] {
+        let projects = (connection?.snapshot?.workspace(id: settings.workspaceID)?.projects ?? [])
             .filter { settings.projectID == nil || $0.id == settings.projectID }
         var names = Set(projects.flatMap { $0.environments.filter { !$0.isEphemeral }.map(\.name) })
         if let name = settings.environmentName { names.insert(name) }
         return names.sorted()
     }
 
-    private func workspace(_ connection: RailwayConnection) -> Binding<String?> {
+    private func workspace(_ connection: RailwayConnection?) -> Binding<String?> {
         Binding {
             settings.workspaceID
         } set: { id in
@@ -246,60 +222,12 @@ struct RailwayWidgetOptions: View {
         }
     }
 
-    private func project(_ connection: RailwayConnection) -> Binding<String?> {
+    private func project(_ connection: RailwayConnection?) -> Binding<String?> {
         Binding {
             settings.projectID
         } set: { id in
             settings.projectID = id
             settings.projectName = id.flatMap { id in projects(connection).first { $0.id == id }?.name }
-        }
-    }
-}
-
-/// Saving or removing the API token.
-private struct RailwayTokenField: View {
-    @Environment(RailwayService.self) private var service
-    @State private var draft = ""
-    @State private var isSaving = false
-    @State private var problem: RailwayFetchProblem?
-
-    var body: some View {
-        if service.hasToken {
-            HStack {
-                Label("Token saved in your keychain", systemImage: "key.fill").font(.callout)
-                Spacer()
-                Button("Remove", role: .destructive) { service.removeToken() }.controlSize(.small)
-            }
-        } else {
-            VStack(alignment: .leading, spacing: 6) {
-                SecureField("Account token", text: $draft)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(save)
-                HStack {
-                    Button(isSaving ? "Checking…" : "Save Token", action: save)
-                        .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
-                    Spacer()
-                    Link("Create a token", destination: URL(string: "https://railway.com/account/tokens")!)
-                        .font(.callout)
-                }
-                .controlSize(.small)
-                if let problem {
-                    Text("\(problem.title). \(problem.advice)")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-
-    private func save() {
-        guard !isSaving else { return }
-        isSaving = true
-        Task {
-            problem = await service.saveToken(draft)
-            isSaving = false
-            if problem == nil { draft = "" }
         }
     }
 }
@@ -356,6 +284,7 @@ private struct RailwayServiceBlockEditor: View {
     let id: UUID
     @Binding var settings: RailwaySettings
     @Environment(RailwayService.self) private var service
+    @Environment(AccountStore.self) private var accounts
 
     var body: some View {
         Picker(selection: chosen) {
@@ -385,8 +314,8 @@ private struct RailwayServiceBlockEditor: View {
 
     /// The widget's services, and the chosen one even when Railway can't be asked right now.
     private var choices: [Choice] {
-        let connection = service.connection(for: settings.account)
-        let rows = connection.snapshot.flatMap { RailwayOverview(snapshot: $0, settings: settings) }?.rows ?? []
+        let connection = accounts.resolve(settings.account, at: .railway).accountID.flatMap(service.connection)
+        let rows = connection?.snapshot.flatMap { RailwayOverview(snapshot: $0, settings: settings) }?.rows ?? []
         let showsProject = Set(rows.map(\.projectID)).count > 1
         var choices = rows.sorted { ($0.projectName, $0.name) < ($1.projectName, $1.name) }.map { row in
             Choice(

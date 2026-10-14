@@ -10,7 +10,6 @@ import UniformTypeIdentifiers
 struct ActiveWidgetsColumn: View {
     @Binding var selection: ManagerSelection?
     @Environment(ConfigurationStore.self) private var store
-    @Environment(OpenRouterService.self) private var openRouter
 
     var body: some View {
         let configuration = store.configuration
@@ -98,14 +97,11 @@ struct ActiveWidgetsColumn: View {
         if selection == .widget(id) { selection = nil }
     }
 
+    /// A copy uses the same accounts as the original: they belong to the app, not the widget.
     private func duplicate(_ widget: WidgetInstance) {
         let copy = widget.duplicated()
-        Task {
-            // Its Balance blocks with their own key read the same accounts as the original's.
-            await openRouter.copyOwnKeys(of: widget, to: copy.id)
-            withAnimation(Motion.layout) { store.configuration.insertWidget(copy, after: widget.id) }
-            selection = .widget(copy.id)
-        }
+        withAnimation(Motion.layout) { store.configuration.insertWidget(copy, after: widget.id) }
+        selection = .widget(copy.id)
     }
 
     private func addSection() {

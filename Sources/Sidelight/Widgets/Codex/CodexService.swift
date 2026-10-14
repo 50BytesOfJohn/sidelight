@@ -17,8 +17,16 @@ final class CodexService: DataService {
     /// "Refresh now" waits at least this long after the last request.
     static let minimumManualRefreshGap: TimeInterval = 10
 
-    private(set) var state = CodexState()
+    private(set) var state = CodexState() {
+        didSet {
+            if let status = AccountStatus.codex(state), status != AccountStatus.codex(oldValue) {
+                accounts.report(status, .codexApp)
+            }
+        }
+    }
 
+    /// Hears how Codex's sign-in is doing.
+    @ObservationIgnored private let accounts: AccountAccess
     @ObservationIgnored private var isEnabled = false
     @ObservationIgnored private var appServer: ChildProcess?
     @ObservationIgnored private var session = CodexAppServerSession()
@@ -29,6 +37,10 @@ final class CodexService: DataService {
     @ObservationIgnored private var rolloutLoadTask: Task<Void, Never>?
     @ObservationIgnored private var rolloutWatcher: FileEventStream?
     @ObservationIgnored private var lastRequest: Date?
+
+    init(accounts: AccountAccess) {
+        self.accounts = accounts
+    }
 
     func start() {
         guard !isEnabled else { return }

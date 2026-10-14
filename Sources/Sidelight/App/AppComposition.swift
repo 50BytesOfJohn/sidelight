@@ -2,13 +2,14 @@ import AppKit
 import SidelightCore
 import os
 
-/// The outside things the app is built on: its configuration file, how it reaches OpenRouter and keeps its keys, which
+/// The outside things the app is built on: its configuration file, how it reaches OpenRouter and keeps accounts' keys, which
 /// apps' windows it may move, and which data services may run. ``standard`` is the real thing; anything else stands in
 /// for part of it, so the app can be tried out without touching someone's setup, keychain, account, data or windows.
 struct AppComposition {
     var configurationFile = ConfigurationStore.defaultFileURL
     var openRouterTransport: OpenRouterService.Transport = { try await HTTP.send($0) }
-    var openRouterKeys = OpenRouterKeyring.keychain
+    /// Where key accounts' secrets are kept.
+    var accountSecrets = AccountSecrets.keychain
     /// Which apps' windows window avoidance may move, besides being regular or accessory apps other than Sidelight.
     var movesWindows: (NSRunningApplication) -> Bool = { _ in true }
     /// The kinds of widget whose data services may run, shown or previewed; `nil` for every kind. The others never
@@ -22,8 +23,7 @@ struct AppComposition {
     ///
     /// - `-SidelightConfigurationFile <path>`: another `config.json`.
     /// - `-SidelightMovesWindowsOf <bundle identifier>`: window avoidance moves only that app's windows.
-    /// - `-SidelightKeychainService <service>`: OpenRouter keys live in other keychain items, their removals noted
-    ///   next to the configuration.
+    /// - `-SidelightKeychainService <service>`: accounts' keys live in other keychain items, under `<service>`.
     /// - `-SidelightOpenRouterURL <http://127.0.0.1:port/…>`: OpenRouter requests go to a server on this Mac instead.
     ///   Only `http` or `https` on a loopback address is accepted; anything else, or a request that can't be sent
     ///   there, fails rather than reach OpenRouter.
@@ -40,8 +40,7 @@ struct AppComposition {
             composition.movesWindows = { $0.bundleIdentifier == bundleIdentifier }
         }
         if let service = arguments.string(forKey: "SidelightKeychainService") {
-            composition.openRouterKeys = .keychain(
-                service: service, notingRemovalIn: composition.configurationFile.deletingLastPathComponent())
+            composition.accountSecrets = .keychain(service: service)
         }
         if let text = arguments.string(forKey: "SidelightOpenRouterURL") {
             composition.openRouterTransport = loopbackTransport(text)

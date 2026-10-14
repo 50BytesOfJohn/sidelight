@@ -6,20 +6,36 @@ import Testing
 /// An app update must never reset someone's panel. Each file in `ReleasedConfigurations` was saved by that
 /// release's own code, with every option it offered set away from its default (v0.1.0 and v0.1.1 save the same
 /// schema as v0.1.2). Loading one and saving it again must keep everything it says; newer options may only add to
-/// it. The one exception is a retired widget kind, which is dropped on purpose (``WidgetKind/retiredRawValues``).
+/// it. The exceptions are a retired widget kind, which is dropped on purpose (``WidgetKind/retiredRawValues``), and
+/// the credential choices widgets saved before shared accounts, which are left behind on purpose: accounts start
+/// empty (``withoutCredentialChoices(_:)``).
 struct ReleasedConfigurationTests {
     static let releases = ["v0.1.2", "v0.2.0", "v0.2.1", "v0.3.0", "v0.4.0", "v0.5.0", "v0.6.0"]
 
     @Test(arguments: releases)
     func `a released configuration loads with every setting kept`(release: String) throws {
-        let url = try #require(
-            Bundle.module.url(forResource: release, withExtension: "json", subdirectory: "ReleasedConfigurations"))
-        let released = try Data(contentsOf: url)
+        let released = try Self.load(release)
         let saved = try AppConfiguration(json: released).json()
         let kept = try Self.values(in: JSONSerialization.jsonObject(with: saved))
-        let expected = try Self.withoutRetiredWidgets(JSONSerialization.jsonObject(with: released))
+        let expected = try Self.withoutCredentialChoices(
+            Self.withoutRetiredWidgets(JSONSerialization.jsonObject(with: released)))
         let changed = Self.values(in: expected).filter { path, value in kept[path] != value }
         #expect(changed.isEmpty, "Lost or changed: \(changed.keys.sorted())")
+    }
+
+    @Test(arguments: releases)
+    func `old credential choices are left behind, and every widget uses its default account`(release: String) throws {
+        let loaded = try AppConfiguration(json: Self.load(release))
+        let saved = String(decoding: try loaded.json(), as: UTF8.self)
+        #expect(!saved.contains("usesOwnKey") && !saved.contains(#""account" :"#))
+        #expect(loaded.accounts.isEmpty && loaded.defaultAccounts.isEmpty)
+        for widget in loaded.widgets {
+            switch widget.settings {
+            case .railway(let settings): #expect(settings.account == nil)
+            case .openRouter(let settings): #expect(settings.allBalances.allSatisfy { $0.options.account == nil })
+            default: break
+            }
+        }
     }
 
     @Test func `the retired Agent activity widget is the only one dropped`() throws {
@@ -31,6 +47,12 @@ struct ReleasedConfigurationTests {
         #expect(kinds.contains("agents"))
         let loaded = try AppConfiguration(json: Data(contentsOf: url))
         #expect(loaded.widgets.map(\.kind.rawValue) == kinds.filter { $0 != "agents" })
+    }
+
+    private static func load(_ release: String) throws -> Data {
+        let url = try #require(
+            Bundle.module.url(forResource: release, withExtension: "json", subdirectory: "ReleasedConfigurations"))
+        return try Data(contentsOf: url)
     }
 
     private static func withoutRetiredWidgets(_ json: Any) -> Any {
@@ -46,6 +68,29 @@ struct ReleasedConfigurationTests {
         default:
             return json
         }
+    }
+
+    /// `json` without the credential choices widgets saved before shared accounts: a Balance block's `usesOwnKey`
+    /// and a Railway widget's `account`.
+    private static func withoutCredentialChoices(_ json: Any) -> Any {
+        guard var root = json as? [String: Any], let sections = root["sections"] as? [[String: Any]] else {
+            return json
+        }
+        root["sections"] = sections.map { section in
+            var section = section
+            section["widgets"] = (section["widgets"] as? [[String: Any]] ?? []).map { widget in
+                guard var settings = widget["settings"] as? [String: Any] else { return widget }
+                var widget = widget
+                settings["account"] = nil
+                if let balances = settings["balances"] as? [String: [String: Any]] {
+                    settings["balances"] = balances.mapValues { $0.filter { $0.key != "usesOwnKey" } }
+                }
+                widget["settings"] = settings
+                return widget
+            }
+            return section
+        }
+        return root
     }
 
     /// Every value in a JSON document, by its path, such as `sections.<id>.widgets.<id>.settings.style`. Elements

@@ -14,7 +14,8 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SERVICES = [
     "Services/DataService.swift", "Services/PacedTask.swift", "Services/RemoteResource.swift",
-    "Support/AppInfo.swift", "Widgets/OpenRouter/OpenRouterKeyStore.swift",
+    "Services/DelayedTask.swift", "Support/AppInfo.swift", "Accounts/AccountSecrets.swift",
+    "Accounts/AccountStore.swift", "Configuration/ConfigurationStore.swift", "Widgets/OpenRouter/OpenRouterFormat.swift",
     "Widgets/OpenRouter/OpenRouterAccount.swift", "Widgets/OpenRouter/OpenRouterService.swift",
 ]
 MANIFEST = '''// swift-tools-version: 6.4

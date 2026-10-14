@@ -20,14 +20,12 @@ struct OpenRouterKeyList: Equatable {
 }
 
 /// OpenRouter for every OpenRouter widget and the model catalogue's details panel: the public catalogue, and for each
-/// key saved in Sidelight, that account's balance and spending.
+/// OpenRouter account a Balance block uses, that account's balance and spending.
 ///
 /// Each kind of data is a ``RemoteResource`` of its own, fetched once for every widget showing it, as often as the
 /// most frequent of them asks and only while one is on screen. Showing models never reads a key; showing a balance
-/// never downloads the catalogue. Each key's account is an ``OpenRouterAccount`` of its own, paced on its own: the
-/// shared key's, and one for each Balance block with its own key. Once no block in the configuration uses its own
-/// key any more (the block or its widget was removed, or it went back to the shared key), that key is removed from
-/// the keychain.
+/// never downloads the catalogue. Each account is an ``OpenRouterAccount`` of its own, paced on its own, and shared by
+/// every block that uses it: two blocks on the same account make one set of requests.
 @Observable
 final class OpenRouterService: DataService {
     typealias Transport = OpenRouterClient.Transport
@@ -45,10 +43,8 @@ final class OpenRouterService: DataService {
     static let activityDelay: Duration = .seconds(10 * 60)
 
     let catalogue: RemoteResource<OpenRouterCatalogue, OpenRouterProblem>
-    /// The shared key's account, which every Balance block without its own key reads.
-    let shared: OpenRouterAccount
-    /// The accounts of Balance blocks with their own key, while the configuration has them.
-    private(set) var ownAccounts: [OpenRouterAccountID: OpenRouterAccount] = [:]
+    /// The accounts Balance blocks in the configuration use, while they do.
+    private(set) var accounts: [AccountID: OpenRouterAccount] = [:]
 
     /// What the widgets on screen need. Set from the configuration.
     var demand = OpenRouterDemand() {
@@ -59,33 +55,26 @@ final class OpenRouterService: DataService {
     }
 
     @ObservationIgnored private let client: OpenRouterClient
-    @ObservationIgnored private let keys: OpenRouterKeyring
+    @ObservationIgnored private let access: AccountAccess
     @ObservationIgnored private let manualActionGap: Duration
     @ObservationIgnored private var isEnabled = false
-    /// Own keys added for a block that doesn't use its own key yet: it switches to it once the key is saved, and the
-    /// configuration says so soon after. Kept until then, rather than removed as unused.
-    @ObservationIgnored private var addedOwnKeys: Set<OpenRouterAccountID> = []
-    /// Removals of own keys still under way: a key added for the same block again waits for its removal.
-    @ObservationIgnored private var ownKeyRemovals: [OpenRouterAccountID: Task<OpenRouterProblem?, Never>] = [:]
 
     /// - Parameters:
     ///   - transport: How requests are sent: `HTTP.send`, unless a test stands in for OpenRouter.
-    ///   - keys: Where each account's management key and its removal are kept: Sidelight's keychain items, unless a
-    ///     test stands in for them.
+    ///   - accounts: Reads each account's key, and hears how each is doing.
     ///   - manualActionGap: How far apart someone's clicks that ask with a key are sent, at least.
     ///   - now: The wall clock, for UTC days and ages.
     init(
-        transport: @escaping Transport = { try await HTTP.send($0) }, keys: OpenRouterKeyring = .keychain,
+        transport: @escaping Transport = { try await HTTP.send($0) }, accounts: AccountAccess,
         manualActionGap: Duration = OpenRouterService.manualActionGap, now: @escaping @Sendable () -> Date = { .now }
     ) {
         let client = OpenRouterClient(transport: transport, now: now)
         self.client = client
-        self.keys = keys
+        access = accounts
         self.manualActionGap = manualActionGap
         catalogue = RemoteResource(now: now)
-        shared = OpenRouterAccount(
-            id: .shared, client: client, keyStore: keys.store(.shared), manualActionGap: manualActionGap)
         catalogue.fetch = { [weak self] in await self?.fetchCatalogue() }
+        accounts.observeChanges { [weak self] id in self?.accounts[id]?.keyChanged() }
     }
 
     func start() {
@@ -99,9 +88,9 @@ final class OpenRouterService: DataService {
         apply()
     }
 
-    /// The account `id` reads: the shared one, or a Balance block's own while the configuration has that block.
-    func account(_ id: OpenRouterAccountID) -> OpenRouterAccount? {
-        id == .shared ? shared : ownAccounts[id]
+    /// The account `id`, while a Balance block in the configuration uses it.
+    func account(_ id: AccountID) -> OpenRouterAccount? {
+        accounts[id]
     }
 
     /// Fetches the catalogue now, or as soon as allowed.
@@ -113,58 +102,51 @@ final class OpenRouterService: DataService {
 
     private func apply() {
         catalogue.policy = isEnabled ? demand.catalogue.map { RefreshPolicy($0) } : nil
-        // Blocks that use their own key now have an account; those that no longer do lose it, and their key.
-        addedOwnKeys.subtract(demand.keptAccounts)
-        let kept = demand.keptAccounts.union(addedOwnKeys)
-        for id in kept where id != .shared && ownAccounts[id] == nil {
-            ownAccounts[id] = makeAccount(id)
+        for id in demand.keptAccounts where accounts[id] == nil {
+            let access = access
+            accounts[id] = OpenRouterAccount(
+                id: id, client: client, secret: { () throws(KeychainUnavailable) in try await access.secret(id) },
+                report: { access.report($0, id) },
+                manualActionGap: manualActionGap)
         }
-        for (id, account) in ownAccounts where !kept.contains(id) {
+        for (id, account) in accounts where !demand.keptAccounts.contains(id) {
+            // No block uses it any more: what it showed goes. Its key stays the account's.
             account.update(demand: OpenRouterAccountDemand(), isKept: false, isEnabled: false)
-            let removal = account.removeKey()
-            ownKeyRemovals[id] = removal
-            Task { [weak self] in
-                _ = await removal.value
-                if self?.ownKeyRemovals[id] == removal { self?.ownKeyRemovals[id] = nil }
+            accounts[id] = nil
+        }
+        for account in accounts.values {
+            account.update(demand: demand.account(account.id), isKept: true, isEnabled: isEnabled)
+        }
+    }
+
+    // MARK: Keys
+
+    /// Asks OpenRouter whether `candidate` is a management key, which can read an account's balance and spending;
+    /// returns why it can't be used. Asks once with the candidate itself, whatever any account's pace: it's a
+    /// different key, and someone just asked.
+    func checkKey(_ candidate: String) async -> OpenRouterProblem? {
+        let key = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return .noKey }
+        let check = await client.send(OpenRouterAPI.currentKeyRequest(key: key, userAgent: AppInfo.userAgent)) {
+            response, _ in OpenRouterAPI.keyCheck(response)
+        }
+        guard !Task.isCancelled else { return nil }
+        switch check.result {
+        case .failure(let problem):
+            return problem
+        case .success(let check) where check.isManagementKey == true:
+            return nil
+        case .success(let check) where check.isManagementKey == false:
+            return .notManagementKey
+        case .success:
+            // OpenRouter didn't say: whether it may read the credits settles it.
+            let credits = await client.send(OpenRouterAPI.creditsRequest(key: key, userAgent: AppInfo.userAgent)) {
+                OpenRouterAPI.balance($0, fetchedAt: $1)
             }
-            ownAccounts[id] = nil
-            Log.openRouter.info("Removed a Balance block's own OpenRouter key, as no block uses it any more")
-        }
-        for account in [shared] + Array(ownAccounts.values) {
-            account.update(
-                demand: demand.account(account.id), isKept: demand.keptAccounts.contains(account.id),
-                isEnabled: isEnabled)
-        }
-    }
-
-    private func makeAccount(_ id: OpenRouterAccountID) -> OpenRouterAccount {
-        OpenRouterAccount(id: id, client: client, keyStore: keys.store(id), manualActionGap: manualActionGap)
-    }
-
-    /// Checks `candidate` with OpenRouter and saves it as the own key of the Balance block `id` reads, before the
-    /// block switches to it; returns why it wasn't saved. A removal of that block's earlier own key still under way
-    /// finishes first, so it can't delete this one. Once saved, the key stays until the configuration has had time
-    /// to say the block uses it.
-    func addOwnKey(_ candidate: String, for id: OpenRouterAccountID) async -> OpenRouterProblem? {
-        guard id != .shared else { return await shared.saveKey(candidate) }
-        _ = await ownKeyRemovals[id]?.value
-        let account = ownAccounts[id] ?? makeAccount(id)
-        if let problem = await account.saveKey(candidate) { return problem }
-        // Given up on, or overtaken, before it was written.
-        guard account.canUseKey else { return nil }
-        ownAccounts[id] = account
-        if !demand.keptAccounts.contains(id) { addedOwnKeys.insert(id) }
-        return nil
-    }
-
-    /// Saves the keys of `widget`'s Balance blocks that use their own for the same blocks of `copy`, a duplicate not
-    /// added yet, so it reads the same accounts. Done before it's added, so its accounts never find no key.
-    func copyOwnKeys(of widget: WidgetInstance, to copy: WidgetInstance.ID) async {
-        guard case .openRouter(let settings) = widget.settings else { return }
-        for (id, options) in settings.allBalances where options.usesOwnKey {
-            guard let key = await ownAccounts[.own(widget: widget.id, block: id)]?.key() else { continue }
-            if await !keys.store(.own(widget: copy, block: id)).save(key) {
-                Log.openRouter.error("Couldn't copy a Balance block's own OpenRouter key to a duplicated widget")
+            switch credits.result {
+            case .success: return nil
+            case .failure(.invalidKey), .failure(.notPermitted): return .notManagementKey
+            case .failure(let problem): return problem
             }
         }
     }

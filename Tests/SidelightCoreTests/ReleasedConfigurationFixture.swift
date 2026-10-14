@@ -26,8 +26,16 @@ struct ReleasedConfigurationFixture {
         var words = ClockSettings(style: .words, alignment: .center)
         words.words = WordClockOptions(typeface: .sans, roundsToFiveMinutes: true, showsDate: true)
 
+        let work = Account(
+            id: AccountID(rawValue: Self.id(701).uuidString), provider: .openRouter, name: "Work", kind: .key)
+        let personal = Account(
+            id: AccountID(rawValue: Self.id(702).uuidString), provider: .openRouter, name: "Personal", kind: .key)
+        let token = Account(
+            id: AccountID(rawValue: Self.id(703).uuidString), provider: .railway, name: "Acme token", kind: .key)
+        c.accounts = [work, personal, token]
+        c.defaultAccounts = [.openRouter: work.id, .railway: .railwayCLI]
         var railway = RailwaySettings(
-            account: .token, refreshMinutes: 15,
+            account: token.id, refreshMinutes: 15,
             blocks: BlockLayout(entries: [
                 .init(block: .usage, isShown: true), .init(block: .summary, isShown: true),
                 .init(block: .service(Self.id(501)), isShown: true), .init(block: .services, isShown: false),
@@ -49,7 +57,7 @@ struct ReleasedConfigurationFixture {
         serviceBlock.showsMetrics = false
         serviceBlock.showsHistory = false
         railway.setServiceOptions(serviceBlock, for: Self.id(501))
-        var cliRailway = RailwaySettings(account: .cli)
+        var cliRailway = RailwaySettings(account: .railwayCLI)
         cliRailway.blocks.setShown(.incidents, false)
 
         var codexSessions = CodexSessionsSettings(
@@ -82,7 +90,7 @@ struct ReleasedConfigurationFixture {
                     keyHash: String(repeating: "a", count: 64), keyName: "Build fixture")),
             for: OpenRouterPreset.balanceID)
         credits.blocks.add(.balance(Self.id(503)))
-        credits.setBalanceOptions(.init(title: "Personal", usesOwnKey: true), for: Self.id(503))
+        credits.setBalanceOptions(.init(title: "Personal", account: personal.id), for: Self.id(503))
         c.details = DetailsPanelSettings(usesCustomStyle: true, customBackground: c.appearance.background)
         c.details.closeHotkey = Hotkey(keyCode: 49, modifiers: [.control, .command], key: "Space")
         c.sections = [

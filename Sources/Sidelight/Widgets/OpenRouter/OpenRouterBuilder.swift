@@ -22,7 +22,7 @@ extension OpenRouterBlock: DescribedBlock {
         switch self {
         case .summary: "How many models there are, when they were synced, and a refresh button."
         case .list: "Models in the order and filter you choose, with a way to see them all."
-        case .balance: "An account's balance, and what it spent each day. Needs a management key."
+        case .balance: "An account's balance, and what it spent each day. Needs an account with a management key."
         }
     }
 }
@@ -48,7 +48,7 @@ extension OpenRouterSettings: BlockBuiltWidget {
             blurb: "Models in an order and filter of your choice. Add one for each list."),
         AddableBlock(
             id: "balance", title: "Balance", systemImage: "creditcard",
-            blurb: "An account's balance and spending. Add one for each account, each with its own key."),
+            blurb: "An account's balance and spending. Add one for each account you want to see."),
     ]
 
     mutating func addBlock(_ id: AddableBlock.ID) -> OpenRouterBlock? {
@@ -79,10 +79,9 @@ struct OpenRouterSettingsEditor: View {
     }
 }
 
-/// How often models sync and balances refresh, the shared key, and what the smallest sizes show.
+/// How often models sync and balances refresh, and what the smallest sizes show.
 private struct OpenRouterWidgetOptions: View {
     @Binding var settings: OpenRouterSettings
-    @Environment(OpenRouterService.self) private var service
 
     var body: some View {
         Picker(selection: $settings.sync) {
@@ -114,11 +113,6 @@ private struct OpenRouterWidgetOptions: View {
         } label: {
             InfoLabel("Minimal and bar show", info: glanceCaption)
         }
-        OpenRouterKeyForm(
-            account: service.shared,
-            info: "Needed only for Balance blocks. Every OpenRouter widget shares it, and it's also in Settings, under "
-                + "Connections. A Balance block can use its own key instead, for another account.\n\n"
-                + OpenRouterKeyForm.explanation)
     }
 
     private var glanceCaption: String {
@@ -205,65 +199,6 @@ private struct OpenRouterFilterEditor: View {
     }
 }
 
-/// Whose key a Balance block reads: the shared one, until someone adds a key for the block alone, for another
-/// account. Adding one checks and saves it before the block switches to it; removing it deletes it from the keychain
-/// and the block reads the shared key again.
-private struct OpenRouterOwnKeyEditor: View {
-    /// The block's own account, used or not.
-    let account: OpenRouterAccountID
-    @Binding var usesOwnKey: Bool
-    @Environment(OpenRouterService.self) private var service
-    @State private var isAdding = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Management key").font(.callout.weight(.medium))
-            if usesOwnKey {
-                ownKey
-            } else if isAdding {
-                SettingsCaption("A management key for another OpenRouter account, for this block alone.")
-                OpenRouterKeyField(save: add, cancel: { isAdding = false })
-            } else {
-                SettingsCaption("Reads the shared key, set under Widget.")
-                Button("Add Own Key…", systemImage: "key") { isAdding = true }
-                    .controlSize(.small)
-                SettingsCaption("To read another OpenRouter account in this block.")
-            }
-        }
-        // Another block's options: nothing typed carries over.
-        .id(account)
-    }
-
-    @ViewBuilder
-    private var ownKey: some View {
-        if let own = service.account(account) {
-            switch own.hasKey {
-            case true? where !own.keyRemovalFailed:
-                Label("Own management key saved in your keychain", systemImage: "key.fill").font(.callout)
-            case nil:
-                ProgressView().controlSize(.small).onAppear { own.lookForKey() }
-            default:
-                // The keychain lost it, or it couldn't be copied to a duplicated widget: it can be added again.
-                SettingsCaption("This block's own key isn't in your keychain. Add it again, or use the shared key.")
-                OpenRouterKeyField(save: { await own.saveKey($0) })
-            }
-        } else {
-            ProgressView().controlSize(.small)
-        }
-        Button("Remove Own Key", systemImage: "trash", role: .destructive) { usesOwnKey = false }
-            .controlSize(.small)
-        SettingsCaption("Removes it from your keychain. The block reads the shared key again.")
-    }
-
-    private func add(_ key: String) async -> OpenRouterProblem? {
-        if let problem = await service.addOwnKey(key, for: account) { return problem }
-        guard service.account(account)?.canUseKey == true else { return nil }
-        isAdding = false
-        usesOwnKey = true
-        return nil
-    }
-}
-
 /// A Model list's title, order, filter and rows.
 private struct OpenRouterModelListEditor: View {
     let id: UUID
@@ -323,12 +258,12 @@ private struct OpenRouterModelListEditor: View {
     }
 }
 
-/// A Balance block's title, whose key it reads with, and its chart.
+/// A Balance block's title, which account it reads, and its chart.
 private struct OpenRouterBalanceEditor: View {
     let id: UUID
     @Binding var settings: OpenRouterSettings
     @Environment(OpenRouterService.self) private var service
-    @Environment(WindowCoordinator.self) private var windows
+    @Environment(AccountStore.self) private var accounts
 
     var body: some View {
         let options = settings.balanceOptions(id)
@@ -345,9 +280,7 @@ private struct OpenRouterBalanceEditor: View {
         SettingsCaption("Tells accounts apart when the widget shows more than one.")
 
         Divider()
-        if let widgetID = windows.builderWidgetID {
-            OpenRouterOwnKeyEditor(account: .own(widget: widgetID, block: id), usesOwnKey: option(\.usesOwnKey))
-        }
+        AccountPicker(provider: .openRouter, selection: option(\.account))
 
         Divider()
         Toggle("Show spending by day", isOn: option(\.chart.isShown))
@@ -371,12 +304,9 @@ private struct OpenRouterBalanceEditor: View {
         }
     }
 
-    /// The account the block reads: the shared one, or its own once the service has set that up.
+    /// The account the block reads, once the service has it.
     private var account: OpenRouterAccount? {
-        let options = settings.balanceOptions(id)
-        guard options.usesOwnKey else { return service.shared }
-        guard let widgetID = windows.builderWidgetID else { return nil }
-        return service.account(options.account(widget: widgetID, block: id))
+        accounts.resolve(settings.balanceOptions(id).account, at: .openRouter).accountID.flatMap(service.account)
     }
 
     private func dayChoices(_ days: Int) -> [Int] {

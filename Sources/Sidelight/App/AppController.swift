@@ -22,14 +22,20 @@ final class AppController {
         let codexSessions = CodexSessionsService()
         let cursorChats = CursorChatsService.cursor()
         let openCodeSessions = OpenCodeSessionsService.openCode()
+        let configurationStore = ConfigurationStore(fileURL: composition.configurationFile)
+        let keyring = AccountKeyring(secrets: composition.accountSecrets)
+        let accounts = AccountStore(configuration: configurationStore, keyring: keyring)
+        let accountAccess = AccountAccess(keyring: keyring, accounts: accounts)
         let environment = AppEnvironment(
-            configurationStore: ConfigurationStore(fileURL: composition.configurationFile),
+            configurationStore: configurationStore,
+            accounts: accounts,
+            settingsNavigator: SettingsNavigator(),
             displays: DisplayMonitor(),
             desktopPictures: DesktopPictures(),
             calendar: CalendarService(),
-            codex: CodexService(),
-            claudeCode: ClaudeCodeService(),
-            cursor: CursorService(),
+            codex: CodexService(accounts: accountAccess),
+            claudeCode: ClaudeCodeService(accounts: accountAccess),
+            cursor: CursorService(accounts: accountAccess),
             nowPlaying: NowPlayingService(),
             claudeSessions: claudeSessions,
             codexSessions: codexSessions,
@@ -39,9 +45,8 @@ final class AppController {
                 claudeCode: claudeSessions, codex: codexSessions, cursor: cursorChats, openCode: openCodeSessions),
             systemStats: SystemStatsService(),
             noodleComputer: NoodleComputerService(),
-            railway: RailwayService(),
-            openRouter: OpenRouterService(
-                transport: composition.openRouterTransport, keys: composition.openRouterKeys),
+            railway: RailwayService(accounts: accountAccess),
+            openRouter: OpenRouterService(transport: composition.openRouterTransport, accounts: accountAccess),
             details: DetailsPresenter(),
             hotkeys: HotkeyCenter(),
             windowAvoider: WindowAvoider(includes: composition.movesWindows),
@@ -52,6 +57,12 @@ final class AppController {
         self.environment = environment
         serviceKinds = composition.serviceKinds
         windows = WindowCoordinator(environment: environment)
+        environment.settingsNavigator.showSettings = { [windows] in windows.show(.settings) }
+        environment.settingsNavigator.showWidgetSettings = { [windows, environment] id in
+            guard let widget = environment.configurationStore.configuration.widgets.first(where: { $0.id == id })
+            else { return }
+            windows.showBuilder(for: id, title: "\(widget.kind.metadata.title) Builder")
+        }
         panels = PanelCoordinator(environment: environment)
     }
 
@@ -138,6 +149,7 @@ final class AppController {
         let monitor = environment.displays
         let coordinator = panels
         let kinds = serviceKinds
+        let accounts = environment.accounts
         observations.append(
             Task { [weak self] in
                 let demand = Observations {
@@ -162,7 +174,8 @@ final class AppController {
                         openRouter.merge(details.openRouterDemand(in: configuration))
                     }
                     let services = configuration.serviceDemand(
-                        at: panels.map(\.panel.position), previewsEveryWidget: previews, previewing: previewed)
+                        at: panels.map(\.panel.position), previewsEveryWidget: previews, previewing: previewed,
+                        signedIn: accounts.signedInAppSignIns)
                     guard let kinds else { return Demand(services: services, openRouter: openRouter) }
                     return Demand(services: services.limited(to: kinds), openRouter: openRouter.limited(to: kinds))
                 }
@@ -214,8 +227,8 @@ final class AppController {
                 environment.noodleComputer.setRunning(isNeeded)
             case .railway:
                 // Not for the Widgets window's previews alone: Railway's sign-in isn't read until a widget is added.
-                environment.railway.needs = demand.railway
-                environment.railway.setRunning(isNeeded && !demand.railway.isEmpty)
+                environment.railway.needs = demand.railway.accounts
+                environment.railway.setRunning(isNeeded && demand.railway.isShown)
             // Theirs goes by the OpenRouter demand, which also counts the details panel.
             case .openRouter: break
             }

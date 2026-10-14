@@ -18,6 +18,8 @@ final class CursorService: DataService {
     /// Whose sign-in the last successful fetch used.
     private(set) var signInSource: CursorSignIn.Source?
 
+    /// Hears how Cursor's sign-in is doing.
+    @ObservationIgnored private let accounts: AccountAccess
     /// "Refresh now" waits at least 30 seconds after the last fetch, so it can't hammer Cursor.
     private let schedule = FetchSchedule(minimumManualGap: .seconds(30), tolerance: .seconds(30))
 
@@ -47,6 +49,10 @@ final class CursorService: DataService {
         return now.timeIntervalSince(usage.fetchedAt) > 2 * refreshInterval.timeInterval + 60
     }
 
+    init(accounts: AccountAccess) {
+        self.accounts = accounts
+    }
+
     func start() {
         schedule.start { [weak self] in await self?.fetch() }
     }
@@ -68,12 +74,14 @@ final class CursorService: DataService {
             usage = fetched.usage
             signInSource = fetched.source
             problem = nil
+            accounts.report(.connected, .cursorApp)
             return .succeeded
         case .failure(let failure):
             if failure != problem {
                 Log.cursor.notice("Can't fetch Cursor usage: \(String(describing: failure))")
             }
             problem = failure
+            accounts.report(failure.accountStatus, .cursorApp)
             return .failed
         }
     }

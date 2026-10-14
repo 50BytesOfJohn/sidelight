@@ -4,13 +4,25 @@ import Testing
 @testable import SidelightCore
 
 struct OpenRouterConfigurationTests {
+    private static let work = Account.key(.openRouter, name: "Work")
+    private static let personal = Account.key(.openRouter, name: "Personal")
+
+    /// A configuration with two OpenRouter accounts, Work the default, and `widgets`.
+    private func configuration(_ widgets: [WidgetInstance]) -> AppConfiguration {
+        var config = AppConfiguration()
+        config.accounts = [Self.work, Self.personal]
+        config.defaultAccounts = [.openRouter: Self.work.id]
+        config.sections = [PanelSection(widgets: widgets)]
+        return config
+    }
+
     private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
         try JSONDecoder().decode(type, from: Data(json.utf8))
     }
 
     @Test func `new widgets and details use approved defaults`() throws {
         let balance = try decode(OpenRouterBalanceOptions.self, "{}")
-        #expect(!balance.usesOwnKey && balance.title == nil)
+        #expect(balance.account == nil && balance.title == nil)
         #expect(balance.chart.isShown && balance.chart.days == 7 && balance.chart.scope == .account)
         let models = try decode(OpenRouterSettings.self, "{}")
         #expect(models.sync == .minutes(1440) && models.refresh == .minutes(15))
@@ -36,8 +48,9 @@ struct OpenRouterConfigurationTests {
         #expect(chart.days == 30 && chart.scope == .account)
         let models = try decode(OpenRouterSettings.self, #"{"sync":"future","glance":"future","refresh":"manual"}"#)
         #expect(models.sync == .minutes(1440) && models.glance == .automatic && models.refresh == .manual)
-        let balance = try decode(OpenRouterBalanceOptions.self, #"{"usesOwnKey":true,"chart":{"days":-10}}"#)
-        #expect(balance.usesOwnKey && balance.chart.days == 7)
+        let balance = try decode(
+            OpenRouterBalanceOptions.self, #"{"accountID":7,"usesOwnKey":true,"chart":{"days":-10}}"#)
+        #expect(balance.account == nil && balance.chart.days == 7)
     }
 
     @Test func `preset changes keep repeatable list identity and hidden options`() throws {
@@ -79,14 +92,11 @@ struct OpenRouterConfigurationTests {
         var settings = OpenRouterSettings(preset: .overview)
         let presetID = OpenRouterPreset.balanceID
         settings.setBalanceOptions(.init(title: "Work"), for: presetID)
-        let added = settings.addBalanceBlock(.init(title: "Personal", usesOwnKey: true))
+        let added = settings.addBalanceBlock(.init(title: "Personal", account: Self.personal.id))
         guard case .balance(let addedID) = added else { throw TestFailure.notAList }
         #expect(settings.shownBalances.map(\.options.title) == ["Work", "Personal"])
-        let widget = UUID()
-        #expect(settings.balanceOptions(presetID).account(widget: widget, block: presetID) == .shared)
-        #expect(
-            settings.balanceOptions(addedID).account(widget: widget, block: addedID)
-                == .own(widget: widget, block: addedID))
+        #expect(settings.balanceOptions(presetID).account == nil)
+        #expect(settings.balanceOptions(addedID).account == Self.personal.id)
         // Choosing a preset hides the added block but keeps it and its options.
         settings.apply(.credits)
         #expect(settings.shownBalances.map(\.id) == [presetID])
@@ -108,33 +118,57 @@ struct OpenRouterConfigurationTests {
         #expect(restored.balances.isEmpty && restored == settings)
     }
 
-    @Test func `kept accounts follow balance blocks shown or hidden and their own keys`() {
+    @Test func `kept accounts follow balance blocks shown or hidden`() {
         var settings = OpenRouterSettings(preset: .overview)
-        let added = settings.addBalanceBlock(.init(usesOwnKey: true))
-        guard case .balance(let addedID) = added else { return }
+        let added = settings.addBalanceBlock(.init(account: Self.personal.id))
         settings.blocks.setShown(added, false)
-        let widget = WidgetInstance(settings: .openRouter(settings))
-        var config = AppConfiguration()
-        config.sections = [PanelSection(widgets: [widget, WidgetInstance(settings: .openRouter(.init()))])]
-        #expect(config.openRouterAccounts == [.shared, .own(widget: widget.id, block: addedID)])
+        let config = configuration([
+            WidgetInstance(settings: .openRouter(settings)), WidgetInstance(settings: .openRouter(.init())),
+        ])
+        #expect(config.openRouterAccounts == [Self.work.id, Self.personal.id])
         let side = config.openRouterDemand(panels: [.init(position: .left, density: .regular)])
         // Hidden: kept, but nothing fetched for it.
-        #expect(side.accounts.keys.sorted { "\($0)" < "\($1)" } == [.shared])
+        #expect(Array(side.accounts.keys) == [Self.work.id])
         #expect(side.keptAccounts == config.openRouterAccounts)
+    }
+
+    @Test func `blocks on the same account in different widgets fetch once`() {
+        var first = OpenRouterSettings(refresh: .minutes(30), preset: .credits)
+        first.setBalanceOptions(.init(account: Self.personal.id), for: OpenRouterPreset.balanceID)
+        var second = OpenRouterSettings(refresh: .minutes(5), preset: .credits)
+        second.setBalanceOptions(
+            .init(account: Self.personal.id, chart: .init(isShown: false)), for: OpenRouterPreset.balanceID)
+        let config = configuration([
+            WidgetInstance(settings: .openRouter(first)), WidgetInstance(settings: .openRouter(second)),
+        ])
+        let side = config.openRouterDemand(panels: [.init(position: .left, density: .regular)])
+        #expect(
+            side.accounts == [
+                Self.personal.id: OpenRouterAccountDemand(balance: .minutes(5), activity: [.account: .minutes(30)])
+            ])
+    }
+
+    @Test func `a block naming a missing account, or without one, fetches nothing`() {
+        var settings = OpenRouterSettings(preset: .credits)
+        settings.setBalanceOptions(.init(account: .newKey()), for: OpenRouterPreset.balanceID)
+        let missing = configuration([WidgetInstance(settings: .openRouter(settings))])
+        let side = ShownPanel(position: .left, density: .regular)
+        #expect(missing.openRouterDemand(panels: [side]).accounts.isEmpty && missing.openRouterAccounts.isEmpty)
+        var none = AppConfiguration()
+        none.sections = [PanelSection(widgets: [WidgetInstance(settings: .openRouter(.init(preset: .credits)))])]
+        #expect(none.openRouterDemand(panels: [side]).accounts.isEmpty)
     }
 
     @Test func `the balance glance fetches only the first balance and no chart`() {
         var settings = OpenRouterSettings(glance: .balance, preset: .overview)
-        settings.addBalanceBlock(.init(usesOwnKey: true))
-        let widget = WidgetInstance(settings: .openRouter(settings))
-        var config = AppConfiguration()
-        config.sections = [PanelSection(widgets: [widget])]
+        settings.addBalanceBlock(.init(account: Self.personal.id))
+        let config = configuration([WidgetInstance(settings: .openRouter(settings))])
         let bar = config.openRouterDemand(panels: [.init(position: .top, density: .regular)])
         #expect(bar.catalogue == nil)
-        #expect(bar.accounts == [.shared: OpenRouterAccountDemand(balance: .minutes(15))])
+        #expect(bar.accounts == [Self.work.id: OpenRouterAccountDemand(balance: .minutes(15))])
         let side = config.openRouterDemand(panels: [.init(position: .left, density: .regular)])
         #expect(side.catalogue == .minutes(1440) && side.accounts.count == 2)
-        #expect(side.account(.shared).activity[.account] == .minutes(15))
+        #expect(side.account(Self.work.id).activity[.account] == .minutes(15))
     }
 
     @Test func `inherited details style remains live custom style survives switching off`() {
@@ -160,29 +194,26 @@ struct OpenRouterConfigurationTests {
     }
 
     @Test func `demand coalesces visible models and balances with charts only where they fit`() {
-        var config = AppConfiguration()
-        config.sections = [
-            PanelSection(widgets: [
-                WidgetInstance(settings: .openRouter(.init(sync: .manual))),
-                WidgetInstance(settings: .openRouter(.init(sync: .minutes(15)))),
-                WidgetInstance(settings: .openRouter(.init(refresh: .minutes(5), glance: .balance, preset: .credits))),
-            ])
-        ]
+        let config = configuration([
+            WidgetInstance(settings: .openRouter(.init(sync: .manual))),
+            WidgetInstance(settings: .openRouter(.init(sync: .minutes(15)))),
+            WidgetInstance(settings: .openRouter(.init(refresh: .minutes(5), glance: .balance, preset: .credits))),
+        ])
+        let work = Self.work.id
         let bar = config.openRouterDemand(panels: [.init(position: .top, density: .regular)])
-        #expect(bar.catalogue == .minutes(15) && bar.account(.shared).balance == .minutes(5))
-        #expect(bar.account(.shared).activity.isEmpty)
+        #expect(bar.catalogue == .minutes(15) && bar.account(work).balance == .minutes(5))
+        #expect(bar.account(work).activity.isEmpty)
         let side = config.openRouterDemand(panels: [.init(position: .left, density: .regular)])
-        #expect(side.account(.shared).activity[.account] == .minutes(5))
+        #expect(side.account(work).activity[.account] == .minutes(5))
         let hidden = config.openRouterDemand(panels: [])
-        #expect(hidden.isEmpty && hidden.keptAccounts == [.shared])
+        #expect(hidden.isEmpty && hidden.keptAccounts == [work])
         var details = OpenRouterDemand(catalogue: .minutes(60))
         details.merge(hidden)
         #expect(!details.needsAccount)
     }
 
     @Test func `balance previews never demand private resources`() {
-        var config = AppConfiguration()
-        config.sections = [PanelSection(widgets: [WidgetInstance(settings: .openRouter(.init(preset: .credits)))])]
+        let config = configuration([WidgetInstance(settings: .openRouter(.init(preset: .credits)))])
         let preview = config.openRouterDemand(panels: [], previewsEveryWidget: true)
         #expect(!preview.needsAccount && preview.catalogue == nil)
     }
@@ -194,15 +225,17 @@ struct OpenRouterConfigurationTests {
         options.chart.scope = .key
         settings.setBalanceOptions(options, for: id)
         let side = ShownPanel(position: .left, density: .regular)
+        let config = configuration([])
+        let work = Self.work.id
         var demand = OpenRouterDemand()
-        demand.add(WidgetInstance(settings: .openRouter(settings)), on: side)
-        #expect(demand.account(.shared).balance == .minutes(15))
-        #expect(demand.account(.shared).activity.isEmpty)
+        demand.add(WidgetInstance(settings: .openRouter(settings)), on: side, in: config)
+        #expect(demand.account(work).balance == .minutes(15))
+        #expect(demand.account(work).activity.isEmpty)
         options.chart.keyHash = String(repeating: "c", count: 64)
         settings.setBalanceOptions(options, for: id)
-        demand.add(WidgetInstance(settings: .openRouter(settings)), on: side)
-        #expect(demand.account(.shared).activity[.account] == nil)
-        #expect(demand.account(.shared).activity[.key(String(repeating: "c", count: 64))] == .minutes(15))
+        demand.add(WidgetInstance(settings: .openRouter(settings)), on: side, in: config)
+        #expect(demand.account(work).activity[.account] == nil)
+        #expect(demand.account(work).activity[.key(String(repeating: "c", count: 64))] == .minutes(15))
     }
 
     @Test func `non default widgets and details round trip without secrets`() throws {
@@ -210,7 +243,7 @@ struct OpenRouterConfigurationTests {
         var models = OpenRouterSettings(sync: .manual, glance: .count, preset: .richList)
         models.addBalanceBlock(
             .init(
-                title: "Side project", usesOwnKey: true,
+                title: "Side project", account: .newKey(),
                 chart: .init(
                     isShown: true, days: 14, scope: .key, keyHash: String(repeating: "d", count: 64),
                     keyName: "Fixture key")))

@@ -97,17 +97,35 @@ struct RailwayWidgetView: View {
     let settings: RailwaySettings
     let layout: WidgetLayout
     @Environment(RailwayService.self) private var service
+    @Environment(AccountStore.self) private var accounts
+    @Environment(SettingsNavigator.self) private var navigator
+    @Environment(\.isWidgetPreview) private var isPreview
 
     var body: some View {
-        let connection = service.connection(for: settings.account)
         WidgetClock { now in
-            content(connection, now: now)
+            if isPreview, previewedConnection?.snapshot == nil {
+                // A preview in the Widgets window that nothing fetched for, such as before a Railway widget is added:
+                // Railway isn't asked until then, so this shows what the widget looks like.
+                RailwayContent(
+                    overview: RailwayOverview(snapshot: .sample, settings: RailwaySettings.sampled(settings))!,
+                    incidents: [], commits: Railway.Snapshot.sampleCommits, details: [:], settings: settings,
+                    layout: layout, now: Railway.Snapshot.sample.fetchedAt, footnote: nil)
+            } else {
+                AccountGate(reference: settings.account, provider: .railway, layout: layout) { id in
+                    content(service.connection(id), now: now)
+                }
+            }
         }
     }
 
+    /// What Railway answered the account the widget uses, for a preview of a widget that's been added.
+    private var previewedConnection: RailwayConnection? {
+        accounts.resolve(settings.account, at: .railway).accountID.flatMap(service.connection)
+    }
+
     @ViewBuilder
-    private func content(_ connection: RailwayConnection, now: Date) -> some View {
-        if let snapshot = connection.snapshot {
+    private func content(_ connection: RailwayConnection?, now: Date) -> some View {
+        if let connection, let snapshot = connection.snapshot {
             if let overview = RailwayOverview(snapshot: snapshot, settings: settings) {
                 RailwayContent(
                     overview: overview, incidents: snapshot.incidents ?? [], commits: connection.commits,
@@ -120,20 +138,14 @@ struct RailwayWidgetView: View {
                     title: settings.workspaceName.map { "\($0) not found" } ?? "No workspace",
                     detail: RailwayFetchProblem.noWorkspace.advice, systemImage: "questionmark.folder", layout: layout)
             }
-        } else if connection.needs == nil {
-            // Fetched for no widget: a preview in the Widgets window before a Railway widget is added. Railway isn't
-            // asked until then, so this shows what the widget looks like.
-            RailwayContent(
-                overview: RailwayOverview(snapshot: .sample, settings: RailwaySettings.sampled(settings))!,
-                incidents: [], commits: Railway.Snapshot.sampleCommits, details: [:], settings: settings,
-                layout: layout,
-                now: Railway.Snapshot.sample.fetchedAt, footnote: nil)
-        } else if let problem = connection.problem {
+        } else if let problem = connection?.problem {
             WidgetMessage(
                 title: problem.title, detail: problem.advice,
                 systemImage: problem.needsSignIn ? "person.crop.circle.badge.questionmark" : "exclamationmark.triangle",
                 layout: layout,
-                action: problem.needsSignIn ? nil : WidgetMessage.Action(title: "Try Again") { service.refreshNow() })
+                action: problem.needsSignIn
+                    ? WidgetMessage.Action(title: "Open Accounts") { navigator.showAccounts(.railway) }
+                    : WidgetMessage.Action(title: "Try Again") { service.refreshNow() })
         } else {
             WidgetMessage(title: "Connecting to Railway…", detail: nil, systemImage: "hourglass", layout: layout)
         }

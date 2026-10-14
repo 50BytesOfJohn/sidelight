@@ -71,12 +71,6 @@ struct OpenRouterWidgetView: View {
         service.catalogue.value ?? (isPreview ? .sample(at: now) : nil)
     }
 
-    /// The account a Balance block reads. Previews read none: they show an example.
-    private func account(_ id: UUID, _ options: OpenRouterBalanceOptions) -> OpenRouterAccount? {
-        guard let placement else { return nil }
-        return service.account(options.account(widget: placement.widgetID, block: id))
-    }
-
     // MARK: Blocks
 
     @ViewBuilder
@@ -115,7 +109,7 @@ struct OpenRouterWidgetView: View {
         switch block {
         case .balance(let id):
             let options = settings.balanceOptions(id)
-            OpenRouterBalanceBlock(options: options, account: account(id, options), layout: layout, now: now)
+            OpenRouterBalanceBlock(options: options, layout: layout, now: now)
         case .summary, .list:
             if let catalogue {
                 OpenRouterCatalogueBlocks(
@@ -168,8 +162,8 @@ struct OpenRouterWidgetView: View {
     private func glance(now: Date) -> some View {
         switch settings.resolvedGlance {
         case .balance:
-            if let (id, options) = settings.glanceBalance {
-                OpenRouterBalanceBlock(options: options, account: account(id, options), layout: layout, now: now)
+            if let (_, options) = settings.glanceBalance {
+                OpenRouterBalanceBlock(options: options, layout: layout, now: now)
             } else {
                 WidgetMessage(
                     title: "No Balance block", detail: "Add one in this widget's builder, or show a model instead.",

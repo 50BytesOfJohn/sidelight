@@ -3,51 +3,39 @@ import Observation
 import SidelightCore
 import os
 
-/// Whose sign-in a Railway connection uses.
-enum RailwaySignInSource: Hashable {
-    /// The Railway CLI's, read from its configuration file.
-    case cli
-    /// The token saved in Sidelight's keychain item.
-    case token
-}
-
 /// Railway accounts' projects, services and bills for the Railway widgets on screen, from Railway's public API.
 ///
-/// There's a connection per sign-in the widgets use (the Railway CLI's or a saved token). Each asks once for every
-/// widget using it, only for what their blocks show, and as often as ``RailwayPacing`` allows. Nothing runs, and
-/// the CLI's sign-in isn't read, until a Railway widget is added.
+/// There's a connection per account the widgets use: the Railway CLI's sign-in, or a token account. Each asks once
+/// for every widget using it, only for what their blocks show, and as often as ``RailwayPacing`` allows. Nothing
+/// runs, and the CLI's sign-in isn't read, until a Railway widget is added.
 @Observable
 final class RailwayService: DataService {
-    let cli = RailwayConnection(source: .cli)
-    let token = RailwayConnection(source: .token)
-
+    /// One for each account a widget uses, or used since Sidelight started.
+    private(set) var connections: [AccountID: RailwayConnection] = [:]
     /// Whether the Railway CLI is installed where Sidelight looks for it.
     private(set) var cliExecutable: URL?
     /// Whether the Railway CLI is signed in, as of the last look at its configuration.
     private(set) var cliIsSignedIn = false
-    /// Whether a token is saved in the keychain.
-    private(set) var hasToken = false
 
-    /// What the widgets need, by whose sign-in they use. Set from the configuration.
-    var needs: [RailwayAccountChoice: RailwayNeeds] = [:] {
+    /// What the widgets need, by the account they use. Set from the configuration.
+    var needs: [AccountID: RailwayNeeds] = [:] {
         didSet {
             guard needs != oldValue else { return }
             apply()
         }
     }
 
+    @ObservationIgnored private let access: AccountAccess
     @ObservationIgnored private var isEnabled = false
-    /// Reading the keychain, once; everything that needs the token waits for this one read.
-    @ObservationIgnored private var tokenLoad: Task<String?, Never>?
-    /// The last change to the keychain item. Each waits for the one before, so a removal still under way can't
-    /// delete a token saved after it.
-    @ObservationIgnored private var tokenWrite: Task<Bool, Never>?
-    /// Counts saves and removals, so a save that a later one overtook while Railway checked it changes nothing.
-    @ObservationIgnored private var tokenChanges = 0
 
-    init() {
-        cli.credentials = { [weak self] in await self?.cliCredentials() ?? .failure(.cliNotSignedIn) }
-        token.credentials = { [weak self] in await self?.tokenCredentials() ?? .failure(.noToken) }
+    init(accounts: AccountAccess) {
+        access = accounts
+        accounts.observeChanges { [weak self] id in
+            // Another token: forget what the old one saw, and ask with the new one.
+            guard let connection = self?.connections[id] else { return }
+            connection.reset()
+            connection.refreshNow()
+        }
     }
 
     func start() {
@@ -58,81 +46,29 @@ final class RailwayService: DataService {
 
     func stop() {
         isEnabled = false
-        cli.needs = nil
-        token.needs = nil
+        for connection in connections.values { connection.needs = nil }
     }
 
-    /// The connection a widget with `choice` shows.
-    func connection(for choice: RailwayAccountChoice) -> RailwayConnection {
-        switch resolved(choice) {
-        case .cli: cli
-        case .token: token
-        }
-    }
-
-    /// Automatic uses the CLI while it's signed in, otherwise a saved token, otherwise asks for the CLI's sign-in.
-    func resolved(_ choice: RailwayAccountChoice) -> RailwaySignInSource {
-        switch choice {
-        case .cli: .cli
-        case .token: .token
-        case .automatic: cliIsSignedIn || !hasToken ? .cli : .token
-        }
+    /// The connection for `id`, once a widget has used that account.
+    func connection(_ id: AccountID) -> RailwayConnection? {
+        connections[id]
     }
 
     /// Fetches now with every connection in use.
     func refreshNow() {
-        if lookAround() { apply() }
-        cli.refreshNow()
-        token.refreshNow()
+        lookAround()
+        for connection in connections.values { connection.refreshNow() }
     }
 
-    /// Checks `token` with Railway and saves it in the keychain; returns why it wasn't saved. A token removed or
-    /// saved again while it's checked is left to that newer change.
-    func saveToken(_ token: String) async -> RailwayFetchProblem? {
+    /// Asks Railway whether `token` can read an account; returns why it can't be used.
+    func checkToken(_ token: String) async -> RailwayFetchProblem? {
         let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return .noToken }
-        tokenChanges += 1
-        let change = tokenChanges
         let request = RailwayAPI.request(RailwayAPI.accountQuery, token: token, userAgent: AppInfo.userAgent)
-        let check = await RailwayConnection.send(request)
-        switch check.map({ RailwayAPI.account(status: $0.status, body: $0.body) }) {
+        switch await RailwayConnection.send(request).map({ RailwayAPI.account(status: $0.status, body: $0.body) }) {
         case .failure(let problem), .success(.failure(let problem)): return problem
-        case .success(.success):
-            guard change == tokenChanges else { return nil }
-            guard await writeToken({ await KeychainItem.railwayToken.save(token) }).value else {
-                return .refused(message: "Couldn't save to the keychain")
-            }
-            // A removal or save since queued its own write after this one, and already showed its result.
-            guard change == tokenChanges else { return nil }
-            tokenLoad = Task { token }
-            hasToken = true
-            // It may belong to another account: forget what the last token saw.
-            self.token.reset()
-            apply()
-            self.token.refreshNow()
-            return nil
+        case .success(.success): return nil
         }
-    }
-
-    func removeToken() {
-        tokenChanges += 1
-        tokenLoad = Task { nil }
-        hasToken = false
-        token.reset()
-        apply()
-        writeToken { await KeychainItem.railwayToken.delete() }
-    }
-
-    /// Queues a change to the keychain item, made once the change before it is done.
-    @discardableResult
-    private func writeToken(_ write: @escaping @Sendable () async -> Bool) -> Task<Bool, Never> {
-        let previous = tokenWrite
-        let task = Task {
-            _ = await previous?.value
-            return await write()
-        }
-        tokenWrite = task
-        return task
     }
 
     // MARK: Demand
@@ -140,44 +76,36 @@ final class RailwayService: DataService {
     private func apply() {
         lookAround()
         guard isEnabled else { return }
-        var bySource: [RailwaySignInSource: RailwayNeeds] = [:]
-        for (choice, needs) in needs {
-            let source = resolved(choice)
-            bySource[source] = bySource[source].map { $0.merged(with: needs) } ?? needs
+        for id in needs.keys where connections[id] == nil {
+            let connection = RailwayConnection(account: id)
+            connection.credentials = { [weak self] in await self?.credentials(for: id) ?? .failure(.notSignedIn) }
+            let access = access
+            connection.report = { access.report($0, id) }
+            connections[id] = connection
         }
-        cli.needs = bySource[.cli]
-        token.needs = bySource[.token]
+        for (id, connection) in connections {
+            connection.needs = needs[id]
+        }
     }
 
-    /// Looks for the CLI and its sign-in, and starts reading the saved token: all local and cheap. Done whenever the
-    /// demand changes and on "Refresh", so signing in with the CLI is noticed without restarting. Returns whether
-    /// the CLI's sign-in came or went, which changes what automatic widgets use.
-    @discardableResult
-    private func lookAround() -> Bool {
-        guard isEnabled else { return false }
+    /// Looks for the CLI and its sign-in: local and cheap. Done whenever the demand changes and on "Refresh", so
+    /// signing in with the CLI is noticed without restarting. Whether it's signed in decides which account widgets
+    /// without one of their own use.
+    private func lookAround() {
+        guard isEnabled else { return }
         cliExecutable = ExecutableLocator.find("railway", in: RailwayCLISignIn.executableDirectories)
         let signedIn = (try? Data(contentsOf: RailwayCLISignIn.configFile)).flatMap(RailwayCLISignIn.init) != nil
-        if tokenLoad == nil {
-            Task {
-                let hadToken = hasToken
-                _ = await loadToken()
-                if hasToken != hadToken { apply() }
-            }
-        }
-        guard signedIn != cliIsSignedIn else { return false }
-        cliIsSignedIn = signedIn
-        return true
+        cliSignInChanged(signedIn)
     }
 
-    /// The saved token, read from the keychain the first time.
-    private func loadToken() async -> String? {
-        let load = tokenLoad ?? Task { await KeychainItem.railwayToken.read() }
-        tokenLoad = load
-        let token = await load.value
-        // Saved or removed while this read: the newer answer stands.
-        guard tokenLoad == load else { return await loadToken() }
-        if hasToken != (token != nil) { hasToken = token != nil }
-        return token
+    /// The CLI signed in or out: what the last fetch with it said no longer holds. Signed out, it needs signing in;
+    /// signed in, the next fetch says how it's doing.
+    private func cliSignInChanged(_ signedIn: Bool) {
+        if signedIn != cliIsSignedIn {
+            cliIsSignedIn = signedIn
+            access.report(signedIn ? nil : .needsSignIn, .railwayCLI)
+        }
+        access.reportAppSignIn(.railwayCLI, cliExecutable != nil || signedIn, signedIn)
     }
 
     // MARK: Credentials
@@ -186,14 +114,21 @@ final class RailwayService: DataService {
     /// Running the CLI to renew its token is tried at most this often.
     private static let renewalGap: TimeInterval = 5 * 60
 
+    /// The account's token: the CLI's, or the one saved for a token account.
+    private func credentials(for id: AccountID) async -> Result<String, RailwayFetchProblem> {
+        guard id != .railwayCLI else { return await cliCredentials() }
+        do throws(KeychainUnavailable) {
+            return try await access.secret(id).map { .success($0) } ?? .failure(.noToken)
+        } catch {
+            return .failure(.keychain)
+        }
+    }
+
     /// The CLI's token, renewed by the CLI itself when it has run out.
     private func cliCredentials() async -> Result<String, RailwayFetchProblem> {
         var signIn = await Self.readCLISignIn()
-        if (signIn != nil) != cliIsSignedIn {
-            // Automatic widgets may now use the token instead, or the CLI again.
-            cliIsSignedIn = signIn != nil
-            apply()
-        }
+        // Widgets without an account of their own may now use a token instead, or the CLI again.
+        cliSignInChanged(signIn != nil)
         guard let current = signIn else { return .failure(.cliNotSignedIn) }
         if current.needsRenewal(at: .now), let executable = cliExecutable,
             lastRenewal.map({ Date.now.timeIntervalSince($0) > Self.renewalGap }) ?? true
@@ -205,10 +140,6 @@ final class RailwayService: DataService {
         }
         guard let signIn else { return .failure(.cliNotSignedIn) }
         return signIn.isUsable(at: .now) ? .success(signIn.accessToken) : .failure(.cliSignInExpired)
-    }
-
-    private func tokenCredentials() async -> Result<String, RailwayFetchProblem> {
-        await loadToken().map { .success($0) } ?? .failure(.noToken)
     }
 
     @concurrent
@@ -228,7 +159,7 @@ final class RailwayService: DataService {
     }
 }
 
-/// Railway as seen with one sign-in: the account's workspaces, what the widgets using it need, and the last answer.
+/// Railway as seen with one account: its workspaces, what the widgets using it need, and the last answer.
 @Observable
 final class RailwayConnection {
     /// After failed fetches, the wait doubles up to this.
@@ -238,7 +169,8 @@ final class RailwayConnection {
     /// The account's workspaces are asked for again this often.
     static let accountInterval: TimeInterval = 60 * 60
 
-    let source: RailwaySignInSource
+    /// The account it asks with.
+    let accountID: AccountID
 
     /// The last status fetched; kept through later failures, which ``problem`` reports.
     private(set) var snapshot: Railway.Snapshot?
@@ -274,6 +206,8 @@ final class RailwayConnection {
     }
 
     @ObservationIgnored var credentials: () async -> Result<String, RailwayFetchProblem> = { .failure(.notSignedIn) }
+    /// Says how the account is doing, after each fetch.
+    @ObservationIgnored var report: (AccountStatus?) -> Void = { _ in }
     @ObservationIgnored private let fetching = PacedTask()
     /// What was needed last, including before fetching stopped.
     @ObservationIgnored private var lastNeeds: RailwayNeeds?
@@ -291,12 +225,14 @@ final class RailwayConnection {
     /// Wait this long after commits couldn't be fetched.
     private static let commitsRetryDelay: TimeInterval = 10 * 60
 
-    init(source: RailwaySignInSource) {
-        self.source = source
+    init(account: AccountID) {
+        accountID = account
     }
 
-    /// Forgets everything the sign-in saw, for a different sign-in.
+    /// Forgets everything the sign-in saw, for a different sign-in. A fetch still under way with the old one is
+    /// cancelled, so its answer is never shown.
     func reset() {
+        cancelFetching()
         snapshot = nil
         problem = nil
         account = nil
@@ -365,6 +301,7 @@ final class RailwayConnection {
             self.snapshot = snapshot
             problem = nil
             consecutiveFailures = 0
+            report(.connected)
             if needs.commits { await fetchCommits(for: snapshot, environments: needs.environmentNames) }
             await fetchMissingDetails(needs, in: snapshot)
             return RailwayPacing.interval(
@@ -374,6 +311,7 @@ final class RailwayConnection {
             if failure != problem { Log.railway.notice("Can't fetch from Railway: \(String(describing: failure))") }
             problem = failure
             consecutiveFailures += 1
+            report(failure.accountStatus)
             if case .rateLimited(let retryAfter?) = failure { return max(retryAfter, RailwayPacing.idleInterval) }
             // Signing in happens on this Mac, so look again soon; it costs nothing until it works.
             if failure == .cliNotSignedIn || failure == .noToken || failure == .cliSignInExpired { return 60 }
@@ -533,6 +471,17 @@ final class RailwayConnection {
             return .success(try await HTTP.send(request))
         } catch {
             return .failure(.unreachable)
+        }
+    }
+}
+
+extension RailwayFetchProblem {
+    /// How the account is doing, when it's this.
+    /// The same as what the widget says: whatever only the person can fix needs signing in again, or another token.
+    var accountStatus: AccountStatus {
+        switch self {
+        case .cliSignInExpired, .rejected: .expired
+        default: needsSignIn ? .needsSignIn : .failed(title)
         }
     }
 }

@@ -5,6 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @State private var pane: SettingsPane? = .panel
     @Environment(LoginItem.self) private var loginItem
+    @Environment(SettingsNavigator.self) private var navigator
 
     var body: some View {
         NavigationSplitView {
@@ -28,19 +29,24 @@ struct SettingsView: View {
                 case .panel: PanelSettingsPane()
                 case .appearance: AppearanceSettingsPane()
                 case .windows: WindowsSettingsPane()
-                case .connections: ConnectionsSettingsPane()
+                case .accounts: AccountsSettingsPane()
                 case .general: GeneralSettingsPane()
                 }
             }
             .formStyle(.grouped)
             .navigationTitle(pane.title)
         }
-        .onAppear { loginItem.refresh() }
+        .onAppear {
+            loginItem.refresh()
+            if navigator.request != nil { pane = .accounts }
+        }
+        // Asked for from a widget or its settings: the pane takes the rest of the request.
+        .onChange(of: navigator.request) { if navigator.request != nil { pane = .accounts } }
     }
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case panel, appearance, windows, connections, general
+    case panel, appearance, windows, accounts, general
 
     var id: Self { self }
 
@@ -49,7 +55,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .panel: "Panel & Displays"
         case .appearance: "Appearance"
         case .windows: "Window Avoidance"
-        case .connections: "Connections"
+        case .accounts: "Accounts"
         case .general: "General"
         }
     }
@@ -58,7 +64,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .panel: "Panel"
         case .windows: "Windows"
-        case .appearance, .connections, .general: title
+        case .appearance, .accounts, .general: title
         }
     }
 
@@ -67,7 +73,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .panel: "sidebar.left"
         case .appearance: "paintbrush.fill"
         case .windows: "macwindow.on.rectangle"
-        case .connections: "key.fill"
+        case .accounts: "person.crop.circle.fill"
         case .general: "gearshape.fill"
         }
     }
@@ -77,7 +83,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .panel: .blue
         case .appearance: .pink
         case .windows: .orange
-        case .connections: .indigo
+        case .accounts: .indigo
         case .general: .gray
         }
     }

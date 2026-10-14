@@ -9,6 +9,7 @@ extension WidgetInstance: Codable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(UUID.self, forKey: .id)
         // Settings missing (a kind that had none when it was saved) take their defaults.
         let settings: WidgetSettings =
             switch try container.decode(WidgetKind.self, forKey: .kind) {
@@ -28,7 +29,7 @@ extension WidgetInstance: Codable {
             case .openRouter: .openRouter(try container.decode(.settings, or: .init()))
             }
         self.init(
-            id: try container.decode(UUID.self, forKey: .id),
+            id: id,
             settings: settings,
             showsInSidePanel: try container.decode(Bool.self, forKey: .showsInSidePanel),
             showsInBar: try container.decode(Bool.self, forKey: .showsInBar)

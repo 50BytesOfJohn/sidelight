@@ -59,41 +59,32 @@ public struct OpenRouterSpendChartSettings: Codable, Hashable, Sendable {
     }
 }
 
-/// Whose OpenRouter account something reads: the management key every OpenRouter widget shares, or one saved for a
-/// single Balance block, for another account.
-public enum OpenRouterAccountID: Hashable, Sendable {
-    case shared
-    /// The key saved for the Balance block `block` of the widget `widget`. Keyed by both, since a preset's block has
-    /// the same ID in every widget.
-    case own(widget: UUID, block: UUID)
-}
-
 /// What a Balance block shows: an account's balance, and optionally what it spent day by day.
 public struct OpenRouterBalanceOptions: Codable, Hashable, Sendable {
     /// Shown above the balance, to tell accounts apart; `nil` for the default label.
     public var title: String?
-    /// Reads another account with a key saved for this block alone, rather than the shared key.
-    public var usesOwnKey = false
+    /// The OpenRouter account it reads; `nil` for the default account.
+    public var account: AccountID?
     public var chart = OpenRouterSpendChartSettings()
 
-    public init(title: String? = nil, usesOwnKey: Bool = false, chart: OpenRouterSpendChartSettings = .init()) {
+    public init(title: String? = nil, account: AccountID? = nil, chart: OpenRouterSpendChartSettings = .init()) {
         self.title = title
-        self.usesOwnKey = usesOwnKey
+        self.account = account
         self.chart = chart
     }
 
-    /// Missing options take their defaults.
+    /// Missing options take their defaults, and an account reference that can't be read is the default account.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = OpenRouterBalanceOptions()
         title = try container.decodeIfPresent(String.self, forKey: .title).flatMap { $0.isEmpty ? nil : $0 }
-        usesOwnKey = try container.decode(.usesOwnKey, or: defaults.usesOwnKey)
+        account = container.decodeLeniently(.account, or: nil)
         chart = try container.decode(.chart, or: defaults.chart)
     }
 
-    /// The account this block reads, as the block `block` of the widget `widget`.
-    public func account(widget: UUID, block: UUID) -> OpenRouterAccountID {
-        usesOwnKey ? .own(widget: widget, block: block) : .shared
+    private enum CodingKeys: String, CodingKey {
+        case title, chart
+        case account = "accountID"
     }
 }
 
@@ -601,15 +592,14 @@ public struct OpenRouterDemand: Equatable, Sendable {
     /// The public model catalogue; `nil` while nobody shows it.
     public var catalogue: RefreshCadence?
     /// What each account needs fetched; accounts nobody shows aren't listed.
-    public var accounts: [OpenRouterAccountID: OpenRouterAccountDemand]
-    /// Accounts a Balance block in the configuration reads, shown or not: what they showed is worth keeping, and a
-    /// block's own key stays saved. Once no block reads an account, what it showed is forgotten, and its own key is
-    /// removed from the keychain.
-    public var keptAccounts: Set<OpenRouterAccountID>
+    public var accounts: [AccountID: OpenRouterAccountDemand]
+    /// Accounts a Balance block in the configuration reads, shown or not: what they showed is worth keeping. Once no
+    /// block reads an account, what it showed is forgotten.
+    public var keptAccounts: Set<AccountID>
 
     public init(
-        catalogue: RefreshCadence? = nil, accounts: [OpenRouterAccountID: OpenRouterAccountDemand] = [:],
-        keptAccounts: Set<OpenRouterAccountID> = []
+        catalogue: RefreshCadence? = nil, accounts: [AccountID: OpenRouterAccountDemand] = [:],
+        keptAccounts: Set<AccountID> = []
     ) {
         self.catalogue = catalogue
         self.accounts = accounts.filter { !$0.value.isEmpty }
@@ -623,7 +613,7 @@ public struct OpenRouterDemand: Equatable, Sendable {
     public var needsAccount: Bool { !accounts.isEmpty }
 
     /// What `account` needs fetched.
-    public func account(_ account: OpenRouterAccountID) -> OpenRouterAccountDemand {
+    public func account(_ account: AccountID) -> OpenRouterAccountDemand {
         accounts[account] ?? OpenRouterAccountDemand()
     }
 
@@ -642,32 +632,34 @@ public struct OpenRouterDemand: Equatable, Sendable {
         keptAccounts.formUnion(other.keptAccounts)
     }
 
-    private mutating func add(_ demand: OpenRouterAccountDemand, for account: OpenRouterAccountID) {
-        guard !demand.isEmpty else { return }
+    private mutating func add(_ demand: OpenRouterAccountDemand, for account: AccountID?) {
+        guard let account, !demand.isEmpty else { return }
         accounts[account, default: OpenRouterAccountDemand()].merge(demand)
     }
 
-    /// What `widget` needs, drawn on `panel`: its glance in bars and minimal columns, its shown blocks otherwise.
-    public mutating func add(_ widget: WidgetInstance, on panel: ShownPanel) {
+    /// What `widget` needs, drawn on `panel`: its glance in bars and minimal columns, its shown blocks otherwise. A
+    /// block without an account it can use (see ``AppConfiguration/resolveAccount(_:at:signedIn:)``) fetches nothing.
+    public mutating func add(_ widget: WidgetInstance, on panel: ShownPanel, in configuration: AppConfiguration) {
         guard case .openRouter(let settings) = widget.settings else { return }
+        func account(_ options: OpenRouterBalanceOptions) -> AccountID? {
+            configuration.resolveAccount(options.account, at: .openRouter).accountID
+        }
         guard panel.showsBlocks else {
             switch settings.resolvedGlance {
             case .automatic, .newest, .count:
                 catalogue = catalogue.merged(with: settings.sync)
             case .balance:
-                if let (id, options) = settings.glanceBalance {
-                    add(
-                        OpenRouterAccountDemand(balance: settings.refresh),
-                        for: options.account(widget: widget.id, block: id))
+                if let (_, options) = settings.glanceBalance {
+                    add(OpenRouterAccountDemand(balance: settings.refresh), for: account(options))
                 }
             }
             return
         }
         if settings.showsCatalogue { catalogue = catalogue.merged(with: settings.sync) }
-        for (id, options) in settings.shownBalances {
+        for (_, options) in settings.shownBalances {
             var demand = OpenRouterAccountDemand(balance: settings.refresh)
             if let scope = options.chart.spendScope { demand.activity[scope] = settings.refresh }
-            add(demand, for: options.account(widget: widget.id, block: id))
+            add(demand, for: account(options))
         }
     }
 }
@@ -700,7 +692,7 @@ extension AppConfiguration {
         var demand = OpenRouterDemand(keptAccounts: openRouterAccounts)
         for panel in panels {
             for widget in widgets where widget.isVisible(at: panel.position) {
-                demand.add(widget, on: panel)
+                demand.add(widget, on: panel, in: self)
             }
         }
         for widget in widgets where previewsEveryWidget || previewing.contains(widget.id) {
@@ -713,12 +705,12 @@ extension AppConfiguration {
     }
 
     /// The accounts every Balance block in the configuration reads, shown or hidden.
-    public var openRouterAccounts: Set<OpenRouterAccountID> {
-        var accounts = Set<OpenRouterAccountID>()
+    public var openRouterAccounts: Set<AccountID> {
+        var accounts = Set<AccountID>()
         for widget in widgets {
             guard case .openRouter(let settings) = widget.settings else { continue }
-            for (id, options) in settings.allBalances {
-                accounts.insert(options.account(widget: widget.id, block: id))
+            for (_, options) in settings.allBalances {
+                if let id = resolveAccount(options.account, at: .openRouter).accountID { accounts.insert(id) }
             }
         }
         return accounts
