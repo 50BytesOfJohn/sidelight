@@ -146,3 +146,39 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2> /dev/null || true
           rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/developer-id.p12"
+
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    steps:
+      - name: Check tap credentials
+        env:
+          TAP_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          [[ -n "$TAP_KEY" ]] || { echo 'Missing release environment secret: HOMEBREW_TAP_DEPLOY_KEY'; exit 1; }
+      - name: Check out Homebrew tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: 50BytesOfJohn/homebrew-tap
+          ref: main
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+      - name: Verify published release and update cask
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -m unittest discover -s tests
+          python3 scripts/update_cask.py --tag "$GITHUB_REF_NAME"
+      - name: Publish tap update
+        run: |
+          if git diff --quiet -- Casks/sidelight.rb; then
+            echo 'Tap is already current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Casks/sidelight.rb
+          git commit -m "Update Sidelight to ${GITHUB_REF_NAME#v}"
+          git push origin HEAD:main
+          echo 'Updated [Homebrew tap](https://github.com/50BytesOfJohn/homebrew-tap).' >> "$GITHUB_STEP_SUMMARY"
