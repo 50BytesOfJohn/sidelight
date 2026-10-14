@@ -156,7 +156,7 @@ struct OpenRouterServiceTests {
     }
 }
 
-private nonisolated final class OpenRouterRequestLog: Sendable {
+nonisolated final class OpenRouterRequestLog: Sendable {
     private let storage = Mutex<[URLRequest]>([])
     func append(_ request: URLRequest) { storage.withLock { $0.append(request) } }
     var values: [URLRequest] { storage.withLock { $0 } }

@@ -7,7 +7,7 @@ import Testing
 
 /// Old secrets and notes kept in memory, standing in for the keychain items and `.removed` files of versions before
 /// accounts.
-private final class OldSecrets: Sendable {
+final class OldSecrets: Sendable {
     let items: Mutex<[LegacySecret.Source: String]>
     let removals: Mutex<Set<LegacySecret.Source>>
     let failsDelete = Mutex(false)
@@ -34,7 +34,7 @@ private final class OldSecrets: Sendable {
 }
 
 /// Accounts' secrets in memory, readable from the test.
-private final class NewSecrets: Sendable {
+final class NewSecrets: Sendable {
     let items: Mutex<[AccountID: String]>
     let failsSave = Mutex(false)
     let corruptsSave = Mutex(false)
