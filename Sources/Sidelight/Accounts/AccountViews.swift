@@ -113,8 +113,11 @@ struct AccountKeySheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var key = ""
-    @State private var isChecking = false
     @State private var problem: String?
+    /// Checking the key with the provider, then saving it. Closing the sheet cancels it before anything is saved.
+    @State private var submission: Task<Void, Never>?
+
+    private var isChecking: Bool { submission != nil }
 
     private var provider: AccountProvider {
         switch purpose {
@@ -150,8 +153,11 @@ struct AccountKeySheet: View {
             HStack {
                 if isChecking { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                Button("Cancel", role: .cancel) {
+                    submission?.cancel()
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
                 Button(confirmTitle, action: submit)
                     .keyboardShortcut(.defaultAction)
                     .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isChecking)
@@ -160,6 +166,7 @@ struct AccountKeySheet: View {
         .padding(20)
         .frame(width: 420)
         .onAppear { name = accounts.suggestedName(for: provider) }
+        .onDisappear { submission?.cancel() }
     }
 
     private var title: String {
@@ -179,12 +186,14 @@ struct AccountKeySheet: View {
         guard !isChecking else { return }
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
-        isChecking = true
         problem = nil
-        Task {
-            defer { isChecking = false }
-            if let problem = await check(key) {
-                self.problem = problem
+        submission = Task {
+            defer { submission = nil }
+            let rejection = await check(key)
+            // Cancelled or closed while the provider was asked: nothing is saved.
+            guard !Task.isCancelled else { return }
+            if let rejection {
+                problem = rejection
                 return
             }
             switch purpose {
@@ -237,7 +246,7 @@ struct AccountPicker: View {
                     Button("Add Account…", systemImage: "plus") { isAdding = true }
                         .controlSize(.small)
                 }
-            } else if choices.count == 1, selection == nil || selection == choices.first?.id {
+            } else if choices.count == 1, accounts.resolve(selection, at: provider).accountID == choices[0].id {
                 LabeledContent(title) {
                     HStack(spacing: 8) {
                         Text(choices[0].name).foregroundStyle(.secondary)

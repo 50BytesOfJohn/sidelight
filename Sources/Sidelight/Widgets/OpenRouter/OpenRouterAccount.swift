@@ -24,7 +24,7 @@ final class OpenRouterAccount {
     var canUseKey: Bool { hasKey == true }
 
     @ObservationIgnored private let client: OpenRouterClient
-    @ObservationIgnored private let secret: () async -> String?
+    @ObservationIgnored private let secret: () async throws(KeychainUnavailable) -> String?
     @ObservationIgnored private let report: (AccountStatus?) -> Void
     @ObservationIgnored private let now: @Sendable () -> Date
     /// Someone's clicks are this far apart at least.
@@ -47,10 +47,10 @@ final class OpenRouterAccount {
     @ObservationIgnored private let manualRequestWait = DelayedTask()
 
     /// - Parameters:
-    ///   - secret: Reads the account's key; `nil` when it has none.
+    ///   - secret: Reads the account's key; `nil` when it has none, throwing when the keychain can't say.
     ///   - report: Says how the account is doing, after each answer from OpenRouter.
     init(
-        id: AccountID, client: OpenRouterClient, secret: @escaping () async -> String?,
+        id: AccountID, client: OpenRouterClient, secret: @escaping () async throws(KeychainUnavailable) -> String?,
         report: @escaping (AccountStatus?) -> Void = { _ in }, manualActionGap: Duration
     ) {
         self.id = id
@@ -215,7 +215,12 @@ final class OpenRouterAccount {
     private func fetchBalance() async -> FetchResult<OpenRouterBalance, OpenRouterProblem>? {
         let generation = keyGeneration
         if let hold = pacing.hold(at: now()) { return .failure(hold.problem, retry: hold.retry) }
-        let key = await managementKey()
+        let key: String?
+        do throws(KeychainUnavailable) {
+            key = try await managementKey()
+        } catch {
+            return Task.isCancelled || generation != keyGeneration ? nil : .failure(.keychain, retry: .backoff)
+        }
         guard !Task.isCancelled, generation == keyGeneration else { return nil }
         guard let key else { return .failure(.noKey, retry: .onRequest) }
         // Another request may have been told to wait while the key was read.
@@ -239,7 +244,12 @@ final class OpenRouterAccount {
     ) async -> FetchResult<OpenRouterActivity, OpenRouterProblem>? {
         let generation = keyGeneration
         if let hold = pacing.hold(at: now()) { return .failure(hold.problem, retry: hold.retry) }
-        let key = await managementKey()
+        let key: String?
+        do throws(KeychainUnavailable) {
+            key = try await managementKey()
+        } catch {
+            return Task.isCancelled || generation != keyGeneration ? nil : .failure(.keychain, retry: .backoff)
+        }
         guard !Task.isCancelled, generation == keyGeneration else { return nil }
         guard let key else { return .failure(.noKey, retry: .onRequest) }
 
@@ -305,9 +315,9 @@ final class OpenRouterAccount {
     }
 
     /// The account's key, read through the account store's keyring (which reads the keychain once); `nil` without
-    /// one, which the account then reports.
-    private func managementKey() async -> String? {
-        let key = await secret()
+    /// one, which the account then reports. Throws when the keychain can't say now: that's not a missing key.
+    private func managementKey() async throws(KeychainUnavailable) -> String? {
+        let key = try await secret()
         if hasKey != (key != nil) { hasKey = key != nil }
         if key == nil { report(.needsSignIn) }
         return key
@@ -368,7 +378,15 @@ final class OpenRouterAccount {
         func isCurrent() -> Bool {
             !Task.isCancelled && generation == keyGeneration && listGeneration == keyListGeneration
         }
-        let key = await managementKey()
+        let key: String?
+        do throws(KeychainUnavailable) {
+            key = try await managementKey()
+        } catch {
+            guard isCurrent() else { return }
+            keyList.isLoading = false
+            keyList.problem = .keychain
+            return
+        }
         guard isCurrent() else { return }
         guard let key else {
             keyList.isLoading = false

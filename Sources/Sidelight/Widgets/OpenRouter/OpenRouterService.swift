@@ -105,7 +105,8 @@ final class OpenRouterService: DataService {
         for id in demand.keptAccounts where accounts[id] == nil {
             let access = access
             accounts[id] = OpenRouterAccount(
-                id: id, client: client, secret: { await access.secret(id) }, report: { access.report($0, id) },
+                id: id, client: client, secret: { () throws(KeychainUnavailable) in try await access.secret(id) },
+                report: { access.report($0, id) },
                 manualActionGap: manualActionGap)
         }
         for (id, account) in accounts where !demand.keptAccounts.contains(id) {

@@ -98,8 +98,13 @@ final class RailwayService: DataService {
         cliSignInChanged(signedIn)
     }
 
+    /// The CLI signed in or out: what the last fetch with it said no longer holds. Signed out, it needs signing in;
+    /// signed in, the next fetch says how it's doing.
     private func cliSignInChanged(_ signedIn: Bool) {
-        if signedIn != cliIsSignedIn { cliIsSignedIn = signedIn }
+        if signedIn != cliIsSignedIn {
+            cliIsSignedIn = signedIn
+            access.report(signedIn ? nil : .needsSignIn, .railwayCLI)
+        }
         access.reportAppSignIn(.railwayCLI, cliExecutable != nil || signedIn, signedIn)
     }
 
@@ -112,7 +117,11 @@ final class RailwayService: DataService {
     /// The account's token: the CLI's, or the one saved for a token account.
     private func credentials(for id: AccountID) async -> Result<String, RailwayFetchProblem> {
         guard id != .railwayCLI else { return await cliCredentials() }
-        return await access.secret(id).map { .success($0) } ?? .failure(.noToken)
+        do throws(KeychainUnavailable) {
+            return try await access.secret(id).map { .success($0) } ?? .failure(.noToken)
+        } catch {
+            return .failure(.keychain)
+        }
     }
 
     /// The CLI's token, renewed by the CLI itself when it has run out.
@@ -220,8 +229,10 @@ final class RailwayConnection {
         accountID = account
     }
 
-    /// Forgets everything the sign-in saw, for a different sign-in.
+    /// Forgets everything the sign-in saw, for a different sign-in. A fetch still under way with the old one is
+    /// cancelled, so its answer is never shown.
     func reset() {
+        cancelFetching()
         snapshot = nil
         problem = nil
         account = nil
@@ -466,11 +477,11 @@ final class RailwayConnection {
 
 extension RailwayFetchProblem {
     /// How the account is doing, when it's this.
+    /// The same as what the widget says: whatever only the person can fix needs signing in again, or another token.
     var accountStatus: AccountStatus {
         switch self {
-        case .notSignedIn, .cliNotSignedIn, .noToken: .needsSignIn
         case .cliSignInExpired, .rejected: .expired
-        default: .failed(title)
+        default: needsSignIn ? .needsSignIn : .failed(title)
         }
     }
 }

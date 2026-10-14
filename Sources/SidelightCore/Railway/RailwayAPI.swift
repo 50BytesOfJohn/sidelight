@@ -254,6 +254,8 @@ public enum RailwayFetchProblem: Error, Equatable, Sendable {
     case unreadable
     /// The account has no workspace, or not the chosen one.
     case noWorkspace
+    /// The account's token couldn't be read from the keychain just now.
+    case keychain
 
     /// The problem behind an HTTP status other than success, or `nil` for success.
     init?(status: Int) {
@@ -278,6 +280,7 @@ public enum RailwayFetchProblem: Error, Equatable, Sendable {
         case .unreachable: "Can't reach Railway"
         case .unreadable: "No status Sidelight can read"
         case .noWorkspace: "Workspace not found"
+        case .keychain: "Can't read the token from the keychain"
         }
     }
 
@@ -293,6 +296,7 @@ public enum RailwayFetchProblem: Error, Equatable, Sendable {
         case .refused, .unreachable: "Trying again later."
         case .unreadable: "Railway's API may have changed."
         case .noWorkspace: "Choose another workspace in the widget's settings."
+        case .keychain: "The keychain may be locked. Trying again later."
         }
     }
 
@@ -300,7 +304,7 @@ public enum RailwayFetchProblem: Error, Equatable, Sendable {
     public var needsSignIn: Bool {
         switch self {
         case .notSignedIn, .cliNotSignedIn, .cliSignInExpired, .noToken, .rejected, .notAuthorized: true
-        case .rateLimited, .refused, .unreachable, .unreadable, .noWorkspace: false
+        case .rateLimited, .refused, .unreachable, .unreadable, .noWorkspace, .keychain: false
         }
     }
 }

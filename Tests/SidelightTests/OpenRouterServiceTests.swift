@@ -7,7 +7,7 @@ import Testing
 
 /// Every request is intercepted and every credential operation uses memory only.
 struct OpenRouterServiceTests {
-    @Test func `public demand coalesces and never reads credential store`() async {
+    @Test func `public demand coalesces and never reads credential store`() async throws {
         let requests = OpenRouterRequestLog()
         let store = TestAccounts()
         let service = OpenRouterService(
@@ -29,7 +29,7 @@ struct OpenRouterServiceTests {
         service.stop()
     }
 
-    @Test func `balance and chart share one credential read and stopping suppresses late answers`() async {
+    @Test func `balance and chart share one credential read and stopping suppresses late answers`() async throws {
         let replies = Answers<HTTP.Response>()
         let store = TestAccounts("fixture")
         let requests = OpenRouterRequestLog()
@@ -53,7 +53,7 @@ struct OpenRouterServiceTests {
         #expect(!service.tested.balance.isFetching)
     }
 
-    @Test func `credential removal clears cache and prevents old account answer`() async {
+    @Test func `credential removal clears cache and prevents old account answer`() async throws {
         let replies = Answers<HTTP.Response>()
         let store = TestAccounts("old-fixture")
         let service = OpenRouterService(transport: { _ in await replies.next() }, accounts: store.access)
@@ -68,7 +68,7 @@ struct OpenRouterServiceTests {
         service.stop()
     }
 
-    @Test func `an inference key is turned down before it's added`() async {
+    @Test func `an inference key is turned down before it's added`() async throws {
         let service = OpenRouterService(
             transport: { _ in Self.response(#"{"data":{"is_management_key":false}}"#) },
             accounts: TestAccounts().access)
@@ -76,7 +76,7 @@ struct OpenRouterServiceTests {
         #expect(await service.checkKey("  ") == .noKey)
     }
 
-    @Test func `a key OpenRouter doesn't say about is checked by reading the credits`() async {
+    @Test func `a key OpenRouter doesn't say about is checked by reading the credits`() async throws {
         let service = OpenRouterService(
             transport: { request in
                 request.url?.lastPathComponent == "credits"
@@ -85,7 +85,7 @@ struct OpenRouterServiceTests {
         #expect(await service.checkKey("fixture") == .notManagementKey)
     }
 
-    @Test func `key scoped activity never falls back when selected key disappeared`() async {
+    @Test func `key scoped activity never falls back when selected key disappeared`() async throws {
         let requests = OpenRouterRequestLog()
         let store = TestAccounts("fixture")
         let service = OpenRouterService(
@@ -103,7 +103,7 @@ struct OpenRouterServiceTests {
         service.stop()
     }
 
-    @Test func `key picker deduplicates within a page and loads additional pages explicitly`() async {
+    @Test func `key picker deduplicates within a page and loads additional pages explicitly`() async throws {
         let hash = String(repeating: "a", count: 64)
         let row = "{\"hash\":\"\(hash)\",\"name\":\"Fixture\"}"
         let json = "{\"data\":[" + Array(repeating: row, count: 100).joined(separator: ",") + "]}"
@@ -131,7 +131,7 @@ struct OpenRouterServiceTests {
         service.stop()
     }
 
-    @Test func `auth rejection pauses new automatic private scopes until credential changes`() async {
+    @Test func `auth rejection pauses new automatic private scopes until credential changes`() async throws {
         let requests = OpenRouterRequestLog()
         let store = TestAccounts("fixture")
         let service = OpenRouterService(
@@ -229,7 +229,7 @@ extension OpenRouterServiceTests {
         service.stop()
     }
 
-    @Test func `raw page offsets advance through unreadable rows dedupe across pages and expose limit`() async {
+    @Test func `raw page offsets advance through unreadable rows dedupe across pages and expose limit`() async throws {
         let requests = OpenRouterRequestLog()
         let hash = String(repeating: "b", count: 64)
         let row = "{\"hash\":\"\(hash)\"}"
@@ -259,7 +259,7 @@ extension OpenRouterServiceTests {
 }
 
 extension OpenRouterServiceTests {
-    @Test func `response crossing UTC midnight anchors activity and resource to the same answer time`() async {
+    @Test func `response crossing UTC midnight anchors activity and resource to the same answer time`() async throws {
         let before = Date(iso8601: "2026-10-12T23:59:59Z")!
         let after = Date(iso8601: "2026-10-13T00:00:01Z")!
         let wall = Mutex(before)
@@ -281,7 +281,7 @@ extension OpenRouterServiceTests {
         service.stop()
     }
 
-    @Test func `scoped key lookup rejection gates the activity request and later key pages`() async {
+    @Test func `scoped key lookup rejection gates the activity request and later key pages`() async throws {
         let requests = OpenRouterRequestLog()
         let store = TestAccounts("fixture")
         let scope = OpenRouterSpendScope.key(String(repeating: "a", count: 64))
@@ -314,7 +314,7 @@ extension OpenRouterDemand {
 }
 
 extension OpenRouterServiceTests {
-    @Test func `each account reads with its own key, once for every block on it`() async {
+    @Test func `each account reads with its own key, once for every block on it`() async throws {
         let other = AccountID(rawValue: "other")
         let store = TestAccounts([.tested: "tested-key", other: "other-key"])
         let requests = OpenRouterRequestLog()
@@ -335,8 +335,27 @@ extension OpenRouterServiceTests {
         // No block uses it any more: what it showed goes, its key stays the account's.
         service.demand = OpenRouterDemand(accounts: [.tested: .init(balance: .manual)], keptAccounts: [.tested])
         #expect(service.account(other) == nil)
-        #expect(await store.keyring.secret(for: other) == "other-key")
+        #expect(try await store.keyring.secret(for: other) == "other-key")
         #expect(service.tested.balance.value != nil)
+        service.stop()
+    }
+}
+
+extension OpenRouterServiceTests {
+    @Test func `a keychain that can't be read isn't a missing key, and is tried again`() async throws {
+        let requests = OpenRouterRequestLog()
+        let service = OpenRouterService(
+            transport: { request in
+                requests.append(request)
+                return Self.response(#"{"data":{"total_credits":10,"total_usage":1}}"#)
+            },
+            accounts: AccountAccess(secret: { _ throws(KeychainUnavailable) in throw KeychainUnavailable() }))
+        service.demand = OpenRouterDemand.shared(balance: .manual, keepsAccountData: true)
+        service.start()
+        #expect(await eventually { service.tested.balance.problem == .keychain })
+        #expect(OpenRouterProblem.keychain.accountStatus?.needsSignIn == false)
+        #expect(OpenRouterAPI.retryAdvice(for: .keychain, now: .now) == .backoff)
+        #expect(requests.values.isEmpty)
         service.stop()
     }
 }
@@ -360,9 +379,9 @@ final class TestAccounts {
         var secrets = AccountSecrets.memory(keys)
         let read = secrets.read
         let lookUps = lookUps
-        secrets.read = { id in
+        secrets.read = { id throws(KeychainUnavailable) in
             lookUps.count.withLock { $0 += 1 }
-            return await read(id)
+            return try await read(id)
         }
         keyring = AccountKeyring(secrets: secrets)
     }
@@ -378,7 +397,8 @@ final class TestAccounts {
     var access: AccountAccess {
         let keyring = keyring
         return AccountAccess(
-            secret: { await keyring.secret(for: $0) }, observeChanges: { keyring.observeChanges($0) },
+            secret: { id throws(KeychainUnavailable) in try await keyring.secret(for: id) },
+            observeChanges: { keyring.observeChanges($0) },
             report: { status, id in self.statuses[id] = status })
     }
 

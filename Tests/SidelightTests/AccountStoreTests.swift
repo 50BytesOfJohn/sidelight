@@ -22,13 +22,13 @@ struct AccountStoreTests {
         let account = try #require(await accounts.add(at: .openRouter, name: "  Work ", secret: "sk-or-work"))
         #expect(account.name == "Work" && account.kind == .key)
         #expect(configuration.configuration.accounts == [account])
-        #expect(await keyring.secret(for: account.id) == "sk-or-work")
+        #expect(try await keyring.secret(for: account.id) == "sk-or-work")
         #expect(accounts.resolve(nil, at: .openRouter) == .account(account.id))
         // Nothing secret goes into the configuration.
         #expect(!String(decoding: try configuration.configuration.json(), as: UTF8.self).contains("sk-or-work"))
     }
 
-    @Test func `an account whose key the keychain won't save isn't added`() async {
+    @Test func `an account whose key the keychain won't save isn't added`() async throws {
         var secrets = AccountSecrets.memory()
         secrets.save = { _, _ in false }
         let (accounts, _, configuration) = store(secrets)
@@ -71,7 +71,7 @@ struct AccountStoreTests {
         keyring.observeChanges { id in changed.withLock { $0.append(id) } }
         accounts.report(.expired, for: account.id)
         #expect(await accounts.replaceSecret(of: account.id, with: "new"))
-        #expect(await keyring.secret(for: account.id) == "new")
+        #expect(try await keyring.secret(for: account.id) == "new")
         #expect(changed.withLock { $0 } == [account.id])
         #expect(accounts.status(of: account.id) == nil)
         #expect(await !accounts.replaceSecret(of: .railwayCLI, with: "nope"))
@@ -104,7 +104,7 @@ struct AccountStoreTests {
         #expect(configuration.configuration.references(to: personal.id) == 0)
         #expect(accounts.uses(of: work.id) == 1)
         // Not used again, even before the keychain is done.
-        #expect(await keyring.secret(for: personal.id) == nil)
+        #expect(try await keyring.secret(for: personal.id) == nil)
         try await Task.sleep(for: .milliseconds(50))
         #expect(deleted.withLock { $0 } == [personal.id])
         #expect(secrets.withLock { $0[personal.id] } == nil)
@@ -117,22 +117,22 @@ struct AccountStoreTests {
         let work = try #require(await accounts.add(at: .openRouter, name: "Work", secret: "work"))
         accounts.remove(work.id)
         #expect(configuration.configuration.accounts.isEmpty)
-        #expect(await keyring.secret(for: work.id) == nil)
+        #expect(try await keyring.secret(for: work.id) == nil)
     }
 
-    @Test func `a key is read from the keychain once`() async {
+    @Test func `a key is read from the keychain once`() async throws {
         let lookUps = Mutex(0)
         var secrets = AccountSecrets.memory([AccountID(rawValue: "A"): "secret"])
         let read = secrets.read
-        secrets.read = { id in
+        secrets.read = { id throws(KeychainUnavailable) in
             lookUps.withLock { $0 += 1 }
-            return await read(id)
+            return try await read(id)
         }
         let keyring = AccountKeyring(secrets: secrets)
-        async let first = keyring.secret(for: AccountID(rawValue: "A"))
-        async let second = keyring.secret(for: AccountID(rawValue: "A"))
-        #expect(await [first, second] == ["secret", "secret"])
-        #expect(await keyring.secret(for: AccountID(rawValue: "B")) == nil)
+        async let first = try keyring.secret(for: AccountID(rawValue: "A"))
+        async let second = try keyring.secret(for: AccountID(rawValue: "A"))
+        #expect(try await [first, second] == ["secret", "secret"])
+        #expect(try await keyring.secret(for: AccountID(rawValue: "B")) == nil)
         #expect(lookUps.withLock { $0 } == 2)
     }
 
@@ -162,5 +162,54 @@ struct AccountStoreTests {
         // Nothing to add at a provider whose app owns its sign-in.
         navigator.showAccounts(.codex, adding: true)
         #expect(navigator.request == .init(provider: .codex, adding: false))
+    }
+
+    @Test func `a read the keychain can't answer isn't taken for a missing key, and is asked again`() async throws {
+        let fails = Mutex(true)
+        var secrets = AccountSecrets.memory([AccountID(rawValue: "A"): "secret"])
+        let read = secrets.read
+        secrets.read = { id throws(KeychainUnavailable) in
+            if fails.withLock({ $0 }) { throw KeychainUnavailable() }
+            return try await read(id)
+        }
+        let keyring = AccountKeyring(secrets: secrets)
+        await #expect(throws: KeychainUnavailable.self) { try await keyring.secret(for: AccountID(rawValue: "A")) }
+        fails.withLock { $0 = false }
+        #expect(try await keyring.secret(for: AccountID(rawValue: "A")) == "secret")
+    }
+
+    @Test func `the newest change to a key stands, however the keychain's answers interleave`() async throws {
+        let gate = Answers<Bool>()
+        var secrets = AccountSecrets.memory()
+        let save = secrets.save
+        secrets.save = { secret, account in
+            // The first save waits for the test; later ones go straight through.
+            if secret == "first" { _ = await gate.next() }
+            return await save(secret, account)
+        }
+        let keyring = AccountKeyring(secrets: secrets)
+        let account = Account.key(.openRouter, name: "Work")
+        let first = Task { await keyring.save("first", for: account) }
+        #expect(await eventually { gate.pendingCount == 1 })
+        let second = Task { await keyring.save("second", for: account) }
+        await gate.answer(true)
+        _ = await (first.value, second.value)
+        #expect(try await keyring.secret(for: account.id) == "second")
+
+        // Removed while a save is still on its way: it stays removed.
+        let third = Task { await keyring.save("first", for: account) }
+        #expect(await eventually { gate.pendingCount == 1 })
+        let removal = Task { await keyring.delete(account.id) }
+        await gate.answer(true)
+        _ = await (third.value, removal.value)
+        #expect(try await keyring.secret(for: account.id) == nil)
+    }
+
+    @Test func `Railway problems only the person can fix ask them to`() {
+        #expect(RailwayFetchProblem.notAuthorized.accountStatus == .needsSignIn)
+        #expect(RailwayFetchProblem.noToken.accountStatus == .needsSignIn)
+        #expect(RailwayFetchProblem.rejected(status: 401).accountStatus == .expired)
+        #expect(RailwayFetchProblem.keychain.accountStatus.needsSignIn == false)
+        #expect(RailwayFetchProblem.unreachable.accountStatus.needsSignIn == false)
     }
 }
