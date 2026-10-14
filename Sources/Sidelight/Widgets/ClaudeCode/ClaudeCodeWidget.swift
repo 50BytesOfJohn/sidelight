@@ -1,4 +1,3 @@
-import AppKit
 import SidelightCore
 import SwiftUI
 
@@ -28,18 +27,26 @@ struct ClaudeCodeSettingsEditor: View {
     @Binding var settings: ClaudeCodeSettings
 
     var body: some View {
+        AccountPicker(provider: .claudeCode, selection: $settings.account)
         Toggle("Show weekly limit", isOn: $settings.showsWeeklyLimit)
-        AnthropicRefreshSettings(isOn: $settings.refreshesFromAnthropic, minutes: $settings.refreshMinutes)
-        StatusLineSetup()
+        AnthropicRefreshSettings(
+            account: settings.account, isOn: $settings.refreshesFromAnthropic, minutes: $settings.refreshMinutes)
+        StatusLineSetup(account: settings.account)
     }
 }
 
-/// The opt-in to fetch usage from Anthropic on a timer, and how the last fetch went. Each widget that shows Claude
-/// usage has its own; the service fetches as often as the most frequent one that's showing asks.
+/// The opt-in to fetch usage from Anthropic on a timer, and how the last fetch for the widget's account went. Each
+/// widget that shows Claude usage has its own; each account fetches as often as the most frequent of its widgets
+/// that's showing asks.
 struct AnthropicRefreshSettings: View {
+    /// The widget's Claude account: `nil` for the default one.
+    let account: AccountID?
     @Binding var isOn: Bool
     @Binding var minutes: Int
-    @Environment(ClaudeCodeService.self) private var claude
+    @Environment(AccountStore.self) private var accounts
+    @Environment(ClaudeCodeService.self) private var service
+
+    private var claude: ClaudeCodeAccount? { service.account(for: account, in: accounts) }
 
     var body: some View {
         RefreshIntervalPicker(
@@ -55,12 +62,12 @@ struct AnthropicRefreshSettings: View {
 
     private var status: some View {
         StatusRow(
-            color: claude.anthropicProblem != nil ? Color.orange : claude.anthropicUsage != nil ? .green : .secondary,
+            color: claude?.anthropicProblem != nil ? Color.orange : claude?.anthropicUsage != nil ? .green : .secondary,
             alignment: .firstTextBaseline
         ) {
-            if let problem = claude.anthropicProblem {
+            if let problem = claude?.anthropicProblem {
                 Text(problem.message)
-            } else if let usage = claude.anthropicUsage {
+            } else if let usage = claude?.anthropicUsage {
                 Text("Fetched \(usage.capturedAt, format: .relative(presentation: .named))")
             } else {
                 Text("Waiting for the first fetch")
@@ -69,10 +76,20 @@ struct AnthropicRefreshSettings: View {
     }
 }
 
-/// How to connect Claude Code's status line for live limits, and whether it is.
+/// How to connect Claude Code's status line for live limits, and whether it is, for the widget's account.
 struct StatusLineSetup: View {
-    @Environment(ClaudeCodeService.self) private var claude
+    /// The widget's Claude account: `nil` for the default one.
+    let account: AccountID?
+    @Environment(AccountStore.self) private var accounts
+    @Environment(ClaudeCodeService.self) private var service
     @State private var didCopy = false
+
+    private var claude: ClaudeCodeAccount? { service.account(for: account, in: accounts) }
+
+    /// Where Claude Code keeps the account, whose settings name the status line.
+    private var profile: ClaudeCodeProfile {
+        accounts.resolve(account, at: .claudeCode).accountID.flatMap(accounts.claudeCodeProfile) ?? .standard
+    }
 
     var body: some View {
         status
@@ -82,7 +99,7 @@ struct StatusLineSetup: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(
                         "Claude Code passes your plan's limits to its status line after every response. Point the "
-                            + "status line at Sidelight's bridge in ~/.claude/settings.json:"
+                            + "status line at Sidelight's bridge in \(profile.displayPath)/settings.json:"
                     )
                     .settingsFootnote()
                     Text(snippet)
@@ -94,8 +111,7 @@ struct StatusLineSetup: View {
                             RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.06)))
                     HStack {
                         Button(didCopy ? "Copied" : "Copy", systemImage: didCopy ? "checkmark" : "doc.on.doc") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(snippet, forType: .string)
+                            SessionHost.copy(snippet)
                             didCopy = true
                         }
                         Spacer()
@@ -110,11 +126,11 @@ struct StatusLineSetup: View {
     }
 
     private var status: some View {
-        StatusRow(color: claude.statusLineUsage != nil ? Color.green : Color.secondary.opacity(0.5)) {
+        StatusRow(color: claude?.statusLineUsage != nil ? Color.green : Color.secondary.opacity(0.5)) {
             Group {
-                if let live = claude.statusLineUsage {
+                if let live = claude?.statusLineUsage {
                     Text("Status line live · updated \(live.capturedAt, format: .relative(presentation: .named))")
-                } else if claude.accountState?.usage != nil {
+                } else if claude?.accountState?.usage != nil {
                     Text("Status line not live · showing the last /usage")
                 } else {
                     Text("Status line not connected")
@@ -139,10 +155,30 @@ struct StatusLineSetup: View {
 struct ClaudeCodeWidgetView: View {
     let settings: ClaudeCodeSettings
     let layout: WidgetLayout
-    @Environment(ClaudeCodeService.self) private var claude
+    @Environment(AccountStore.self) private var accounts
+    @Environment(ClaudeCodeService.self) private var service
 
     var body: some View {
-        if let usage = claude.usage {
+        // Limits Claude Code saved still show while its sign-in needs renewing: using Claude Code renews it.
+        AccountGate(reference: settings.account, provider: .claudeCode, layout: layout, requiresSignIn: false) { id in
+            ClaudeCodeUsageView(
+                claude: service.account(id), settings: settings, layout: layout,
+                accountName: accounts.accounts(of: .claudeCode).count > 1 ? accounts.account(id)?.name : nil)
+        }
+    }
+}
+
+/// One Claude account's limits, in the widget's layout.
+private struct ClaudeCodeUsageView: View {
+    /// `nil` until Sidelight reads the account.
+    let claude: ClaudeCodeAccount?
+    let settings: ClaudeCodeSettings
+    let layout: WidgetLayout
+    /// Shown with the source, to tell accounts apart once there are several.
+    let accountName: String?
+
+    var body: some View {
+        if let claude, let usage = claude.usage {
             // Countdowns, the time tick and windows rolling over all move on with the clock.
             WidgetClock { now in
                 let current = usage.current(at: now)
@@ -165,7 +201,7 @@ struct ClaudeCodeWidgetView: View {
 
     @ViewBuilder
     private var placeholder: some View {
-        if claude.hasLoaded {
+        if claude?.hasLoaded == true {
             WidgetMessage(
                 title: "No Claude Code limits yet", detail: "Connect its status line in this widget's settings.",
                 systemImage: "asterisk", layout: layout, trimsCompact: false, detailLineLimit: nil)
@@ -346,14 +382,16 @@ struct ClaudeCodeWidgetView: View {
         return "Resets in \(Formatting.countdown(to: resetsAt, now: now))"
     }
 
-    /// `status line · 3m ago`
+    /// `status line · 3m ago`, after the account's name once there are several.
     private func source(of usage: ClaudeCodeUsage, now: Date) -> String {
         let age = UsageFormat.age(of: usage.capturedAt, now: now)
-        return switch usage.source {
-        case .statusLine: "status line · \(age)"
-        case .usageCache: "/usage · \(age)"
-        case .anthropic: "anthropic · \(age)"
-        }
+        let source =
+            switch usage.source {
+            case .statusLine: "status line · \(age)"
+            case .usageCache: "/usage · \(age)"
+            case .anthropic: "anthropic · \(age)"
+            }
+        return [accountName?.lowercased(), source].compactMap(\.self).joined(separator: " · ")
     }
 
     private func sourceHelp(_ source: ClaudeCodeUsage.Source) -> String {
@@ -377,7 +415,7 @@ struct ClaudeCodeWidgetView: View {
 
     @ViewBuilder
     private var planBadge: some View {
-        if let plan = claude.plan {
+        if let plan = claude?.plan {
             PlanBadge(name: plan, tint: .claude)
         }
     }

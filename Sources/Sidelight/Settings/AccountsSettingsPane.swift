@@ -22,13 +22,14 @@ struct AccountsSettingsPane: View {
                     Text(
                         "Sidelight keeps the keys you add in your keychain, never in config.json, and only reads with "
                             + "them: it never makes paid requests. It never looks for keys in other apps, shells or "
-                            + "files. Sign-ins another app owns stay that app's: Sidelight only reads them."
+                            + "files. Sign-ins another app owns stay that app's: Sidelight only reads them. Claude "
+                            + "accounts sign in through Claude Code, which keeps each in a folder of its own."
                     )
                     .settingsFootnote()
                 }
             }
             .sheet(item: $adding) { provider in
-                AccountKeySheet(purpose: .add(provider)) { selection = $0.id }
+                AddAccountSheet(provider: provider) { selection = $0.id }
             }
             .onAppear { follow(navigator.request, with: proxy) }
             .onChange(of: navigator.request) { follow(navigator.request, with: proxy) }
@@ -51,13 +52,14 @@ private struct ProviderSection: View {
     @Binding var selection: AccountID?
     @Binding var adding: AccountProvider?
     @Environment(AccountStore.self) private var accounts
+    @Environment(ClaudeCodeService.self) private var claude
 
     var body: some View {
         Section {
             ForEach(accounts.accounts(of: provider)) { account in
                 AccountRow(account: account, selection: $selection)
             }
-            if provider.acceptsKeys {
+            if provider.canAddAccounts {
                 Button("Add Account…", systemImage: "plus") { adding = provider }
                     .buttonStyle(.borderless)
             }
@@ -68,6 +70,18 @@ private struct ProviderSection: View {
                 IconTile(systemImage: provider.systemImage, tint: provider.tint, size: 18)
             }
         }
+        .task { await checkUnknownClaudeAccounts() }
+    }
+}
+
+extension ProviderSection {
+    /// Claude accounts no widget has said anything about yet ask Claude Code who's signed in, so the pane doesn't
+    /// open on "Not checked yet". Quick and local: Anthropic is asked only when someone checks.
+    private func checkUnknownClaudeAccounts() async {
+        for account in accounts.accounts(of: provider) where accounts.status(of: account.id) == nil {
+            guard let profile = accounts.claudeCodeProfile(account.id) else { continue }
+            await claude.check(account.id, in: profile, isQuick: true)
+        }
     }
 }
 
@@ -76,10 +90,19 @@ private struct AccountRow: View {
     let account: Account
     @Binding var selection: AccountID?
     @Environment(AccountStore.self) private var accounts
+    @Environment(ClaudeCodeService.self) private var claude
+    /// Checking the account now, as someone asked.
+    @State private var isChecking = false
+    /// Signing Claude Code out before removing the account.
+    @State private var isSigningOut = false
+    /// Why signing out didn't work; the account stays until it does, or is removed without.
+    @State private var signOutProblem: String?
     @State private var isRenaming = false
     @State private var name = ""
     @State private var isReplacingKey = false
+    @State private var isSigningIn = false
     @State private var isConfirmingRemoval = false
+    @State private var didCopyCommand = false
 
     private var isSelected: Bool { selection == account.id }
     private var isDefault: Bool { accounts.defaultAccount(for: account.provider).accountID == account.id }
@@ -100,12 +123,17 @@ private struct AccountRow: View {
         .sheet(isPresented: $isReplacingKey) {
             AccountKeySheet(purpose: .replaceKey(account))
         }
+        .sheet(isPresented: $isSigningIn) {
+            ClaudeAccountSheet(purpose: .signInAgain(account))
+        }
         .confirmationDialog(
             "Remove \(account.name)?", isPresented: $isConfirmingRemoval, titleVisibility: .visible
         ) {
-            Button("Remove", role: .destructive) {
-                selection = nil
-                accounts.remove(account.id)
+            if let profile = accounts.claudeCodeProfile(account.id), account.kind == .appProfile {
+                Button("Remove") { remove() }
+                Button("Remove and Sign Out", role: .destructive) { signOutAndRemove(profile) }
+            } else {
+                Button("Remove", role: .destructive) { remove() }
             }
         } message: {
             Text(removalMessage)
@@ -122,8 +150,8 @@ private struct AccountRow: View {
                 } else {
                     Text(account.name)
                 }
-                if account.kind == .appSignIn {
-                    Text(account.provider.managedBy).font(.caption).foregroundStyle(.secondary)
+                if let detail {
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 8)
@@ -134,7 +162,8 @@ private struct AccountRow: View {
                     .padding(.vertical, 2)
                     .background(.quaternary, in: .capsule)
             }
-            let (color, text) = status
+            let (color, text) =
+                isSigningOut ? (Color.secondary, "Signing out…") : isChecking ? (Color.secondary, "Checking…") : status
             StatusRow(color: color, text: text, dotSize: 6)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -146,27 +175,74 @@ private struct AccountRow: View {
         }
     }
 
+    /// Who it's signed in as, where that's known; then who keeps the sign-in, and for an app profile, where.
+    private var detail: String? {
+        let keeper: String? =
+            switch account.kind {
+            case .key: nil
+            case .appSignIn: account.provider.managedBy
+            case .appProfile: profile?.displayPath
+            }
+        let parts = [accounts.identity(of: account.id), keeper].compactMap(\.self)
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Where Claude Code keeps it, for a Claude account.
+    private var profile: ClaudeCodeProfile? { accounts.claudeCodeProfile(account.id) }
+
     @ViewBuilder
     private var actions: some View {
-        HStack(spacing: 8) {
-            if account.kind == .key {
-                if isRenaming {
-                    Button("Done", action: finishRenaming)
-                } else {
-                    Button("Rename") {
-                        name = account.name
-                        isRenaming = true
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if account.isSaved {
+                    if isRenaming {
+                        Button("Done", action: finishRenaming)
+                    } else {
+                        Button("Rename") {
+                            name = account.name
+                            isRenaming = true
+                        }
                     }
                 }
+                if !isDefault {
+                    Button("Make Default") { accounts.makeDefault(account.id) }
+                }
+                if account.kind == .key {
+                    Button("Replace Key…") { isReplacingKey = true }
+                }
+                if let profile {
+                    Button("Check", action: { check(profile) })
+                        .disabled(isChecking)
+                        .help("Ask Claude Code who's signed in, and Anthropic whether it takes the sign-in")
+                    Button("Sign In Again…") { isSigningIn = true }
+                }
+                if account.isSaved {
+                    Spacer()
+                    Button("Remove…", role: .destructive) { isConfirmingRemoval = true }
+                        .disabled(isSigningOut)
+                }
             }
-            if !isDefault {
-                Button("Make Default") { accounts.makeDefault(account.id) }
+            if let signOutProblem {
+                Text(signOutProblem)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if account.kind == .key {
-                Button("Replace Key…") { isReplacingKey = true }
-                Spacer()
-                Button("Remove…", role: .destructive) { isConfirmingRemoval = true }
-            } else {
+            if let profile, account.kind == .appProfile {
+                HStack(spacing: 6) {
+                    Text("Use it in a terminal: \(profile.terminalCommand)")
+                        .textSelection(.enabled)
+                        .settingsFootnote()
+                    Button(didCopyCommand ? "Copied" : "Copy", systemImage: didCopyCommand ? "checkmark" : "doc.on.doc")
+                    {
+                        SessionHost.copy(profile.terminalCommand)
+                        didCopyCommand = true
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("Copy the command")
+                }
+            } else if account.kind == .appSignIn, profile == nil {
                 Text(account.provider.signInAdvice).settingsFootnote()
             }
         }
@@ -191,7 +267,47 @@ private struct AccountRow: View {
             case 1: "1 widget uses it, and will use the default account instead."
             default: "\(uses) widgets use it, and will use the default account instead."
             }
-        return widgets + " Its key is deleted from your keychain."
+        switch account.kind {
+        case .key:
+            return widgets + " Its key is deleted from your keychain."
+        case .appProfile:
+            let folder = profile?.displayPath ?? "its folder"
+            return widgets + " Claude Code keeps it in \(folder): Remove leaves it signed in there, so you can add it "
+                + "again. Remove and Sign Out signs Claude Code out of it as well."
+        case .appSignIn:
+            return widgets
+        }
+    }
+
+    private func check(_ profile: ClaudeCodeProfile) {
+        isChecking = true
+        Task {
+            await claude.check(account.id, in: profile)
+            isChecking = false
+        }
+    }
+
+    private func remove() {
+        selection = nil
+        accounts.remove(account.id)
+    }
+
+    /// Signs Claude Code out of the account first, and removes it only once that worked: otherwise it would leave
+    /// while still signed in.
+    private func signOutAndRemove(_ profile: ClaudeCodeProfile) {
+        signOutProblem = nil
+        isSigningOut = true
+        Task {
+            let didSignOut = await ClaudeCodeCLI.signOut(profile)
+            isSigningOut = false
+            if didSignOut {
+                remove()
+            } else {
+                signOutProblem =
+                    "Claude Code couldn't sign out of \(profile.displayPath), so \(account.name) is still here. Try "
+                    + "again, or remove it and run claude auth logout in that folder yourself."
+            }
+        }
     }
 
     private func finishRenaming() {

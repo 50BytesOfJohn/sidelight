@@ -90,10 +90,13 @@ public struct ClaudeCodeAccountState: Equatable, Sendable {
     public var usage: ClaudeCodeUsage?
     /// `Pro`, `Max`, `Team`…
     public var plan: String?
+    /// The email of the account signed in.
+    public var email: String?
 
-    public init(usage: ClaudeCodeUsage? = nil, plan: String? = nil) {
+    public init(usage: ClaudeCodeUsage? = nil, plan: String? = nil, email: String? = nil) {
         self.usage = usage
         self.plan = plan
+        self.email = email
     }
 
     public init(data: Data) throws {
@@ -115,6 +118,7 @@ private struct AccountStateFile: Decodable {
         let root = try decoder.container(keyedBy: AnyCodingKey.self)
         let account = try? root.nestedContainer(keyedBy: AnyCodingKey.self, forKey: AnyCodingKey("oauthAccount"))
         state.plan = account?.lenient(String.self, "organizationType").flatMap(ClaudeCodeAccountState.planName)
+        state.email = account?.lenient(String.self, "emailAddress")
 
         guard
             let cache = try? root.nestedContainer(

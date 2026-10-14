@@ -88,6 +88,11 @@ struct UsageServiceDemandTests {
     private let cursorOptIn = WidgetInstance(
         settings: .cursor(CursorSettings(refreshesFromCursor: true, refreshMinutes: 30)))
 
+    /// The default Claude account fetched from Anthropic every `minutes`.
+    private func claudeDefault(every minutes: Int?) -> [AccountID: ClaudeCodeNeeds] {
+        [.claudeCodeApp: ClaudeCodeNeeds(profile: .standard, refreshMinutes: minutes)]
+    }
+
     @Test func `an AI Usage widget alone runs every agent it shows, without fetching`() {
         let demand = configuration([WidgetInstance(kind: .aiUsage)]).serviceDemand(at: [.left])
         #expect(demand.usage == UsageServiceDemand(providers: [.codex, .claudeCode, .cursor]))
@@ -106,10 +111,9 @@ struct UsageServiceDemandTests {
                 AIUsageSettings(
                     refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 5, refreshesCursor: true,
                     cursorRefreshMinutes: 60)))
-        #expect(
-            configuration([widget]).serviceDemand(at: [.left]).usage
-                == UsageServiceDemand(
-                    providers: [.codex, .claudeCode, .cursor], claudeCodeRefreshMinutes: 5, cursorRefreshMinutes: 60))
+        let opted = configuration([widget]).serviceDemand(at: [.left])
+        #expect(opted.usage == UsageServiceDemand(providers: [.codex, .claudeCode, .cursor], cursorRefreshMinutes: 60))
+        #expect(opted.claudeCode == claudeDefault(every: 5))
 
         let withoutCursor = WidgetInstance(
             settings: .aiUsage(
@@ -128,9 +132,8 @@ struct UsageServiceDemandTests {
         let demand = configuration([claudeOptIn, cursorOptIn, combined, WidgetInstance(kind: .codex)])
             .serviceDemand(at: [.left])
         #expect(
-            demand.usage
-                == UsageServiceDemand(
-                    providers: [.codex, .claudeCode, .cursor], claudeCodeRefreshMinutes: 5, cursorRefreshMinutes: 30))
+            demand.usage == UsageServiceDemand(providers: [.codex, .claudeCode, .cursor], cursorRefreshMinutes: 30))
+        #expect(demand.claudeCode == claudeDefault(every: 5))
         #expect(demand.kinds == [.claudeCode, .cursor, .aiUsage, .codex])
     }
 
@@ -139,8 +142,9 @@ struct UsageServiceDemandTests {
         hidden.showsInSidePanel = false
         hidden.showsInBar = false
         let combined = WidgetInstance(settings: .aiUsage(AIUsageSettings(providers: [.claudeCode])))
-        let demand = configuration([hidden, combined]).serviceDemand(at: [.left]).usage
-        #expect(demand == UsageServiceDemand(providers: [.claudeCode]))
+        let demand = configuration([hidden, combined]).serviceDemand(at: [.left])
+        #expect(demand.usage == UsageServiceDemand(providers: [.claudeCode]))
+        #expect(demand.claudeCode == claudeDefault(every: nil))
     }
 
     @Test func `a widget shown only in the bar counts only for bars`() {
@@ -157,23 +161,26 @@ struct UsageServiceDemandTests {
     @Test func `removing or narrowing the AI Usage widget keeps what standalone widgets need`() {
         let combined = WidgetInstance(
             settings: .aiUsage(AIUsageSettings(refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 2)))
-        let both = configuration([claudeOptIn, combined]).serviceDemand(at: [.left]).usage
-        #expect(both.providers == [.codex, .claudeCode, .cursor])
-        #expect(both.claudeCodeRefreshMinutes == 2)
+        let both = configuration([claudeOptIn, combined]).serviceDemand(at: [.left])
+        #expect(both.usage.providers == [.codex, .claudeCode, .cursor])
+        #expect(both.claudeCode == claudeDefault(every: 2))
 
-        let removed = configuration([claudeOptIn]).serviceDemand(at: [.left]).usage
-        #expect(removed == UsageServiceDemand(providers: [.claudeCode], claudeCodeRefreshMinutes: 15))
+        let removed = configuration([claudeOptIn]).serviceDemand(at: [.left])
+        #expect(removed.usage == UsageServiceDemand(providers: [.claudeCode]))
+        #expect(removed.claudeCode == claudeDefault(every: 15))
 
         var narrowed = combined
         narrowed.settings = .aiUsage(
             AIUsageSettings(providers: [.codex], refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 2))
-        let withoutClaude = configuration([claudeOptIn, narrowed]).serviceDemand(at: [.left]).usage
-        #expect(withoutClaude == UsageServiceDemand(providers: [.codex, .claudeCode], claudeCodeRefreshMinutes: 15))
+        let withoutClaude = configuration([claudeOptIn, narrowed]).serviceDemand(at: [.left])
+        #expect(withoutClaude.usage == UsageServiceDemand(providers: [.codex, .claudeCode]))
+        #expect(withoutClaude.claudeCode == claudeDefault(every: 15))
 
         var hidden = combined
         hidden.showsInSidePanel = false
         hidden.showsInBar = false
-        #expect(configuration([claudeOptIn, hidden]).serviceDemand(at: [.left]).usage == removed)
+        let withHidden = configuration([claudeOptIn, hidden]).serviceDemand(at: [.left])
+        #expect(withHidden.usage == removed.usage && withHidden.claudeCode == removed.claudeCode)
     }
 
     @Test func `the Widgets window runs everything, with every widget's opt-ins`() {
@@ -198,7 +205,7 @@ struct UsageServiceDemandTests {
         let combined = WidgetInstance(
             settings: .aiUsage(AIUsageSettings(refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 2)))
         let config = configuration([claudeOptIn, cursorOptIn, combined])
-        #expect(config.claudeCodeRefreshMinutes == 2)
+        #expect(config.claudeCodeDemand(of: config.widgets) == claudeDefault(every: 2))
         #expect(config.cursorRefreshMinutes == 30)
     }
 }
