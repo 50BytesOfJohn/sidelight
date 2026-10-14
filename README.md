@@ -8,7 +8,13 @@ A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Code
 (each on its own, or side by side in one AI Usage card), calendar, now playing, Claude Code and Codex sessions and system stats. Other apps' windows are moved or shrunk so they never sit
 under the panel. Why it exists and where it's going: [docs/VISION.md](docs/VISION.md).
 
-Requires an Apple Silicon Mac with macOS 26. Download the latest DMG from
+Requires an Apple Silicon Mac with macOS 26. Install with Homebrew:
+
+```sh
+brew install --cask 50bytesofjohn/tap/sidelight
+```
+
+Or download the latest DMG from
 [GitHub Releases](https://github.com/50BytesOfJohn/sidelight/releases/latest), open it and drag Sidelight to
 Applications. Building from source needs Xcode 27 (Swift 6.4).
 

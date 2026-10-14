@@ -50,6 +50,8 @@ Installed copies update themselves with [Sparkle](https://sparkle-project.org).
    - Uploads the DMG, checksum and appcast to a staging draft, verifies every uploaded file's size and SHA-256
      digest, then **publishes it as the latest release**. Installed copies can immediately find the update.
      No manual publish step is needed.
+   - Updates the [Homebrew tap](https://github.com/50BytesOfJohn/homebrew-tap) only after the release is published,
+     verifying the downloaded DMG against GitHub's digest and the published checksum file before pushing.
 
 CI also retains the installer, feed and debug symbols as an Actions artifact for 30 days. Follow progress in
 [GitHub Actions](https://github.com/50BytesOfJohn/sidelight/actions/workflows/release.yml); the final job summary
@@ -137,7 +139,27 @@ An HTTP 403 mentioning a missing or expired agreement means the account holder m
 at [Apple Developer](https://developer.apple.com/account). This also applies to distribution outside the App Store.
 After accepting it, allow a few minutes for the notary service to recognize it and retry. No new signing key is needed.
 
-## Renewing
+## Homebrew tap
+
+The cask lives in `50BytesOfJohn/homebrew-tap`, separate from the app. The `homebrew` job runs after a successful
+release and uses the `HOMEBREW_TAP_DEPLOY_KEY` secret in the tag-restricted `release` environment. The matching
+public key is a write-enabled deploy key on the tap only; it cannot push to Sidelight or other repositories.
+
+The tap also checks the latest stable release hourly using its own `GITHUB_TOKEN`. If a tap update fails, the
+app release remains published and Sparkle continues working. Retry without rebuilding or republishing the app:
+
+```sh
+gh workflow run update.yml --repo 50BytesOfJohn/homebrew-tap
+```
+
+The updater refuses downgrades and changed checksums for a version already in the tap. Scheduled updates can
+be delayed by GitHub, so the release job is the primary path. Check the tap's Actions page when retrying.
+
+To rotate the deploy key, generate a dedicated Ed25519 key without a passphrase, add its public half to the
+tap with write access, replace `HOMEBREW_TAP_DEPLOY_KEY` in Sidelight's `release` environment, then remove the
+old deploy key. Never put either private key or a personal GitHub token into source control.
+
+## Renewing signing credentials
 
 Check the certificate's actual expiry in Keychain Access; its lifetime depends on how it was issued. Timestamped
 releases signed before expiry keep working. Create a new
