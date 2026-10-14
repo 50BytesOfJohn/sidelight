@@ -28,7 +28,10 @@ struct ManagerView: View {
             if selection != nil { isInspectorShown = true }
         }
         .onChange(of: windows.managerSelectionRequest, initial: true) {
-            if let id = windows.takeManagerSelectionRequest() { selection = .widget(id) }
+            guard let id = windows.takeManagerSelectionRequest() else { return }
+            selection = .widget(id)
+            // Shown here too: the widget may already be selected, which changes nothing above.
+            isInspectorShown = true
         }
         // Clocks in the previews stop while the window is covered, minimized or on another Space.
         .environment(\.isPanelShown, windows.isManagerVisible)
