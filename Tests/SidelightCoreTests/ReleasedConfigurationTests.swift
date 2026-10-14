@@ -10,20 +10,21 @@ import Testing
 /// the credential choices widgets saved before shared accounts, which are left behind on purpose: accounts start
 /// empty (``withoutCredentialChoices(_:)``).
 struct ReleasedConfigurationTests {
-    static let releases = ["v0.1.2", "v0.2.0", "v0.2.1", "v0.3.0", "v0.4.0", "v0.5.0", "v0.6.0"]
+    static let legacyReleases = ["v0.1.2", "v0.2.0", "v0.2.1", "v0.3.0", "v0.4.0", "v0.5.0", "v0.6.0"]
+    static let releases = legacyReleases + ["v0.7.0"]
 
     @Test(arguments: releases)
     func `a released configuration loads with every setting kept`(release: String) throws {
         let released = try Self.load(release)
         let saved = try AppConfiguration(json: released).json()
         let kept = try Self.values(in: JSONSerialization.jsonObject(with: saved))
-        let expected = try Self.withoutCredentialChoices(
-            Self.withoutRetiredWidgets(JSONSerialization.jsonObject(with: released)))
+        let original = try Self.withoutRetiredWidgets(JSONSerialization.jsonObject(with: released))
+        let expected = Self.legacyReleases.contains(release) ? Self.withoutCredentialChoices(original) : original
         let changed = Self.values(in: expected).filter { path, value in kept[path] != value }
         #expect(changed.isEmpty, "Lost or changed: \(changed.keys.sorted())")
     }
 
-    @Test(arguments: releases)
+    @Test(arguments: legacyReleases)
     func `old credential choices are left behind, and every widget uses its default account`(release: String) throws {
         let loaded = try AppConfiguration(json: Self.load(release))
         let saved = String(decoding: try loaded.json(), as: UTF8.self)

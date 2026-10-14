@@ -32,8 +32,11 @@ struct ReleasedConfigurationFixture {
             id: AccountID(rawValue: Self.id(702).uuidString), provider: .openRouter, name: "Personal", kind: .key)
         let token = Account(
             id: AccountID(rawValue: Self.id(703).uuidString), provider: .railway, name: "Acme token", kind: .key)
-        c.accounts = [work, personal, token]
-        c.defaultAccounts = [.openRouter: work.id, .railway: .railwayCLI]
+        let claude = Account(
+            id: AccountID(rawValue: Self.id(704).uuidString), provider: .claudeCode, name: "Work Claude",
+            kind: .appProfile, folder: "/Users/example/.claude-work")
+        c.accounts = [work, personal, token, claude]
+        c.defaultAccounts = [.openRouter: work.id, .railway: .railwayCLI, .claudeCode: claude.id]
         var railway = RailwaySettings(
             account: token.id, refreshMinutes: 15,
             blocks: BlockLayout(entries: [
@@ -106,7 +109,8 @@ struct ReleasedConfigurationFixture {
                         3,
                         .claudeCode(
                             ClaudeCodeSettings(
-                                showsWeeklyLimit: false, refreshesFromAnthropic: true, refreshMinutes: 15))),
+                                account: claude.id, showsWeeklyLimit: false, refreshesFromAnthropic: true,
+                                refreshMinutes: 15))),
                     Self.widget(
                         4, .cursor(CursorSettings(refreshesFromCursor: true, refreshMinutes: 30, showsOnDemand: false))),
                 ], share: 2, alignment: .center),
@@ -117,7 +121,8 @@ struct ReleasedConfigurationFixture {
                         5,
                         .aiUsage(
                             AIUsageSettings(
-                                providers: [.codex, .cursor], reading: .remaining, showsOtherLimits: false,
+                                providers: [.claudeCode, .cursor], reading: .remaining, showsOtherLimits: false,
+                                claudeAccount: claude.id,
                                 refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 15,
                                 refreshesCursor: true, cursorRefreshMinutes: 60))),
                     Self.widget(6, .calendar(CalendarSettings(eventCount: 7))),
