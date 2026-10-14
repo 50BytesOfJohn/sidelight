@@ -190,15 +190,11 @@ public struct ClaudeCodeIdentity: Equatable, Sendable {
 
     /// Reads `claude auth status --json`; `nil` when it says nobody is signed in, or can't be read.
     public init?(statusJSON data: Data) {
-        guard let status = try? JSONDecoder().decode(AuthStatus.self, from: data), status.loggedIn == true,
-            let authMethod = status.authMethod, authMethod != "none"
-        else { return nil }
-        self.init(
-            authMethod: authMethod, email: status.email, organization: status.orgName,
-            subscription: status.subscriptionType)
+        guard case .signedIn(let identity) = ClaudeCodeAuthStatus(json: data) else { return nil }
+        self = identity
     }
 
-    private struct AuthStatus: Decodable {
+    fileprivate struct AuthStatus: Decodable {
         var loggedIn: Bool?
         var authMethod: String?
         var email: String?
@@ -213,6 +209,38 @@ public struct ClaudeCodeIdentity: Equatable, Sendable {
             orgName = container.lenient(String.self, "orgName")
             subscriptionType = container.lenient(String.self, "subscriptionType")
         }
+    }
+}
+
+/// What `claude auth status --json` says about a profile.
+public enum ClaudeCodeAuthStatus: Equatable, Sendable {
+    case signedIn(ClaudeCodeIdentity)
+    case signedOut
+
+    /// `nil` when the answer can't be read, which says nothing about whether anyone is signed in.
+    public init?(json data: Data) {
+        guard let status = try? JSONDecoder().decode(ClaudeCodeIdentity.AuthStatus.self, from: data),
+            let loggedIn = status.loggedIn
+        else { return nil }
+        guard loggedIn, let authMethod = status.authMethod, authMethod != "none" else {
+            self = .signedOut
+            return
+        }
+        self = .signedIn(
+            ClaudeCodeIdentity(
+                authMethod: authMethod, email: status.email, organization: status.orgName,
+                subscription: status.subscriptionType))
+    }
+}
+
+// MARK: - Sign-in links
+
+extension ClaudeCodeProfile {
+    /// Whether `url` is a link Claude Code's sign-in may ask to open: `https` on Anthropic's own sites. Anything else
+    /// is neither shown nor opened.
+    public static func isSignInLink(_ url: URL) -> Bool {
+        guard url.scheme == "https", url.user == nil, let host = url.host()?.lowercased() else { return false }
+        return ["claude.com", "claude.ai", "anthropic.com"].contains { host == $0 || host.hasSuffix(".\($0)") }
     }
 }
 

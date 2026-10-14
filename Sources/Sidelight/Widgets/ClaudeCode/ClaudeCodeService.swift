@@ -29,6 +29,8 @@ final class ClaudeCodeService: DataService {
     /// Hears how each account's sign-in is doing.
     @ObservationIgnored private let access: AccountAccess
     @ObservationIgnored private var isEnabled = false
+    /// Counts the checks of each account: only the newest one says how it's doing.
+    @ObservationIgnored private var checks: [AccountID: Int] = [:]
 
     init(accounts: AccountAccess) {
         access = accounts
@@ -67,17 +69,29 @@ final class ClaudeCodeService: DataService {
     /// Code says who's signed in, and unless `isQuick`, Anthropic is asked once whether it takes the sign-in, the way
     /// fetching usage does. Runs only when someone asks, or just signed in or opened their accounts: never on a timer.
     func check(_ id: AccountID, in profile: ClaudeCodeProfile, isQuick: Bool = false) async {
+        let check = (checks[id] ?? 0) + 1
+        checks[id] = check
+        // A newer check started meanwhile: what it finds stands, not this.
+        func isCurrent() -> Bool { !Task.isCancelled && checks[id] == check }
         guard ClaudeCodeCLI.executable != nil else {
             access.report(.failed("Claude Code isn't installed"), id)
             return
         }
-        let identity = await ClaudeCodeCLI.identity(of: profile)
-        guard !Task.isCancelled else { return }
-        access.reportIdentity(identity?.summary, id)
-        guard let identity else {
+        let status = await ClaudeCodeCLI.authStatus(of: profile)
+        guard isCurrent() else { return }
+        let identity: ClaudeCodeIdentity
+        switch status {
+        case nil:
+            access.report(.failed("Claude Code didn't say who's signed in"), id)
+            return
+        case .signedOut?:
+            access.reportIdentity(nil, id)
             access.report(.needsSignIn, id)
             return
+        case .signedIn(let signedIn)?:
+            identity = signedIn
         }
+        access.reportIdentity(identity.summary, id)
         guard identity.hasPlan else {
             access.report(.failed("Signed in with an API key, which has no plan limits"), id)
             return
@@ -87,13 +101,13 @@ final class ClaudeCodeService: DataService {
             return
         }
         let result = await ClaudeCodeAccount.fetchUsage(profile: profile, userAgent: AppInfo.userAgent)
-        guard !Task.isCancelled else { return }
+        guard isCurrent() else { return }
         switch result {
         case .success: access.report(.connected, id)
         case .failure(let problem): access.report(problem.accountStatus, id)
         }
-        // What widgets show catches up too.
-        accounts[id]?.refreshNow()
+        // What widgets show catches up too, without asking Anthropic again.
+        accounts[id]?.checked(result)
     }
 
     // MARK: Demand

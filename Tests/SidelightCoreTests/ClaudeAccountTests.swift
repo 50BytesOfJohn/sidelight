@@ -103,6 +103,26 @@ struct ClaudeCodeIdentityTests {
         #expect(ClaudeCodeIdentity.summary(email: "", plan: nil) == nil)
     }
 
+    @Test func `signed out is told apart from an answer that can't be read`() {
+        #expect(ClaudeCodeAuthStatus(json: Data(#"{"loggedIn": false, "authMethod": "none"}"#.utf8)) == .signedOut)
+        #expect(ClaudeCodeAuthStatus(json: Data(#"{"loggedIn": true, "authMethod": "none"}"#.utf8)) == .signedOut)
+        #expect(ClaudeCodeAuthStatus(json: Data("Not logged in".utf8)) == nil)
+        #expect(ClaudeCodeAuthStatus(json: Data(#"{"authMethod": "claude.ai"}"#.utf8)) == nil)
+    }
+
+    @Test func `only Anthropic's sign-in links are shown or opened`() throws {
+        let allowed = [
+            "https://claude.com/cai/oauth/authorize?code=true", "https://claude.ai/oauth/authorize",
+            "https://platform.claude.com/oauth/code/callback", "https://console.anthropic.com/oauth/authorize",
+        ]
+        let refused = [
+            "http://claude.com/cai/oauth/authorize", "https://claude.com.evil.example/", "https://evilclaude.com/",
+            "https://claude.com@evil.example/", "https://user@claude.com/", "file:///etc/passwd",
+        ]
+        for link in allowed { #expect(ClaudeCodeProfile.isSignInLink(try #require(URL(string: link))), "\(link)") }
+        for link in refused { #expect(!ClaudeCodeProfile.isSignInLink(try #require(URL(string: link))), "\(link)") }
+    }
+
     @Test func `nobody signed in, or an API key, is told apart`() {
         #expect(ClaudeCodeIdentity(statusJSON: Data(#"{"loggedIn": false, "authMethod": "none"}"#.utf8)) == nil)
         #expect(ClaudeCodeIdentity(statusJSON: Data("Not logged in".utf8)) == nil)
@@ -153,6 +173,18 @@ struct ClaudeAccountModelTests {
         ]
         let configuration = try AppConfiguration(json: JSONSerialization.data(withJSONObject: json))
         #expect(configuration.accounts.map(\.id.rawValue) == ["D"])
+    }
+
+    @Test func `a folder is one Claude account, however often it's saved`() throws {
+        var json = try #require(try JSONSerialization.jsonObject(with: AppConfiguration().json()) as? [String: Any])
+        json["accounts"] = [
+            ["id": "A", "provider": "claudeCode", "name": "Work", "kind": "appProfile", "folder": "/tmp/w"],
+            ["id": "B", "provider": "claudeCode", "name": "Again", "kind": "appProfile", "folder": "/tmp/w"],
+            // Another spelling is another keychain item to Claude Code, so another sign-in.
+            ["id": "C", "provider": "claudeCode", "name": "Slash", "kind": "appProfile", "folder": "/tmp/w/"],
+        ]
+        let configuration = try AppConfiguration(json: JSONSerialization.data(withJSONObject: json))
+        #expect(configuration.accounts.map(\.id.rawValue) == ["A", "C"])
     }
 
     @Test func `Claude widgets use Claude Code's own sign-in unless they name a profile`() {
@@ -230,5 +262,20 @@ struct ClaudeAccountModelTests {
         #expect(try JSONDecoder().decode(AIUsageSettings.self, from: JSONEncoder().encode(usage)) == usage)
         let odd = try JSONDecoder().decode(ClaudeCodeSettings.self, from: Data(#"{"account":42}"#.utf8))
         #expect(odd.account == nil)
+    }
+}
+
+struct ProcessEnvironmentTests {
+    @Test func `a nil value unsets the variable, and others are set or kept`() throws {
+        let strings = ProcessEnvironment.strings(changing: [
+            "PATH": nil, "SIDELIGHT_TEST": "one", "SIDELIGHT_UNSET": nil,
+        ])
+        defer { for pointer in strings { free(pointer) } }
+        #expect(strings.last == .some(nil))
+        let entries = strings.compactMap { $0.map { String(cString: $0) } }
+        #expect(entries.contains("SIDELIGHT_TEST=one"))
+        #expect(!entries.contains { $0.hasPrefix("PATH=") || $0.hasPrefix("SIDELIGHT_UNSET=") })
+        #expect(!entries.contains { $0.hasSuffix("=nil") })
+        if let home = ProcessInfo.processInfo.environment["HOME"] { #expect(entries.contains("HOME=\(home)")) }
     }
 }

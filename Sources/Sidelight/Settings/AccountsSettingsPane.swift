@@ -93,6 +93,10 @@ private struct AccountRow: View {
     @Environment(ClaudeCodeService.self) private var claude
     /// Checking the account now, as someone asked.
     @State private var isChecking = false
+    /// Signing Claude Code out before removing the account.
+    @State private var isSigningOut = false
+    /// Why signing out didn't work; the account stays until it does, or is removed without.
+    @State private var signOutProblem: String?
     @State private var isRenaming = false
     @State private var name = ""
     @State private var isReplacingKey = false
@@ -127,10 +131,7 @@ private struct AccountRow: View {
         ) {
             if let profile = accounts.claudeCodeProfile(account.id), account.kind == .appProfile {
                 Button("Remove") { remove() }
-                Button("Remove and Sign Out", role: .destructive) {
-                    remove()
-                    Task { await ClaudeCodeCLI.signOut(profile) }
-                }
+                Button("Remove and Sign Out", role: .destructive) { signOutAndRemove(profile) }
             } else {
                 Button("Remove", role: .destructive) { remove() }
             }
@@ -161,7 +162,8 @@ private struct AccountRow: View {
                     .padding(.vertical, 2)
                     .background(.quaternary, in: .capsule)
             }
-            let (color, text) = isChecking ? (Color.secondary, "Checking…") : status
+            let (color, text) =
+                isSigningOut ? (Color.secondary, "Signing out…") : isChecking ? (Color.secondary, "Checking…") : status
             StatusRow(color: color, text: text, dotSize: 6)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -217,7 +219,14 @@ private struct AccountRow: View {
                 if account.isSaved {
                     Spacer()
                     Button("Remove…", role: .destructive) { isConfirmingRemoval = true }
+                        .disabled(isSigningOut)
                 }
+            }
+            if let signOutProblem {
+                Text(signOutProblem)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if let profile, account.kind == .appProfile {
                 HStack(spacing: 6) {
@@ -281,6 +290,24 @@ private struct AccountRow: View {
     private func remove() {
         selection = nil
         accounts.remove(account.id)
+    }
+
+    /// Signs Claude Code out of the account first, and removes it only once that worked: otherwise it would leave
+    /// while still signed in.
+    private func signOutAndRemove(_ profile: ClaudeCodeProfile) {
+        signOutProblem = nil
+        isSigningOut = true
+        Task {
+            let didSignOut = await ClaudeCodeCLI.signOut(profile)
+            isSigningOut = false
+            if didSignOut {
+                remove()
+            } else {
+                signOutProblem =
+                    "Claude Code couldn't sign out of \(profile.displayPath), so \(account.name) is still here. Try "
+                    + "again, or remove it and run claude auth logout in that folder yourself."
+            }
+        }
     }
 
     private func finishRenaming() {

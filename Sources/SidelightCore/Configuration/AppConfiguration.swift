@@ -160,8 +160,15 @@ extension AppConfiguration {
         displays = try container.decode([DisplayProfile].self, forKey: .displays)
         // An account or provider only a newer version knows is left out, rather than failing the whole file.
         let accounts = container.decodeLeniently(.accounts, or: [LenientElement<Account>]()).compactMap(\.value)
+        // One account per ID, and one app profile per folder: two would be the same sign-in. Folders compare as
+        // written, as the app hashes them: two spellings are two sign-ins to it.
         self.accounts = accounts.filter(\.isWellFormed).reduce(into: []) { kept, account in
-            if !kept.contains(where: { $0.id == account.id }) { kept.append(account) }
+            let isDuplicate = kept.contains { other in
+                other.id == account.id
+                    || account.kind == .appProfile && other.kind == .appProfile && other.provider == account.provider
+                        && other.folder == account.folder
+            }
+            if !isDuplicate { kept.append(account) }
         }
         let defaults = container.decodeLeniently(.defaultAccounts, or: [String: AccountID]())
         defaultAccounts = Dictionary(

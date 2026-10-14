@@ -56,8 +56,10 @@ final class ClaudeCodeAccount: DataService {
         ClaudeCodeService.statusLineDirectory.appending(path: profile.statusLineFileName, directoryHint: .notDirectory)
     }
 
-    /// Says how the account's sign-in is doing.
-    @ObservationIgnored private let report: (AccountStatus) -> Void
+    /// Says how the account's sign-in is doing; `nil` once nothing here says.
+    @ObservationIgnored private let report: (AccountStatus?) -> Void
+    /// What ``report`` last said, so a status goes once nothing here supports it any more.
+    @ObservationIgnored private var reportedStatus: AccountStatus?
     /// Says who the account is signed in as.
     @ObservationIgnored private let identify: (String?) -> Void
     @ObservationIgnored private var isEnabled = false
@@ -67,7 +69,7 @@ final class ClaudeCodeAccount: DataService {
     @ObservationIgnored private let schedule = FetchSchedule(minimumManualGap: .seconds(30), tolerance: .seconds(10))
 
     init(
-        id: AccountID, profile: ClaudeCodeProfile, report: @escaping (AccountStatus) -> Void = { _ in },
+        id: AccountID, profile: ClaudeCodeProfile, report: @escaping (AccountStatus?) -> Void = { _ in },
         identify: @escaping (String?) -> Void = { _ in }
     ) {
         self.id = id
@@ -79,9 +81,7 @@ final class ClaudeCodeAccount: DataService {
     func start() {
         guard !isEnabled else { return }
         isEnabled = true
-        watchers = [statusLineFileURL, profile.stateFileURL].compactMap { url in
-            FileWatcher(file: url) { [weak self] in self?.scheduleReload() }
-        }
+        watchFiles()
         scheduleReload(after: .zero)
         schedule.start { [weak self] in await self?.fetchFromAnthropic() }
     }
@@ -93,11 +93,20 @@ final class ClaudeCodeAccount: DataService {
         schedule.stop()
     }
 
-    /// Reads the files again, and asks Anthropic again if someone opted in: after signing in again, say.
-    func refreshNow() {
+    /// Watches both files. A folder that doesn't exist (yet) can't be watched: it's tried again on the next check.
+    private func watchFiles() {
+        watchers = [statusLineFileURL, profile.stateFileURL].compactMap { url in
+            FileWatcher(file: url) { [weak self] in self?.scheduleReload() }
+        }
+    }
+
+    /// Takes in a check of the account: what Anthropic said, if someone opted in to asking it, so it isn't asked
+    /// again right away, and the files read again, the folder watched again if it's back.
+    func checked(_ result: Result<ClaudeCodeUsage, ClaudeCodeFetchProblem>) {
+        if refreshInterval != nil { received(result) }
+        guard isEnabled else { return }
+        if watchers.count < 2 { watchFiles() }
         scheduleReload(after: .zero)
-        schedule.reset()
-        schedule.refreshNow()
     }
 
     /// Coalesces bursts of file events into one read; a change during a read triggers another.
@@ -160,26 +169,30 @@ final class ClaudeCodeAccount: DataService {
     private func fetchFromAnthropic() async -> FetchSchedule.Outcome? {
         let result = await Self.fetchUsage(profile: profile, userAgent: AppInfo.userAgent)
         guard !Task.isCancelled else { return nil }
+        received(result)
+        return anthropicProblem == nil ? .succeeded : .failed
+    }
+
+    private func received(_ result: Result<ClaudeCodeUsage, ClaudeCodeFetchProblem>) {
         switch result {
         case .success(let usage):
             anthropicUsage = usage
             anthropicProblem = nil
-            reportSignIn()
-            return .succeeded
         case .failure(let problem):
             if problem != anthropicProblem {
                 Log.claudeCode.notice("Can't fetch Claude usage from Anthropic: \(String(describing: problem))")
             }
             anthropicProblem = problem
-            reportSignIn()
-            return .failed
         }
+        reportSignIn()
     }
 
-    /// The sign-in, as the last fetch from Anthropic found or the state file says.
+    /// The sign-in, as the last fetch from Anthropic found or the state file says. Once neither says anything, a
+    /// status said before goes, so it isn't shown signed in after signing out elsewhere.
     private func reportSignIn() {
-        guard let status = AccountStatus.claudeCode(fetched: anthropicUsage, problem: anthropicProblem, plan: plan)
-        else { return }
+        let status = AccountStatus.claudeCode(fetched: anthropicUsage, problem: anthropicProblem, plan: plan)
+        guard status != nil || reportedStatus != nil else { return }
+        reportedStatus = status
         report(status)
     }
 

@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import Sidelight
@@ -23,6 +24,23 @@ struct ClaudeCodeServiceTests {
         #expect(service.account(.claudeCodeApp) === standard)
         #expect(standard?.refreshInterval == .seconds(900))
         #expect(service.account(work) == nil)
+    }
+
+    @Test func `a check's answer from Anthropic is taken in only where someone opted in to asking`() {
+        let reported = Mutex<[AccountStatus?]>([])
+        let account = ClaudeCodeAccount(id: work, profile: workProfile) { status in
+            reported.withLock { $0.append(status) }
+        }
+        let usage = ClaudeCodeUsage(session: nil, weekly: nil, capturedAt: .now, source: .anthropic)
+        account.checked(.success(usage))
+        #expect(account.anthropicUsage == nil && reported.withLock { $0 }.isEmpty)
+
+        account.refreshInterval = .seconds(300)
+        account.checked(.success(usage))
+        #expect(account.anthropicUsage == usage)
+        account.checked(.failure(.signInExpired))
+        #expect(account.anthropicProblem == .signInExpired)
+        #expect(reported.withLock { $0 } == [.connected, .expired])
     }
 
     @Test func `each account's status line has a file of its own`() {

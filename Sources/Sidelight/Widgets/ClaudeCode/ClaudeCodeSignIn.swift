@@ -18,13 +18,14 @@ enum ClaudeCodeCLI {
             ])
     }
 
-    /// Who `profile` is signed in as; `nil` when nobody is, or Claude Code can't be asked.
-    static func identity(of profile: ClaudeCodeProfile) async -> ClaudeCodeIdentity? {
+    /// Whether, and who as, `profile` is signed in; `nil` when Claude Code can't be asked or its answer can't be
+    /// read, which says nothing about the sign-in.
+    static func authStatus(of profile: ClaudeCodeProfile) async -> ClaudeCodeAuthStatus? {
         guard let executable,
             let result = await ProcessRunner.result(
                 of: executable, arguments: ["auth", "status", "--json"], environment: profile.environment)
         else { return nil }
-        return ClaudeCodeIdentity(statusJSON: result.output)
+        return ClaudeCodeAuthStatus(json: result.output)
     }
 
     /// Signs `profile` out, which also revokes its sign-in; returns whether Claude Code says it did.
@@ -57,6 +58,8 @@ final class ClaudeCodeSignIn {
     }
 
     let profile: ClaudeCodeProfile
+    /// The profile is a new account's: its folder mustn't exist yet, so two sign-ins never share one.
+    let isNewProfile: Bool
     private(set) var phase = Phase.starting
     /// The link for signing in from another device, which ends with a code to ``submit(code:)``.
     private(set) var manualLink: URL?
@@ -79,8 +82,9 @@ final class ClaudeCodeSignIn {
         Bundle.main.url(forResource: "claude-code-sign-in-link", withExtension: "sh")
     }
 
-    init(profile: ClaudeCodeProfile) {
+    init(profile: ClaudeCodeProfile, isNewProfile: Bool = false) {
         self.profile = profile
+        self.isNewProfile = isNewProfile
     }
 
     /// Starts Claude Code's sign-in. Once it's waiting, ``phase`` has the link.
@@ -94,7 +98,10 @@ final class ClaudeCodeSignIn {
             return
         }
         do {
-            try prepareFolder()
+            guard try prepareFolder() else {
+                phase = .failed("\(profile.displayPath) is in use already. Try another name.")
+                return
+            }
             let linkFile = try watchForLink()
             var environment = profile.environment
             environment["BROWSER"] = Self.linkScriptURL?.path(percentEncoded: false) ?? "/usr/bin/true"
@@ -167,11 +174,11 @@ final class ClaudeCodeSignIn {
     }
 
     private func lookUpIdentity() async {
-        let identity = await ClaudeCodeCLI.identity(of: profile)
+        let status = await ClaudeCodeCLI.authStatus(of: profile)
         guard !Task.isCancelled else { return }
         finish()
         createdFolder = nil
-        guard let identity else {
+        guard case .signedIn(let identity) = status else {
             phase = .failed("Claude Code signed in, but doesn't say who as. Try again.")
             return
         }
@@ -207,13 +214,22 @@ final class ClaudeCodeSignIn {
 
     // MARK: Files
 
-    /// Creates the profile's folder if it's new, readable by its owner only, as Claude Code's own is.
-    private func prepareFolder() throws {
-        guard let path = profile.configDirectory, !FileManager.default.fileExists(atPath: path) else { return }
+    /// Creates the profile's folder if it's missing, readable by its owner only, as Claude Code's own is. A new
+    /// account's folder is created here or not at all, in one step: returns `false` when it exists already, which
+    /// another sign-in may be using.
+    private func prepareFolder() throws -> Bool {
+        guard let path = profile.configDirectory else { return true }
         let folder = URL(filePath: path, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(
-            at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            at: folder.deletingLastPathComponent(), withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        // `mkdir` fails rather than reuse a folder that appeared meanwhile.
+        guard mkdir(path, 0o700) == 0 else {
+            guard errno == EEXIST else { throw CocoaError(.fileWriteUnknown) }
+            return !isNewProfile
+        }
         createdFolder = folder
+        return true
     }
 
     private func removeCreatedFolder() {
@@ -242,10 +258,10 @@ final class ClaudeCodeSignIn {
         phase = .waiting(link: link)
     }
 
-    /// An `https` link at the start of `text`; nothing else is opened or shown.
+    /// A sign-in link on Anthropic's sites at the start of `text`; nothing else is opened or shown.
     private static func link(in text: Substring) -> URL? {
         let candidate = text.prefix { !$0.isWhitespace }
-        guard let url = URL(string: String(candidate)), url.scheme == "https", url.host() != nil else { return nil }
+        guard let url = URL(string: String(candidate)), ClaudeCodeProfile.isSignInLink(url) else { return nil }
         return url
     }
 }

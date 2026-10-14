@@ -162,7 +162,7 @@ struct ClaudeAccountSheet: View {
     private func startSignIn() {
         guard canSignIn, signIn == nil else { return }
         problem = nil
-        let signIn = ClaudeCodeSignIn(profile: profile)
+        let signIn = ClaudeCodeSignIn(profile: profile, isNewProfile: purpose == .add)
         self.signIn = signIn
         signIn.start()
     }
@@ -223,8 +223,12 @@ struct ClaudeAccountSheet: View {
         isCheckingFolder = true
         Task {
             defer { isCheckingFolder = false }
-            guard let identity = await ClaudeCodeCLI.identity(of: folder) else {
-                problem = "Claude Code isn't signed in in \(folder.displayPath). Sign in to add it instead."
+            let status = await ClaudeCodeCLI.authStatus(of: folder)
+            guard case .signedIn(let identity) = status else {
+                problem =
+                    status == nil
+                    ? "Claude Code didn't say who's signed in in \(folder.displayPath). Try again."
+                    : "Claude Code isn't signed in in \(folder.displayPath). Sign in to add it instead."
                 return
             }
             guard identity.hasPlan else {
