@@ -14,8 +14,9 @@ public enum Keychain {
     }
 }
 
-/// A secret someone typed into Sidelight (an API token, a management key), kept in their login keychain as a generic
-/// password of Sidelight's own rather than in `config.json`. Every call runs off the main actor.
+/// A secret someone typed into Sidelight (an account's API token or management key), kept in their login keychain as
+/// a generic password of Sidelight's own rather than in `config.json`. Every call runs off the main actor. Only the
+/// account layer uses these: ``AccountSecrets`` in the app.
 public struct KeychainItem: Hashable, Sendable {
     public let service: String
     public let account: String
@@ -34,13 +35,6 @@ public struct KeychainItem: Hashable, Sendable {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-    }
-
-    /// The saved secret; `nil` when there's none, or it can't be read.
-    @concurrent
-    public func read() async -> String? {
-        if case .found(let secret) = await lookUp() { return secret }
-        return nil
     }
 
     /// What the keychain says it holds: the secret, nothing, or that it couldn't be asked (it's locked, say), so

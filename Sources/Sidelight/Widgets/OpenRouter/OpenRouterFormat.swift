@@ -16,7 +16,6 @@ extension OpenRouterProblem {
         case .unreadable: "Unexpected answer from OpenRouter"
         case .tooLarge: "Unexpectedly large answer"
         case .unreachable: "Can't reach OpenRouter"
-        case .keychain: "Couldn't use the keychain"
         }
     }
 
@@ -46,8 +45,6 @@ extension OpenRouterProblem {
             "The answer was larger than OpenRouter's catalogue ever is, so it wasn't read."
         case .unreachable:
             "Check your connection. Sidelight tries again in a while."
-        case .keychain:
-            "Sidelight couldn't save the key in your keychain."
         }
     }
 

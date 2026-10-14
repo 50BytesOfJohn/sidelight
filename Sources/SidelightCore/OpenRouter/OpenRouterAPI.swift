@@ -24,8 +24,6 @@ public enum OpenRouterProblem: Error, Equatable, Sendable {
     case tooLarge
     /// No answer at all: offline, or OpenRouter can't be reached.
     case unreachable
-    /// Saving to or reading from the keychain failed.
-    case keychain
 }
 
 /// OpenRouter's HTTP API: building requests, and reading answers into Sidelight's types. Network calls happen
@@ -196,7 +194,7 @@ public enum OpenRouterAPI {
         case .unreachable, .unreadable, .tooLarge:
             .backoff
         // A deleted key doesn't come back: asking again daily would only cost requests.
-        case .noKey, .invalidKey, .notPermitted, .notManagementKey, .keyNotFound, .badRequest, .keychain:
+        case .noKey, .invalidKey, .notPermitted, .notManagementKey, .keyNotFound, .badRequest:
             .onRequest
         }
     }
