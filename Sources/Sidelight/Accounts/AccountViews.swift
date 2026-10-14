@@ -70,7 +70,7 @@ extension AccountProvider {
         switch self {
         case .openRouter: "Replace its key in Settings, under Accounts."
         case .railway: "Run railway login, or add a token in Settings, under Accounts."
-        case .claudeCode: "Run claude and sign in."
+        case .claudeCode: "Sign in again in Settings, under Accounts, or run claude and sign in."
         case .codex: "Run codex and sign in."
         case .cursor: "Open Cursor and sign in."
         }
@@ -92,6 +92,22 @@ extension AccountStatus {
         case .needsSignIn: "Needs sign-in"
         case .expired: "Sign-in expired"
         case .failed(let message): message
+        }
+    }
+}
+
+/// Adds an account at `provider`, the way it takes them: a key typed in, or a sign-in its app keeps. The same sheet
+/// in Settings and in the widgets' settings.
+struct AddAccountSheet: View {
+    let provider: AccountProvider
+    /// Called with the account once it's added.
+    var completion: (Account) -> Void = { _ in }
+
+    var body: some View {
+        if provider.acceptsAppProfiles {
+            ClaudeAccountSheet(purpose: .add, completion: completion)
+        } else {
+            AccountKeySheet(purpose: .add(provider), completion: completion)
         }
     }
 }
@@ -269,7 +285,7 @@ struct AccountPicker: View {
             }
         }
         .sheet(isPresented: $isAdding) {
-            AccountKeySheet(purpose: .add(provider))
+            AddAccountSheet(provider: provider)
         }
     }
 
@@ -298,11 +314,14 @@ enum AccountNotice: Equatable {
     case signIn(Account)
 
     /// What `accounts` says about a widget at `provider` naming `reference`; `nil` when it can show the account's
-    /// data.
-    init?(_ reference: AccountID?, at provider: AccountProvider, in accounts: AccountStore) {
+    /// data. Unless `requiresSignIn`, an account that needs signing in again still shows what it has.
+    init?(
+        _ reference: AccountID?, at provider: AccountProvider, in accounts: AccountStore, requiresSignIn: Bool = true
+    ) {
         switch accounts.resolve(reference, at: provider) {
         case .account(let id):
-            guard accounts.status(of: id)?.needsSignIn == true, let account = accounts.account(id) else { return nil }
+            guard requiresSignIn, accounts.status(of: id)?.needsSignIn == true, let account = accounts.account(id)
+            else { return nil }
             self = .signIn(account)
         case .notFound: self = .chooseAccount(isMissing: true)
         case .chooseAccount: self = .chooseAccount(isMissing: false)
@@ -318,13 +337,16 @@ struct AccountGate<Content: View>: View {
     let reference: AccountID?
     let provider: AccountProvider
     let layout: WidgetLayout
+    /// Whether the content needs the account signed in. Content that has more to show (what Claude Code saved, say)
+    /// says so itself.
+    var requiresSignIn = true
     @ViewBuilder let content: (AccountID) -> Content
     @Environment(AccountStore.self) private var accounts
     @Environment(SettingsNavigator.self) private var navigator
     @Environment(\.widgetPlacement) private var placement
 
     var body: some View {
-        if let notice = AccountNotice(reference, at: provider, in: accounts) {
+        if let notice = AccountNotice(reference, at: provider, in: accounts, requiresSignIn: requiresSignIn) {
             message(notice)
         } else if let id = accounts.resolve(reference, at: provider).accountID {
             content(id)
@@ -353,7 +375,7 @@ struct AccountGate<Content: View>: View {
         case .signIn(let account):
             WidgetMessage(
                 title: "\(account.name) needs you to sign in again.",
-                detail: account.kind == .appSignIn ? provider.signInAdvice : nil,
+                detail: account.kind == .key ? nil : provider.signInAdvice,
                 systemImage: "person.crop.circle.badge.exclamationmark", layout: layout,
                 action: action("Open Accounts") { navigator.showAccounts(provider) })
         }

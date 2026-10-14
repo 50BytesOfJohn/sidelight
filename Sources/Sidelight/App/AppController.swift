@@ -138,8 +138,9 @@ final class AppController {
     /// window (which previews every widget) is open, or while the builder previews it. Panels hidden with the
     /// shortcut show nothing, so they need nothing; nor do panels nobody has seen for a minute, on a sleeping or
     /// locked screen, nor a panel the details panel has stood in for a few seconds. Codex, Claude Code and Cursor are
-    /// each needed by their own widget and by an AI Usage widget showing them; they run once for all of them, and
-    /// fetch on a timer only as often as the most frequent of those that opted in asks. The details panel needs only
+    /// each needed by their own widget and by an AI Usage widget showing them; they run once for all of them (Claude
+    /// Code once for each account), and fetch on a timer only as often as the most frequent of those that opted in
+    /// asks. The details panel needs only
     /// what it shows, while it can be seen: it's watched on its own, as the panel it covers is ordered out on
     /// purpose. A composition limited to some kinds of widget runs only their services, whatever is shown or
     /// previewed.
@@ -200,7 +201,7 @@ final class AppController {
         // opted in. One that isn't needed stops and keeps its interval and last fetch, so showing its widget again
         // doesn't ask sooner than the interval.
         if usage.providers.contains(.claudeCode) {
-            environment.claudeCode.refreshInterval = usage.claudeCodeRefreshMinutes.map { .seconds($0 * 60) }
+            environment.claudeCode.demand = demand.claudeCode
         }
         if usage.providers.contains(.cursor) {
             environment.cursor.refreshInterval = usage.cursorRefreshMinutes.map { .seconds($0 * 60) }

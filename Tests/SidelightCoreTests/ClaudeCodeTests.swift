@@ -254,7 +254,7 @@ struct ClaudeCodeSettingsTests {
 
     @Test func `the shortest opted-in interval wins`() {
         var configuration = AppConfiguration()
-        #expect(configuration.claudeCodeRefreshMinutes == nil)
+        #expect(configuration.claudeCodeDemand(of: configuration.widgets).isEmpty)
         configuration.sections = [
             PanelSection(widgets: [
                 WidgetInstance(
@@ -267,6 +267,8 @@ struct ClaudeCodeSettingsTests {
                     settings: .claudeCode(ClaudeCodeSettings(refreshesFromAnthropic: true, refreshMinutes: 5)))
             ]),
         ]
-        #expect(configuration.claudeCodeRefreshMinutes == 5)
+        #expect(
+            configuration.claudeCodeDemand(of: configuration.widgets)
+                == [.claudeCodeApp: ClaudeCodeNeeds(profile: .standard, refreshMinutes: 5)])
     }
 }

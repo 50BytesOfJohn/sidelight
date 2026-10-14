@@ -120,6 +120,40 @@ struct AccountStoreTests {
         #expect(try await keyring.secret(for: work.id) == nil)
     }
 
+    @Test func `app profiles are saved with their folder, once each, and never touch the keychain`() async throws {
+        var secrets = AccountSecrets.memory()
+        secrets.save = { _, _ in
+            Issue.record("An app profile saved a secret")
+            return false
+        }
+        secrets.delete = { _ in
+            Issue.record("An app profile deleted a secret")
+            return false
+        }
+        let (accounts, _, configuration) = store(secrets)
+        let work = accounts.addAppProfile(at: .claudeCode, name: " Work ", folder: "/tmp/claude-work")
+        #expect(work.name == "Work" && work.kind == .appProfile && work.folder == "/tmp/claude-work")
+        #expect(accounts.addAppProfile(at: .claudeCode, name: "Again", folder: "/tmp/claude-work") == work)
+        #expect(accounts.appProfile(at: .claudeCode, inFolder: "/tmp/claude-work") == work)
+        #expect(accounts.claudeCodeProfile(work.id) == ClaudeCodeProfile(configDirectory: "/tmp/claude-work"))
+        // The default comes first.
+        #expect(accounts.accounts(of: .claudeCode).map(\.name) == ["Claude Code", "Work"])
+        accounts.makeDefault(work.id)
+        #expect(accounts.accounts(of: .claudeCode).map(\.name) == ["Work", "Claude Code"])
+        accounts.makeDefault(.claudeCodeApp)
+        // Claude Code's own sign-in stays the default.
+        #expect(accounts.resolve(nil, at: .claudeCode) == .account(.claudeCodeApp))
+        #expect(await !accounts.replaceSecret(of: work.id, with: "nope"))
+
+        accounts.report(.connected, for: work.id)
+        accounts.identify("work@example.com · Max", for: work.id)
+        #expect(accounts.identity(of: work.id) == "work@example.com · Max")
+        accounts.remove(work.id)
+        #expect(accounts.status(of: work.id) == nil && accounts.identity(of: work.id) == nil)
+        #expect(configuration.configuration.accounts.isEmpty)
+        try await Task.sleep(for: .milliseconds(50))
+    }
+
     @Test func `a key is read from the keychain once`() async throws {
         let lookUps = Mutex(0)
         var secrets = AccountSecrets.memory([AccountID(rawValue: "A"): "secret"])

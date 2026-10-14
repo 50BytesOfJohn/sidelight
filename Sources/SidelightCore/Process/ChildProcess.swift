@@ -23,8 +23,12 @@ public final class ChildProcess: Sendable {
     private let standardOutput: FileHandle
     private let exitSource: any DispatchSourceProcess
 
-    /// Spawns `executable` with `arguments`. stderr goes to `/dev/null`.
-    public init(executable: URL, arguments: [String]) throws(SpawnError) {
+    /// Spawns `executable` with `arguments`, and our environment changed by `environment`: a `nil` value unsets the
+    /// variable. stderr goes to `/dev/null`, or into ``lines`` with stdout when `mergesStandardError`, for a tool
+    /// that explains a failure there.
+    public init(
+        executable: URL, arguments: [String], environment: [String: String?] = [:], mergesStandardError: Bool = false
+    ) throws(SpawnError) {
         var inputPipe: [Int32] = [-1, -1]
         var outputPipe: [Int32] = [-1, -1]
         guard pipe(&inputPipe) == 0 else { throw .pipeCreationFailed(errno: errno) }
@@ -39,7 +43,7 @@ public final class ChildProcess: Sendable {
         posix_spawn_file_actions_init(&fileActions)
         posix_spawn_file_actions_adddup2(&fileActions, inputPipe[0], STDIN_FILENO)
         posix_spawn_file_actions_adddup2(&fileActions, outputPipe[1], STDOUT_FILENO)
-        posix_spawn_file_actions_adddup2(&fileActions, devNull, STDERR_FILENO)
+        posix_spawn_file_actions_adddup2(&fileActions, mergesStandardError ? outputPipe[1] : devNull, STDERR_FILENO)
 
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
@@ -49,14 +53,15 @@ public final class ChildProcess: Sendable {
 
         let path = executable.path(percentEncoded: false)
         let argv: [UnsafeMutablePointer<CChar>?] = ([path] + arguments).map { strdup($0) } + [nil]
+        let envp = ProcessEnvironment.strings(changing: environment)
         defer {
-            for pointer in argv { free(pointer) }
+            for pointer in argv + envp { free(pointer) }
             posix_spawn_file_actions_destroy(&fileActions)
             posix_spawnattr_destroy(&attributes)
         }
 
         var pid: pid_t = 0
-        let result = posix_spawn(&pid, path, &fileActions, &attributes, argv, environ)
+        let result = posix_spawn(&pid, path, &fileActions, &attributes, argv, envp)
         close(inputPipe[0])
         close(outputPipe[1])
         if devNull >= 0 { close(devNull) }
@@ -124,5 +129,16 @@ public final class ChildProcess: Sendable {
         guard let descriptor else { return }
         close(descriptor)
         killpg(processIdentifier, SIGTERM)
+    }
+}
+
+/// The environment a tool is started with.
+enum ProcessEnvironment {
+    /// Ours, changed by `changes` (a `nil` value unsets the variable), as `posix_spawn` takes it: each string to be
+    /// freed, then a `nil`.
+    static func strings(changing changes: [String: String?]) -> [UnsafeMutablePointer<CChar>?] {
+        var environment = ProcessInfo.processInfo.environment
+        for (name, value) in changes { environment[name] = value }
+        return environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
     }
 }

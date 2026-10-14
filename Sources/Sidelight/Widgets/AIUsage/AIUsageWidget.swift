@@ -103,9 +103,11 @@ struct AIUsageSettingsEditor: View {
         case .codex:
             CodexSourceStatus()
         case .claudeCode:
+            AccountPicker(provider: .claudeCode, selection: $settings.claudeAccount)
             AnthropicRefreshSettings(
-                isOn: $settings.refreshesClaudeFromAnthropic, minutes: $settings.claudeRefreshMinutes)
-            StatusLineSetup()
+                account: settings.claudeAccount, isOn: $settings.refreshesClaudeFromAnthropic,
+                minutes: $settings.claudeRefreshMinutes)
+            StatusLineSetup(account: settings.claudeAccount)
         case .cursor:
             CursorFetchSettings(isOn: $settings.refreshesCursor, minutes: $settings.cursorRefreshMinutes)
         }
@@ -130,6 +132,7 @@ struct AIUsageWidgetView: View {
     @Environment(CodexService.self) private var codex
     @Environment(ClaudeCodeService.self) private var claude
     @Environment(CursorService.self) private var cursor
+    @Environment(AccountStore.self) private var accounts
 
     var body: some View {
         // Countdowns, the time tick, windows resetting and data ageing all move on with the clock.
@@ -145,15 +148,28 @@ struct AIUsageWidgetView: View {
             case .codex:
                 .codex(codex.state, plan: codex.state.plan.flatMap(UsageFormat.planTitle), now: now)
             case .claudeCode:
-                .claudeCode(
-                    usage: claude.usage, plan: claude.plan, hasLoaded: claude.hasLoaded,
-                    anthropicProblem: claude.anthropicProblem, now: now)
+                claudeSummary(at: now)
             case .cursor:
                 .cursor(
                     isConnected: settings.refreshesCursor, usage: cursor.usage, problem: cursor.problem,
                     isStale: cursor.isStale(at: now), now: now)
             }
         }
+    }
+}
+
+extension AIUsageWidgetView {
+    /// The widget's Claude account; a reference to one that's gone says so rather than showing another.
+    private func claudeSummary(at now: Date) -> AIUsageSummary {
+        guard case .account(let id) = accounts.resolve(settings.claudeAccount, at: .claudeCode) else {
+            return AIUsageSummary(
+                provider: .claudeCode,
+                status: .setup(title: "Claude account not found", detail: "Choose one in this widget's settings."))
+        }
+        let account = claude.account(id)
+        return .claudeCode(
+            usage: account?.usage, plan: account?.plan, hasLoaded: account?.hasLoaded ?? false,
+            anthropicProblem: account?.anthropicProblem, now: now)
     }
 }
 

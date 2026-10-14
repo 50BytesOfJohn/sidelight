@@ -38,7 +38,8 @@ struct HandEditedConfigurationTests {
             return
         }
         #expect(settings.refreshMinutes == UsageRefresh.minuteRange.upperBound)
-        #expect(edited.claudeCodeRefreshMinutes.map { Duration.seconds($0 * 60) } != nil)
+        let minutes = edited.claudeCodeDemand(of: edited.widgets)[.claudeCodeApp]?.refreshMinutes
+        #expect(minutes.map { Duration.seconds($0 * 60) } != nil)
     }
 
     @Test(arguments: ["clock", "codex", "claudeCode", "cursor", "aiUsage", "calendar", "system", "railway"])

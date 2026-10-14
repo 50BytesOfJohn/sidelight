@@ -248,13 +248,19 @@ public struct ClaudeCodeSettings: Codable, Hashable, Sendable {
     /// What the settings editor offers for ``refreshMinutes``.
     public static let refreshMinuteChoices = [2, 5, 15, 30]
 
+    /// The Claude account shown; `nil` for the default one.
+    public var account: AccountID?
     public var showsWeeklyLimit = true
     /// Ask Anthropic for the plan's usage every ``refreshMinutes``, signed in as Claude Code is. Off by default:
     /// it reads Claude Code's sign-in from the keychain and calls an undocumented endpoint.
     public var refreshesFromAnthropic = false
     public var refreshMinutes = 5
 
-    public init(showsWeeklyLimit: Bool = true, refreshesFromAnthropic: Bool = false, refreshMinutes: Int = 5) {
+    public init(
+        account: AccountID? = nil, showsWeeklyLimit: Bool = true, refreshesFromAnthropic: Bool = false,
+        refreshMinutes: Int = 5
+    ) {
+        self.account = account
         self.showsWeeklyLimit = showsWeeklyLimit
         self.refreshesFromAnthropic = refreshesFromAnthropic
         self.refreshMinutes = refreshMinutes
@@ -264,6 +270,7 @@ public struct ClaudeCodeSettings: Codable, Hashable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = ClaudeCodeSettings()
+        account = container.decodeLeniently(.account, or: defaults.account)
         showsWeeklyLimit =
             try container.decode(.showsWeeklyLimit, or: defaults.showsWeeklyLimit)
         refreshesFromAnthropic =
@@ -320,6 +327,8 @@ public struct AIUsageSettings: Codable, Hashable, Sendable {
     public var reading = UsageReading.used
     /// Each agent's other limits next to the one closest to running out, in the regular and compact layouts.
     public var showsOtherLimits = true
+    /// The Claude account shown; `nil` for the default one.
+    public var claudeAccount: AccountID?
     /// Ask Anthropic for Claude usage every ``claudeRefreshMinutes``; see ``ClaudeCodeSettings/refreshesFromAnthropic``.
     public var refreshesClaudeFromAnthropic = false
     public var claudeRefreshMinutes = 5
@@ -330,12 +339,13 @@ public struct AIUsageSettings: Codable, Hashable, Sendable {
 
     public init(
         providers: some Sequence<AIUsageProvider> = AIUsageProvider.allCases, reading: UsageReading = .used,
-        showsOtherLimits: Bool = true, refreshesClaudeFromAnthropic: Bool = false, claudeRefreshMinutes: Int = 5,
-        refreshesCursor: Bool = false, cursorRefreshMinutes: Int = 15
+        showsOtherLimits: Bool = true, claudeAccount: AccountID? = nil, refreshesClaudeFromAnthropic: Bool = false,
+        claudeRefreshMinutes: Int = 5, refreshesCursor: Bool = false, cursorRefreshMinutes: Int = 15
     ) {
         self.providers = Self.ordered(providers)
         self.reading = reading
         self.showsOtherLimits = showsOtherLimits
+        self.claudeAccount = claudeAccount
         self.refreshesClaudeFromAnthropic = refreshesClaudeFromAnthropic
         self.claudeRefreshMinutes = claudeRefreshMinutes
         self.refreshesCursor = refreshesCursor
@@ -353,6 +363,7 @@ public struct AIUsageSettings: Codable, Hashable, Sendable {
         reading = container.decodeLeniently(.reading, or: defaults.reading)
         showsOtherLimits =
             try container.decode(.showsOtherLimits, or: defaults.showsOtherLimits)
+        claudeAccount = container.decodeLeniently(.claudeAccount, or: defaults.claudeAccount)
         refreshesClaudeFromAnthropic =
             try container.decode(.refreshesClaudeFromAnthropic, or: defaults.refreshesClaudeFromAnthropic)
         claudeRefreshMinutes = try container.decode(.claudeRefreshMinutes, or: defaults.claudeRefreshMinutes).clamped(

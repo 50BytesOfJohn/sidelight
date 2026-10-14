@@ -29,6 +29,18 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
         }
     }
 
+    /// Whether its app keeps more accounts signed in, each in a folder of its own, that Sidelight can add as app
+    /// profiles.
+    public var acceptsAppProfiles: Bool {
+        switch self {
+        case .claudeCode: true
+        case .openRouter, .railway, .codex, .cursor: false
+        }
+    }
+
+    /// Whether someone can add accounts here, of either kind.
+    public var canAddAccounts: Bool { acceptsKeys || acceptsAppProfiles }
+
     /// The sign-in another app or CLI owns, which Sidelight only reads; `nil` for a provider without one.
     public var appSignIn: Account? {
         switch self {
@@ -47,6 +59,9 @@ public enum AccountKind: String, Codable, Sendable {
     case key
     /// Another app's or CLI's own sign-in, which Sidelight only reads. Never saved in `config.json`.
     case appSignIn
+    /// Another of the app's sign-ins, which it keeps in a folder of its own (Claude Code's `CLAUDE_CONFIG_DIR`).
+    /// Sidelight saves the folder, not the sign-in: the app signs in and keeps it, and Sidelight only reads it.
+    case appProfile
 }
 
 /// Which account something uses. Key accounts have a UUID; app sign-ins a fixed ID for their provider, like
@@ -71,7 +86,7 @@ public struct AccountID: RawRepresentable, Codable, Hashable, Comparable, Sendab
 
     public static func < (lhs: AccountID, rhs: AccountID) -> Bool { lhs.rawValue < rhs.rawValue }
 
-    /// A new key account's ID.
+    /// A new ID for an account saved in `config.json`.
     public static func newKey() -> AccountID {
         AccountID(rawValue: UUID().uuidString)
     }
@@ -86,20 +101,41 @@ public struct AccountID: RawRepresentable, Codable, Hashable, Comparable, Sendab
 public struct Account: Codable, Hashable, Identifiable, Sendable {
     public let id: AccountID
     public let provider: AccountProvider
-    /// What Sidelight calls it, to tell accounts apart. Someone can rename a key account.
+    /// What Sidelight calls it, to tell accounts apart. Someone can rename the accounts saved in `config.json`.
     public var name: String
     public let kind: AccountKind
+    /// Where an app profile's app keeps its sign-in, exactly as the app is given it; `nil` for other kinds.
+    public let folder: String?
 
-    public init(id: AccountID, provider: AccountProvider, name: String, kind: AccountKind) {
+    public init(id: AccountID, provider: AccountProvider, name: String, kind: AccountKind, folder: String? = nil) {
         self.id = id
         self.provider = provider
         self.name = name
         self.kind = kind
+        self.folder = folder
     }
 
     /// A new key account at `provider`.
     public static func key(_ provider: AccountProvider, name: String) -> Account {
         Account(id: .newKey(), provider: provider, name: name, kind: .key)
+    }
+
+    /// A new app profile at `provider`, signed in to in `folder`.
+    public static func appProfile(_ provider: AccountProvider, name: String, folder: String) -> Account {
+        Account(id: .newKey(), provider: provider, name: name, kind: .appProfile, folder: folder)
+    }
+
+    /// Whether it's saved in `config.json`, where someone can rename and remove it: a key account or an app profile.
+    public var isSaved: Bool { kind != .appSignIn }
+
+    /// Whether `config.json` can hold it: a key account, or an app profile with a folder at a provider that has them.
+    /// App sign-ins are found, never saved.
+    var isWellFormed: Bool {
+        switch kind {
+        case .key: true
+        case .appProfile: provider.acceptsAppProfiles && folder?.isEmpty == false
+        case .appSignIn: false
+        }
     }
 }
 
@@ -139,23 +175,24 @@ public enum AccountResolution: Hashable, Sendable {
 }
 
 extension AppConfiguration {
-    /// The key accounts at `provider`, in the order they were added.
-    public func keyAccounts(of provider: AccountProvider) -> [Account] {
+    /// The accounts saved at `provider` (key accounts and app profiles), in the order they were added.
+    public func savedAccounts(of provider: AccountProvider) -> [Account] {
         accounts.filter { $0.provider == provider }
     }
 
-    /// The key account `id`, or the app sign-in it names; `nil` when there's none.
+    /// The saved account `id`, or the app sign-in it names; `nil` when there's none.
     public func account(_ id: AccountID) -> Account? {
         accounts.first { $0.id == id }
             ?? AccountProvider.allCases.lazy.compactMap(\.appSignIn).first { $0.id == id }
     }
 
     /// The account a widget at `provider` uses when it names none: the default someone chose; for Railway without
-    /// one, the Railway CLI while it's signed in; otherwise the provider's only key account; and a provider whose
-    /// only account is an app sign-in uses that. `signedIn` holds the app sign-ins signed in now.
+    /// one, the Railway CLI while it's signed in; otherwise the provider's only key account; and a provider that
+    /// takes no keys uses its app sign-in, whatever app profiles it has. `signedIn` holds the app sign-ins signed in
+    /// now.
     public func defaultAccount(for provider: AccountProvider, signedIn: Set<AccountID> = []) -> AccountResolution {
         if let id = defaultAccounts[provider], exists(id, at: provider) { return .account(id) }
-        let keys = keyAccounts(of: provider)
+        let keys = savedAccounts(of: provider)
         if let signIn = provider.appSignIn?.id {
             if provider == .railway, signedIn.contains(signIn) { return .account(signIn) }
             if !provider.acceptsKeys { return .account(signIn) }
@@ -176,15 +213,15 @@ extension AppConfiguration {
         return exists(reference, at: provider) ? .account(reference) : .notFound(reference)
     }
 
-    /// Whether `id` is one of `provider`'s key accounts or its app sign-in.
+    /// Whether `id` is one of `provider`'s saved accounts or its app sign-in.
     private func exists(_ id: AccountID, at provider: AccountProvider) -> Bool {
         provider.appSignIn?.id == id || accounts.contains { $0.id == id && $0.provider == provider }
     }
 
-    /// A name for another key account at `provider`: `OpenRouter`, then `OpenRouter 2` and so on, one no account
-    /// there has yet.
+    /// A name for another account at `provider`: `OpenRouter`, then `OpenRouter 2` and so on, one no account there
+    /// has yet, its app sign-in included.
     public func suggestedAccountName(for provider: AccountProvider) -> String {
-        let names = Set(keyAccounts(of: provider).map(\.name))
+        let names = Set((savedAccounts(of: provider) + [provider.appSignIn].compactMap(\.self)).map(\.name))
         guard names.contains(provider.title) else { return provider.title }
         var number = 2
         while names.contains("\(provider.title) \(number)") { number += 1 }
@@ -197,13 +234,7 @@ extension AppConfiguration {
 extension AppConfiguration {
     /// How many widgets (counting each Balance block) name `id`.
     public func references(to id: AccountID) -> Int {
-        widgets.reduce(0) { count, widget in
-            switch widget.settings {
-            case .openRouter(let settings): count + settings.allBalances.count { $0.options.account == id }
-            case .railway(let settings): count + (settings.account == id ? 1 : 0)
-            default: count
-            }
-        }
+        widgets.reduce(0) { count, widget in count + widget.settings.accountReferences.count { $0.account == id } }
     }
 
     /// How many widgets (counting each Balance block) use `id`: those that name it, and if it's its provider's default,
@@ -212,48 +243,74 @@ extension AppConfiguration {
         guard let provider = account(id)?.provider else { return references(to: id) }
         let usesDefault = defaultAccount(for: provider, signedIn: signedIn) == .account(id)
         return widgets.reduce(0) { count, widget in
-            switch widget.settings {
-            case .openRouter(let settings) where provider == .openRouter:
-                count
-                    + settings.allBalances.count {
-                        $0.options.account == id || usesDefault && $0.options.account == nil
-                    }
-            case .railway(let settings) where provider == .railway:
-                count + (settings.account == id || usesDefault && settings.account == nil ? 1 : 0)
-            default: count
-            }
+            count
+                + widget.settings.accountReferences.count { reference in
+                    reference.provider == provider
+                        && (reference.account == id || usesDefault && reference.account == nil)
+                }
         }
     }
 
     /// Widgets and blocks that name `id` use their provider's default account instead.
     public mutating func forgetReferences(to id: AccountID) {
         for widget in widgets {
-            switch widget.settings {
-            case .openRouter(var settings):
-                var changed = false
-                for (block, var options) in settings.allBalances where options.account == id {
-                    options.account = nil
-                    settings.setBalanceOptions(options, for: block)
-                    changed = true
-                }
-                if changed { updateWidget(widget.id) { $0.settings = .openRouter(settings) } }
-            case .railway(var settings) where settings.account == id:
-                settings.account = nil
-                updateWidget(widget.id) { $0.settings = .railway(settings) }
-            default:
-                break
-            }
+            var settings = widget.settings
+            if settings.forgetAccount(id) { updateWidget(widget.id) { $0.settings = settings } }
         }
     }
 
-    /// Removes the key account `id`, and the widgets that named it use the default. If it was the default and
+    /// Removes the saved account `id`, and the widgets that named it use the default. If it was the default and
     /// several accounts are left, the first of them is the default now, so widgets keep showing one.
     public mutating func removeAccount(_ id: AccountID) {
         accounts.removeAll { $0.id == id }
         for (provider, account) in defaultAccounts where account == id {
-            let left = keyAccounts(of: provider)
-            defaultAccounts[provider] = left.count > 1 ? left[0].id : nil
+            let left = savedAccounts(of: provider)
+            // A provider that takes no keys goes back to its app sign-in.
+            defaultAccounts[provider] = provider.acceptsKeys && left.count > 1 ? left[0].id : nil
         }
         forgetReferences(to: id)
+    }
+}
+
+extension WidgetSettings {
+    /// Each account reference the widget saves, one per block that shows an account: `nil` for its provider's
+    /// default. A reference to a provider the widget doesn't show right now (Claude in an AI Usage widget showing
+    /// only Codex) isn't counted.
+    public var accountReferences: [(provider: AccountProvider, account: AccountID?)] {
+        switch self {
+        case .openRouter(let settings): settings.allBalances.map { (.openRouter, $0.options.account) }
+        case .railway(let settings): [(.railway, settings.account)]
+        case .claudeCode(let settings): [(.claudeCode, settings.account)]
+        case .aiUsage(let settings): settings.includes(.claudeCode) ? [(.claudeCode, settings.claudeAccount)] : []
+        case .clock, .codex, .cursor, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system,
+            .noodleComputer, .agentSessions:
+            []
+        }
+    }
+
+    /// Every reference to `id` names none instead, so its provider's default is used; returns whether one did.
+    public mutating func forgetAccount(_ id: AccountID) -> Bool {
+        switch self {
+        case .openRouter(var settings):
+            let named = settings.allBalances.filter { $0.options.account == id }
+            for (block, var options) in named {
+                options.account = nil
+                settings.setBalanceOptions(options, for: block)
+            }
+            self = .openRouter(settings)
+            return !named.isEmpty
+        case .railway(var settings) where settings.account == id:
+            settings.account = nil
+            self = .railway(settings)
+        case .claudeCode(var settings) where settings.account == id:
+            settings.account = nil
+            self = .claudeCode(settings)
+        case .aiUsage(var settings) where settings.claudeAccount == id:
+            settings.claudeAccount = nil
+            self = .aiUsage(settings)
+        default:
+            return false
+        }
+        return true
     }
 }

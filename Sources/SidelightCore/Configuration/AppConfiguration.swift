@@ -23,8 +23,8 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public var sections: [PanelSection] = [PanelSection(widgets: AppConfiguration.defaultWidgets)]
     /// Per-display overrides of ``panel``.
     public var displays: [DisplayProfile] = []
-    /// The key accounts someone added, each provider's in the order they were added. App sign-ins aren't saved:
-    /// Sidelight finds them, under their fixed IDs.
+    /// The accounts someone added (key accounts and app profiles), each provider's in the order they were added.
+    /// App sign-ins aren't saved: Sidelight finds them, under their fixed IDs.
     public var accounts: [Account] = []
     /// The account each provider's widgets use when they name none.
     public var defaultAccounts: [AccountProvider: AccountID] = [:]
@@ -35,10 +35,6 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public func visibleWidgets(at position: PanelPosition) -> [WidgetInstance] {
         widgets.filter { $0.isVisible(at: position) }
     }
-
-    /// How often to ask Anthropic for Claude usage: the shortest interval of any widget that opted in, in minutes;
-    /// `nil` when none did.
-    public var claudeCodeRefreshMinutes: Int? { UsageServiceDemand(widgets: widgets).claudeCodeRefreshMinutes }
 
     /// How often to ask Cursor for its usage: the shortest interval of any widget that opted in, in minutes; `nil`
     /// when none did.
@@ -69,16 +65,62 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         guard !previewsEveryWidget else {
             var usage = UsageServiceDemand(widgets: widgets)
             usage.providers = Set(AIUsageProvider.allCases)
+            // The gallery previews each kind on its default account.
+            var claudeCode = claudeCodeDemand(of: widgets, signedIn: signedIn)
+            if let id = defaultAccount(for: .claudeCode, signedIn: signedIn).accountID,
+                let profile = claudeCodeProfile(id)
+            {
+                claudeCode[id] = claudeCode[id] ?? ClaudeCodeNeeds(profile: profile)
+            }
             return ServiceDemand(
                 kinds: Set(WidgetKind.allCases), placedKinds: placed, usage: usage,
-                railway: railwayDemand(of: widgets, signedIn: signedIn), sessions: Set(AgentProvider.allCases))
+                railway: railwayDemand(of: widgets, signedIn: signedIn), claudeCode: claudeCode,
+                sessions: Set(AgentProvider.allCases))
         }
         let shown = Set(visibleWidgets(at: positions).map(\.id)).union(previewing)
         let visible = widgets.filter { shown.contains($0.id) }
         return ServiceDemand(
             kinds: Set(visible.map(\.kind)), placedKinds: placed, usage: UsageServiceDemand(widgets: visible),
             railway: railwayDemand(of: visible, signedIn: signedIn),
+            claudeCode: claudeCodeDemand(of: visible, signedIn: signedIn),
             sessions: ServiceDemand.sessionProviders(of: visible))
+    }
+
+    /// What the widgets among `widgets` that show Claude usage need, merged for each Claude account they use: where
+    /// Claude Code keeps it, and how often to ask Anthropic, the shortest interval of those that opted in.
+    public func claudeCodeDemand(
+        of widgets: some Sequence<WidgetInstance>, signedIn: Set<AccountID> = []
+    ) -> [AccountID: ClaudeCodeNeeds] {
+        var demand: [AccountID: ClaudeCodeNeeds] = [:]
+        for widget in widgets {
+            let (reference, minutes): (AccountID?, Int?)
+            switch widget.settings {
+            case .claudeCode(let settings):
+                (reference, minutes) = (
+                    settings.account, settings.refreshesFromAnthropic ? settings.refreshMinutes : nil
+                )
+            case .aiUsage(let settings) where settings.includes(.claudeCode):
+                (reference, minutes) = (settings.claudeAccount, settings.claudeRefreshMinutesIfOptedIn)
+            default:
+                continue
+            }
+            guard let id = resolveAccount(reference, at: .claudeCode, signedIn: signedIn).accountID,
+                let profile = claudeCodeProfile(id)
+            else { continue }
+            let needs = ClaudeCodeNeeds(profile: profile, refreshMinutes: minutes)
+            demand[id] = demand[id].map { $0.merged(with: needs) } ?? needs
+        }
+        return demand
+    }
+
+    /// Where Claude Code keeps the Claude account `id`: its default folder for its app sign-in, or the folder an app
+    /// profile was added with. `nil` for any other account.
+    public func claudeCodeProfile(_ id: AccountID) -> ClaudeCodeProfile? {
+        if id == .claudeCodeApp { return .standard }
+        guard let account = accounts.first(where: { $0.id == id }), account.provider == .claudeCode,
+            account.kind == .appProfile, let folder = account.folder
+        else { return nil }
+        return ClaudeCodeProfile(configDirectory: folder)
     }
 
     /// What the Railway widgets among `widgets` need, merged for each account they use. Widgets without an account
@@ -118,7 +160,7 @@ extension AppConfiguration {
         displays = try container.decode([DisplayProfile].self, forKey: .displays)
         // An account or provider only a newer version knows is left out, rather than failing the whole file.
         let accounts = container.decodeLeniently(.accounts, or: [LenientElement<Account>]()).compactMap(\.value)
-        self.accounts = accounts.filter { $0.kind == .key }.reduce(into: []) { kept, account in
+        self.accounts = accounts.filter(\.isWellFormed).reduce(into: []) { kept, account in
             if !kept.contains(where: { $0.id == account.id }) { kept.append(account) }
         }
         let defaults = container.decodeLeniently(.defaultAccounts, or: [String: AccountID]())
@@ -151,18 +193,22 @@ public struct ServiceDemand: Equatable, Sendable {
     /// while the Widgets window previews every kind: Sidelight doesn't read the Railway CLI's sign-in until a
     /// Railway widget is added.
     public var railway: RailwayDemand
+    /// What widgets showing Claude usage need, by the Claude account they use.
+    public var claudeCode: [AccountID: ClaudeCodeNeeds]
     /// The agents whose sessions are listed: each session service runs once for its own widget and every Agent
     /// sessions widget showing that agent.
     public var sessions: Set<AgentProvider>
 
     public init(
         kinds: Set<WidgetKind>, placedKinds: Set<WidgetKind>? = nil, usage: UsageServiceDemand,
-        railway: RailwayDemand = RailwayDemand(), sessions: Set<AgentProvider>? = nil
+        railway: RailwayDemand = RailwayDemand(), claudeCode: [AccountID: ClaudeCodeNeeds] = [:],
+        sessions: Set<AgentProvider>? = nil
     ) {
         self.kinds = kinds
         self.placedKinds = placedKinds ?? kinds
         self.usage = usage
         self.railway = railway
+        self.claudeCode = claudeCode
         self.sessions = sessions ?? Self.sessionProviders(of: kinds)
     }
 
@@ -192,6 +238,7 @@ public struct ServiceDemand: Equatable, Sendable {
             return kinds.contains(.agentSessions) || (kind.map { kinds.contains($0) } ?? false)
         }
         if !kinds.contains(.railway) { demand.railway = RailwayDemand() }
+        if !demand.usage.providers.contains(.claudeCode) { demand.claudeCode = [:] }
         return demand
     }
 
@@ -220,45 +267,56 @@ public struct ServiceDemand: Equatable, Sendable {
 
 /// What the Codex, Claude Code and Cursor services have to do for a set of widgets: each runs while its own widget
 /// or an AI Usage widget showing it is among them, and fetches on a timer only for widgets among them that opted
-/// in, as often as the most frequent one asks. One service serves every widget; none runs twice.
+/// in, as often as the most frequent one asks. One service serves every widget; none runs twice. Claude Code fetches
+/// for each account on its own (see ``ServiceDemand/claudeCode``).
 public struct UsageServiceDemand: Equatable, Sendable {
     public var providers: Set<AIUsageProvider> = []
-    /// `nil` when no widget opted in to fetching from Anthropic.
-    public var claudeCodeRefreshMinutes: Int?
     /// `nil` when no widget opted in to fetching from Cursor.
     public var cursorRefreshMinutes: Int?
 
-    public init(
-        providers: Set<AIUsageProvider> = [], claudeCodeRefreshMinutes: Int? = nil, cursorRefreshMinutes: Int? = nil
-    ) {
+    public init(providers: Set<AIUsageProvider> = [], cursorRefreshMinutes: Int? = nil) {
         self.providers = providers
-        self.claudeCodeRefreshMinutes = claudeCodeRefreshMinutes
         self.cursorRefreshMinutes = cursorRefreshMinutes
     }
 
     public init(widgets: some Sequence<WidgetInstance>) {
-        var claudeMinutes: [Int] = []
         var cursorMinutes: [Int] = []
         for widget in widgets {
             switch widget.settings {
             case .codex:
                 providers.insert(.codex)
-            case .claudeCode(let settings):
+            case .claudeCode:
                 providers.insert(.claudeCode)
-                if settings.refreshesFromAnthropic { claudeMinutes.append(settings.refreshMinutes) }
             case .cursor(let settings):
                 providers.insert(.cursor)
                 if settings.refreshesFromCursor { cursorMinutes.append(settings.refreshMinutes) }
             case .aiUsage(let settings):
                 providers.formUnion(settings.providers)
-                claudeMinutes += [settings.claudeRefreshMinutesIfOptedIn].compactMap(\.self)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
             case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway,
                 .agentSessions, .openRouter:
                 break
             }
         }
-        claudeCodeRefreshMinutes = claudeMinutes.min()
         cursorRefreshMinutes = cursorMinutes.min()
+    }
+}
+
+/// What widgets showing Claude usage need from one Claude account: where Claude Code keeps it, and how often to ask
+/// Anthropic for its usage, `nil` when none of them opted in.
+public struct ClaudeCodeNeeds: Equatable, Sendable {
+    public var profile: ClaudeCodeProfile
+    public var refreshMinutes: Int?
+
+    public init(profile: ClaudeCodeProfile, refreshMinutes: Int? = nil) {
+        self.profile = profile
+        self.refreshMinutes = refreshMinutes
+    }
+
+    /// Both widgets' needs: the more frequent interval asked for.
+    public func merged(with other: ClaudeCodeNeeds) -> ClaudeCodeNeeds {
+        var merged = self
+        merged.refreshMinutes = [refreshMinutes, other.refreshMinutes].compactMap(\.self).min()
+        return merged
     }
 }

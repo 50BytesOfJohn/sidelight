@@ -35,13 +35,16 @@ public enum ProcessRunner {
     /// Runs `executable` to completion and returns everything it printed, for tools that explain a failure on
     /// standard error. Cancelling the task terminates the tool, so one waiting on something (such as a question to
     /// the person) doesn't outlive the reason it ran; one that ignores that is killed ``killDelay`` later. `nil` if
-    /// it couldn't be started or was cancelled first.
-    public static func result(of executable: URL, arguments: [String]) async -> Result? {
+    /// it couldn't be started or was cancelled first. `environment` changes ours for the tool: a `nil` value unsets
+    /// the variable.
+    public static func result(
+        of executable: URL, arguments: [String], environment: [String: String?] = [:]
+    ) async -> Result? {
         let running = RunningTool()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
-                    guard let pipes = running.launch(executable, arguments: arguments) else {
+                    guard let pipes = running.launch(executable, arguments: arguments, environment: environment) else {
                         continuation.resume(returning: nil)
                         return
                     }
@@ -80,9 +83,13 @@ private final class RunningTool: Sendable {
     private let state = Mutex(State())
 
     /// Starts the tool unless cancelled already, returning the read ends of its standard output and error.
-    func launch(_ executable: URL, arguments: [String]) -> (output: FileHandle, error: FileHandle)? {
+    func launch(
+        _ executable: URL, arguments: [String], environment: [String: String?]
+    ) -> (output: FileHandle, error: FileHandle)? {
         state.withLock { state in
-            guard !state.isCancelled, let (pid, output, error) = Self.spawn(executable, arguments: arguments) else {
+            guard !state.isCancelled,
+                let (pid, output, error) = Self.spawn(executable, arguments: arguments, environment: environment)
+            else {
                 return nil
             }
             state.pid = pid
@@ -125,9 +132,11 @@ private final class RunningTool: Sendable {
         }
     }
 
-    /// Spawns `executable` with standard input from `/dev/null`, our environment and default signal handling, and
-    /// no descriptors of ours beyond the three standard ones.
-    private static func spawn(_ executable: URL, arguments: [String]) -> (pid_t, FileHandle, FileHandle)? {
+    /// Spawns `executable` with standard input from `/dev/null`, our environment changed by `environment`, default
+    /// signal handling, and no descriptors of ours beyond the three standard ones.
+    private static func spawn(
+        _ executable: URL, arguments: [String], environment: [String: String?]
+    ) -> (pid_t, FileHandle, FileHandle)? {
         var outputPipe: [Int32] = [-1, -1]
         var errorPipe: [Int32] = [-1, -1]
         guard pipe(&outputPipe) == 0 else { return nil }
@@ -156,14 +165,15 @@ private final class RunningTool: Sendable {
 
         let path = executable.path(percentEncoded: false)
         let argv: [UnsafeMutablePointer<CChar>?] = ([path] + arguments).map { strdup($0) } + [nil]
+        let envp = ProcessEnvironment.strings(changing: environment)
         defer {
-            for pointer in argv { free(pointer) }
+            for pointer in argv + envp { free(pointer) }
             posix_spawn_file_actions_destroy(&fileActions)
             posix_spawnattr_destroy(&attributes)
         }
 
         var pid: pid_t = 0
-        let result = posix_spawn(&pid, path, &fileActions, &attributes, argv, environ)
+        let result = posix_spawn(&pid, path, &fileActions, &attributes, argv, envp)
         close(outputPipe[1])
         close(errorPipe[1])
         guard result == 0 else {

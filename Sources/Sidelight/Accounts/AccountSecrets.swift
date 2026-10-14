@@ -151,17 +151,21 @@ struct AccountAccess {
     var report: (AccountStatus?, AccountID) -> Void
     /// Says whether an app sign-in's app was found, and whether it's signed in.
     var reportAppSignIn: (_ id: AccountID, _ isFound: Bool, _ isSignedIn: Bool) -> Void
+    /// Says who an account is signed in as, like `me@example.com · Max`; `nil` once that isn't known.
+    var reportIdentity: (String?, AccountID) -> Void
 
     init(
         secret: @escaping (AccountID) async throws(KeychainUnavailable) -> String?,
         observeChanges: @escaping (@escaping (AccountID) -> Void) -> Void = { _ in },
         report: @escaping (AccountStatus?, AccountID) -> Void = { _, _ in },
-        reportAppSignIn: @escaping (AccountID, Bool, Bool) -> Void = { _, _, _ in }
+        reportAppSignIn: @escaping (AccountID, Bool, Bool) -> Void = { _, _, _ in },
+        reportIdentity: @escaping (String?, AccountID) -> Void = { _, _ in }
     ) {
         self.secret = secret
         self.observeChanges = observeChanges
         self.report = report
         self.reportAppSignIn = reportAppSignIn
+        self.reportIdentity = reportIdentity
     }
 
     init(keyring: AccountKeyring, accounts: AccountStore) {
@@ -171,6 +175,7 @@ struct AccountAccess {
             report: { [weak accounts] status, id in accounts?.report(status, for: id) },
             reportAppSignIn: { [weak accounts] id, isFound, isSignedIn in
                 accounts?.appSignIn(id, isFound: isFound, isSignedIn: isSignedIn)
-            })
+            },
+            reportIdentity: { [weak accounts] identity, id in accounts?.identify(identity, for: id) })
     }
 }

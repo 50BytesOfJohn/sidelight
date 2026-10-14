@@ -25,7 +25,7 @@ On first launch macOS asks for **Accessibility** access (needed to move other ap
 | Widget               | Needs                                                                 |
 | -------------------- | --------------------------------------------------------------------- |
 | Codex                | `codex` CLI (`brew install codex`); falls back to `~/.codex/sessions` |
-| Claude Code          | Pro or Max plan; live limits via its status line (widget settings)    |
+| Claude Code          | Pro or Max plan; live limits via its status line (widget settings); more accounts sign in through Claude Code in Settings › Accounts |
 | Cursor               | Signed-in Cursor app or `cursor-agent`; turn on fetching (settings)   |
 | AI Usage             | What each agent it shows needs (above), set up in its own settings    |
 | Now playing          | `brew install ungive/media-control/media-control`                     |
@@ -60,7 +60,7 @@ Sources/
     Imaging/              Image-effect patterns (Bayer dither, ASCII ramp), desktop-picture crop geometry
     Avoidance/            Window-avoidance geometry (pure functions)
     Codex/                codex app-server JSON-RPC session, rollout-file parser, usage models
-    ClaudeCode/           Claude plan limits from the status line, ~/.claude.json and the opt-in usage endpoint
+    ClaudeCode/           Claude plan limits per account (each a Claude Code folder) and signing accounts in through Claude Code
     ClaudeSessions/       Claude Code's live session registry, transcript titles, links back into a session
     AgentSessions/        One session shape for every agent, so one widget lists them together
     Cursor/               Cursor's included-usage pools from its dashboard endpoint (opt-in), sign-in, chat list

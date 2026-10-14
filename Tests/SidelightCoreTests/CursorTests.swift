@@ -335,6 +335,6 @@ struct CursorSettingsTests {
             ]),
         ]
         #expect(configuration.cursorRefreshMinutes == 15)
-        #expect(configuration.claudeCodeRefreshMinutes == 2)
+        #expect(configuration.claudeCodeDemand(of: configuration.widgets)[.claudeCodeApp]?.refreshMinutes == 2)
     }
 }

@@ -20,7 +20,7 @@ final class SettingsNavigator {
     }
 
     func showAccounts(_ provider: AccountProvider? = nil, adding: Bool = false) {
-        request = Request(provider: provider, adding: adding && provider?.acceptsKeys == true)
+        request = Request(provider: provider, adding: adding && provider?.canAddAccounts == true)
         showSettings()
     }
 }
