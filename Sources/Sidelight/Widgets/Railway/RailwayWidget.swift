@@ -99,6 +99,7 @@ struct RailwayWidgetView: View {
     @Environment(RailwayService.self) private var service
     @Environment(AccountStore.self) private var accounts
     @Environment(SettingsNavigator.self) private var navigator
+    @Environment(\.widgetPlacement) private var placement
     @Environment(\.isWidgetPreview) private var isPreview
 
     var body: some View {
@@ -132,7 +133,8 @@ struct RailwayWidgetView: View {
                 layout: layout,
                 now: Railway.Snapshot.sample.fetchedAt, footnote: nil)
         } else if let message = AccountMessage(
-            resolution, provider: .railway, accounts: accounts, navigator: navigator, layout: layout)
+            resolution, provider: .railway, accounts: accounts, navigator: navigator,
+            widget: placement?.widgetID, layout: layout)
         {
             message
         } else if let connection, let problem = connection.problem {

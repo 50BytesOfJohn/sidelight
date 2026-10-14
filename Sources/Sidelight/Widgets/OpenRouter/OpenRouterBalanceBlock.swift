@@ -18,6 +18,7 @@ struct OpenRouterBalanceBlock: View {
     let now: Date
     @Environment(AccountStore.self) private var accounts
     @Environment(SettingsNavigator.self) private var navigator
+    @Environment(\.widgetPlacement) private var placement
 
     var body: some View {
         switch source {
@@ -30,7 +31,8 @@ struct OpenRouterBalanceBlock: View {
                 now: now, isExample: true, refresh: nil)
         case .account(let resolution, let account):
             if let message = AccountMessage(
-                resolution, provider: .openRouter, accounts: accounts, navigator: navigator, layout: layout)
+                resolution, provider: .openRouter, accounts: accounts, navigator: navigator,
+                widget: placement?.widgetID, layout: layout)
             {
                 message
             } else if let account {

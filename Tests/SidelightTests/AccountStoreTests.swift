@@ -135,4 +135,35 @@ struct AccountStoreTests {
         #expect(await keyring.secret(for: AccountID(rawValue: "B")) == nil)
         #expect(lookUps.withLock { $0 } == 2)
     }
+
+    @Test func `widgets say why they show no account's data, and nothing otherwise`() async throws {
+        let (accounts, _, _) = store()
+        let navigator = SettingsNavigator()
+        func title(_ resolution: AccountResolution) -> String? {
+            AccountMessage(
+                resolution, provider: .openRouter, accounts: accounts, navigator: navigator, widget: UUID(),
+                layout: .regular)?.message.title
+        }
+        #expect(title(.noAccount) == "Add an account to see OpenRouter data.")
+        #expect(title(.notFound(.newKey())) == "Account not found.")
+        let work = try #require(await accounts.add(at: .openRouter, name: "Work", secret: "key"))
+        #expect(title(.account(work.id)) == nil)
+        accounts.report(.failed("Can't reach OpenRouter"), for: work.id)
+        #expect(title(.account(work.id)) == nil)
+        accounts.report(.expired, for: work.id)
+        #expect(title(.account(work.id)) == "Work needs you to sign in again.")
+        accounts.isMovingLegacySecrets = true
+        #expect(title(.noAccount) == "Loading accounts…")
+    }
+
+    @Test func `asking for a provider's accounts opens Settings there`() {
+        let navigator = SettingsNavigator()
+        var shown = 0
+        navigator.showSettings = { shown += 1 }
+        navigator.showAccounts(.railway, adding: true)
+        #expect(navigator.request == .init(provider: .railway, adding: true) && shown == 1)
+        // Nothing to add at a provider whose app owns its sign-in.
+        navigator.showAccounts(.codex, adding: true)
+        #expect(navigator.request == .init(provider: .codex, adding: false))
+    }
 }

@@ -280,21 +280,28 @@ struct AccountPicker: View {
 }
 
 /// What a widget shows in place of an account's data when it has no account to use, the one it names is gone, or the
-/// account needs signing in again. `nil` from ``init(_:provider:accounts:navigator:layout:)`` when there's nothing to
-/// say: the widget shows the account's data.
+/// account needs signing in again. `nil` from ``init(_:provider:accounts:navigator:widget:layout:)`` when there's
+/// nothing to say: the widget shows the account's data.
 struct AccountMessage: View {
     let message: WidgetMessage
 
     var body: some View { message }
 
-    /// The message for a widget at `provider` whose account resolved to `resolution`.
+    /// The message for the widget `widget` at `provider`, whose account resolved to `resolution`. Choosing an account
+    /// opens the widget's settings, where its account is chosen; without a widget, Settings' Accounts pane.
     init?(
         _ resolution: AccountResolution, provider: AccountProvider, accounts: AccountStore,
-        navigator: SettingsNavigator, layout: WidgetLayout
+        navigator: SettingsNavigator, widget: WidgetInstance.ID?, layout: WidgetLayout
     ) {
         func action(_ title: String, adding: Bool = false) -> WidgetMessage.Action {
             WidgetMessage.Action(title: title, runsOnGlanceClick: true) {
                 navigator.showAccounts(provider, adding: adding)
+            }
+        }
+        func choose() -> WidgetMessage.Action {
+            guard let widget else { return action("Choose Account") }
+            return WidgetMessage.Action(title: "Choose Account", runsOnGlanceClick: true) {
+                navigator.showWidgetSettings(widget)
             }
         }
         switch resolution {
@@ -311,12 +318,11 @@ struct AccountMessage: View {
             message = WidgetMessage(
                 title: "Account not found.",
                 detail: "It may have been removed. Choose another in this widget's settings.",
-                systemImage: "person.crop.circle.badge.questionmark", layout: layout,
-                action: action("Choose Account"))
+                systemImage: "person.crop.circle.badge.questionmark", layout: layout, action: choose())
         case .chooseAccount:
             message = WidgetMessage(
                 title: "Choose an account to see \(provider.title) data.", systemImage: "person.2", layout: layout,
-                action: action("Choose Account"))
+                action: choose())
         case .noAccount:
             if accounts.isMovingLegacySecrets {
                 message = WidgetMessage(title: "Loading accounts…", systemImage: "hourglass", layout: layout)
@@ -338,6 +344,8 @@ final class SettingsNavigator {
     var request: Request?
     /// Brings the Settings window to the front.
     @ObservationIgnored var showSettings: () -> Void = {}
+    /// Opens a widget's settings, where its accounts are chosen.
+    @ObservationIgnored var showWidgetSettings: (WidgetInstance.ID) -> Void = { _ in }
 
     struct Request: Equatable {
         /// The provider to show; `nil` for the top of the pane.

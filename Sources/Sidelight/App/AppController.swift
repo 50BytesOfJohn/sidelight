@@ -62,6 +62,11 @@ final class AppController {
             keepsOldSecrets: composition.keepsLegacySecrets)
         windows = WindowCoordinator(environment: environment)
         environment.settingsNavigator.showSettings = { [windows] in windows.show(.settings) }
+        environment.settingsNavigator.showWidgetSettings = { [windows, environment] id in
+            guard let widget = environment.configurationStore.configuration.widgets.first(where: { $0.id == id })
+            else { return }
+            windows.showBuilder(for: id, title: "\(widget.kind.metadata.title) Builder")
+        }
         panels = PanelCoordinator(environment: environment)
     }
 
