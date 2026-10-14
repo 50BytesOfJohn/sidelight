@@ -59,41 +59,32 @@ public struct OpenRouterSpendChartSettings: Codable, Hashable, Sendable {
     }
 }
 
-/// Whose OpenRouter account something reads: the management key every OpenRouter widget shares, or one saved for a
-/// single Balance block, for another account.
-public enum OpenRouterAccountID: Hashable, Sendable {
-    case shared
-    /// The key saved for the Balance block `block` of the widget `widget`. Keyed by both, since a preset's block has
-    /// the same ID in every widget.
-    case own(widget: UUID, block: UUID)
-}
-
 /// What a Balance block shows: an account's balance, and optionally what it spent day by day.
 public struct OpenRouterBalanceOptions: Codable, Hashable, Sendable {
     /// Shown above the balance, to tell accounts apart; `nil` for the default label.
     public var title: String?
-    /// Reads another account with a key saved for this block alone, rather than the shared key.
-    public var usesOwnKey = false
+    /// The OpenRouter account it reads; `nil` for the default account.
+    public var account: AccountID?
     public var chart = OpenRouterSpendChartSettings()
 
-    public init(title: String? = nil, usesOwnKey: Bool = false, chart: OpenRouterSpendChartSettings = .init()) {
+    public init(title: String? = nil, account: AccountID? = nil, chart: OpenRouterSpendChartSettings = .init()) {
         self.title = title
-        self.usesOwnKey = usesOwnKey
+        self.account = account
         self.chart = chart
     }
 
-    /// Missing options take their defaults.
+    /// Missing options take their defaults. Whether the block used its own key, as versions before accounts saved
+    /// it, is read where the widget's ID is known (``OpenRouterSettings/migrateOwnKeys(_:widget:)``).
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = OpenRouterBalanceOptions()
         title = try container.decodeIfPresent(String.self, forKey: .title).flatMap { $0.isEmpty ? nil : $0 }
-        usesOwnKey = try container.decode(.usesOwnKey, or: defaults.usesOwnKey)
+        account = container.decodeLeniently(.account, or: nil)
         chart = try container.decode(.chart, or: defaults.chart)
     }
 
-    /// The account this block reads, as the block `block` of the widget `widget`.
-    public func account(widget: UUID, block: UUID) -> OpenRouterAccountID {
-        usesOwnKey ? .own(widget: widget, block: block) : .shared
+    private enum CodingKeys: String, CodingKey {
+        case title, account, chart
     }
 }
 
@@ -465,6 +456,18 @@ public struct OpenRouterSettings: Codable, Hashable, Sendable {
         }
     }
 
+    /// The Balance blocks that used their own key, as versions before accounts saved it (`usesOwnKey`), now name
+    /// the account that key becomes. Their accounts are added once the key is moved to them; a block whose key isn't
+    /// there goes back to the default account.
+    mutating func migrateOwnKeys(_ legacy: LegacyOpenRouterSettings, widget: UUID) {
+        for (key, options) in legacy.balances where options.usesOwnKey == true {
+            guard let block = UUID(uuidString: key), var current = balances[block.uuidString], current.account == nil
+            else { continue }
+            current.account = .migratedOpenRouterKey(widget: widget, block: block)
+            balances[block.uuidString] = current
+        }
+    }
+
     // MARK: Lists
 
     /// A Model list block's options.
@@ -574,6 +577,20 @@ public struct OpenRouterSettings: Codable, Hashable, Sendable {
 }
 
 // MARK: - Demand
+
+/// Whose OpenRouter key something reads, until the service moves to accounts: the shared key, or a Balance block's
+/// own.
+public enum OpenRouterAccountID: Hashable, Sendable {
+    case shared
+    case own(widget: UUID, block: UUID)
+}
+
+extension OpenRouterBalanceOptions {
+    /// The key this block reads, as the block `block` of the widget `widget`.
+    public func account(widget: UUID, block: UUID) -> OpenRouterAccountID {
+        account == .migratedOpenRouterKey(widget: widget, block: block) ? .own(widget: widget, block: block) : .shared
+    }
+}
 
 /// What the widgets on screen need fetched with one account's key.
 public struct OpenRouterAccountDemand: Equatable, Sendable {

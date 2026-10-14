@@ -200,4 +200,35 @@ struct ConfigurationStoreTests {
         store.flush()
         #expect(try AppConfiguration(json: Data(contentsOf: file)).windowAvoidance == .off)
     }
+
+    @Test func `a configuration from before accounts keeps every widget, with the old file kept aside once`() throws {
+        var configuration = AppConfiguration()
+        configuration.sections[0].widgets.append(WidgetInstance(settings: .railway(RailwaySettings())))
+        var json = try #require(try JSONSerialization.jsonObject(with: configuration.json()) as? [String: Any])
+        json["accounts"] = nil
+        json["defaultAccounts"] = nil
+        var sections = try #require(json["sections"] as? [[String: Any]])
+        var widgets = try #require(sections[0]["widgets"] as? [[String: Any]])
+        widgets[widgets.count - 1]["settings"] = ["account": "token"]
+        sections[0]["widgets"] = widgets
+        json["sections"] = sections
+        let legacy = try JSONSerialization.data(withJSONObject: json)
+        try legacy.write(to: file)
+
+        let store = ConfigurationStore(fileURL: file)
+        #expect(store.configuration.widgets.map(\.id) == configuration.widgets.map(\.id))
+        guard case .railway(let railway) = store.configuration.widgets.last?.settings else {
+            Issue.record("The Railway widget is gone")
+            return
+        }
+        #expect(railway.account == .migratedRailwayToken)
+        store.configuration.windowAvoidance = .off
+        store.flush()
+        #expect(backups(prefix: "config.unsupported-").count == 1)
+        #expect(try backups(prefix: "config.unsupported-").first.map { try Data(contentsOf: $0) } == legacy)
+        #expect(try AppConfiguration(json: Data(contentsOf: file)).widgets == store.configuration.widgets)
+        store.configuration.windowAvoidance = .clip
+        store.flush()
+        #expect(backups(prefix: "config.unsupported-").count == 1)
+    }
 }

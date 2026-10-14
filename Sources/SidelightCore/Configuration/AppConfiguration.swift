@@ -202,7 +202,8 @@ public struct ServiceDemand: Equatable, Sendable {
         var needs: [RailwayAccountChoice: RailwayNeeds] = [:]
         for widget in widgets {
             guard case .railway(let settings) = widget.settings else { continue }
-            needs[settings.account] = needs[settings.account].map { $0.merged(with: settings.needs) } ?? settings.needs
+            let choice = RailwayAccountChoice(settings.account)
+            needs[choice] = needs[choice].map { $0.merged(with: settings.needs) } ?? settings.needs
         }
         return needs
     }

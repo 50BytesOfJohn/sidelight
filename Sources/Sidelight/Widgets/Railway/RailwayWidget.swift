@@ -99,7 +99,7 @@ struct RailwayWidgetView: View {
     @Environment(RailwayService.self) private var service
 
     var body: some View {
-        let connection = service.connection(for: settings.account)
+        let connection = service.connection(for: RailwayAccountChoice(settings.account))
         WidgetClock { now in
             content(connection, now: now)
         }

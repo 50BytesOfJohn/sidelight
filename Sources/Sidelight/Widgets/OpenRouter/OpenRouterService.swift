@@ -161,7 +161,7 @@ final class OpenRouterService: DataService {
     /// added yet, so it reads the same accounts. Done before it's added, so its accounts never find no key.
     func copyOwnKeys(of widget: WidgetInstance, to copy: WidgetInstance.ID) async {
         guard case .openRouter(let settings) = widget.settings else { return }
-        for (id, options) in settings.allBalances where options.usesOwnKey {
+        for (id, options) in settings.allBalances where options.account(widget: widget.id, block: id) != .shared {
             guard let key = await ownAccounts[.own(widget: widget.id, block: id)]?.key() else { continue }
             if await !keys.store(.own(widget: copy, block: id)).save(key) {
                 Log.openRouter.error("Couldn't copy a Balance block's own OpenRouter key to a duplicated widget")

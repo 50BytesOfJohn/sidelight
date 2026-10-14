@@ -564,8 +564,9 @@ extension OpenRouterServiceTests {
     @Test func `a duplicated widget gets its blocks own keys before it is added`() async {
         var settings = OpenRouterSettings(preset: .credits)
         let block = OpenRouterPreset.balanceID
-        settings.setBalanceOptions(.init(usesOwnKey: true), for: block)
-        let widget = WidgetInstance(settings: .openRouter(settings))
+        let widgetID = UUID()
+        settings.setBalanceOptions(.init(account: .migratedOpenRouterKey(widget: widgetID, block: block)), for: block)
+        let widget = WidgetInstance(id: widgetID, settings: .openRouter(settings))
         let own = OpenRouterAccountID.own(widget: widget.id, block: block)
         let keys = OpenRouterMemoryKeyring([own: "own-key"])
         let service = OpenRouterService(transport: { _ in throw URLError(.notConnectedToInternet) }, keys: keys.keyring)

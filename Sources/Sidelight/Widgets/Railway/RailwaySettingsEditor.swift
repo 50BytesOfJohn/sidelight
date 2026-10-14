@@ -117,14 +117,14 @@ struct RailwayWidgetOptions: View {
     @Environment(RailwayService.self) private var service
 
     var body: some View {
-        let connection = service.connection(for: settings.account)
-        Picker(selection: $settings.account) {
+        let connection = service.connection(for: RailwayAccountChoice(settings.account))
+        Picker(selection: accountChoice) {
             ForEach(RailwayAccountChoice.allCases) { Text($0.title).tag($0) }
         } label: {
             InfoLabel("Sign in with", info: accountCaption)
         }
         signInStatus(connection)
-        if service.resolved(settings.account) == .token || service.hasToken {
+        if service.resolved(RailwayAccountChoice(settings.account)) == .token || service.hasToken {
             RailwayTokenField()
         }
         Picker("Workspace", selection: workspace(connection)) {
@@ -174,7 +174,7 @@ struct RailwayWidgetOptions: View {
             let via = connection.source == .cli ? "Railway CLI" : "API token"
             return ("Signed in\(who) with the \(via)", .green)
         }
-        switch service.resolved(settings.account) {
+        switch service.resolved(RailwayAccountChoice(settings.account)) {
         case .cli:
             if service.cliExecutable == nil && !service.cliIsSignedIn { return ("Railway CLI not found", .secondary) }
             return service.cliIsSignedIn ? ("Railway CLI signed in", .blue) : ("Railway CLI not signed in", .orange)
@@ -184,7 +184,7 @@ struct RailwayWidgetOptions: View {
     }
 
     private var accountCaption: String {
-        switch settings.account {
+        switch RailwayAccountChoice(settings.account) {
         case .automatic:
             "Uses the Railway CLI's sign-in (railway login) when it has one, otherwise a token saved here. The CLI renews "
                 + "its sign-in itself; Sidelight only reads it."
@@ -205,6 +205,18 @@ struct RailwayWidgetOptions: View {
                 + "rate limit. The bill refreshes every 15 minutes." + (share ?? "")
         }
         return "The bill refreshes every 15 minutes, or at this pace if slower." + (share ?? "")
+    }
+
+    private var accountChoice: Binding<RailwayAccountChoice> {
+        Binding {
+            RailwayAccountChoice(settings.account)
+        } set: { choice in
+            switch choice {
+            case .automatic: settings.account = nil
+            case .cli: settings.account = .railwayCLI
+            case .token: settings.account = .migratedRailwayToken
+            }
+        }
     }
 
     // MARK: Scope
@@ -385,7 +397,7 @@ private struct RailwayServiceBlockEditor: View {
 
     /// The widget's services, and the chosen one even when Railway can't be asked right now.
     private var choices: [Choice] {
-        let connection = service.connection(for: settings.account)
+        let connection = service.connection(for: RailwayAccountChoice(settings.account))
         let rows = connection.snapshot.flatMap { RailwayOverview(snapshot: $0, settings: settings) }?.rows ?? []
         let showsProject = Set(rows.map(\.projectID)).count > 1
         var choices = rows.sorted { ($0.projectName, $0.name) < ($1.projectName, $1.name) }.map { row in

@@ -59,7 +59,7 @@ struct OpenRouterBalanceBlock: View {
     }
 
     private var addKeyDetail: String {
-        options.usesOwnKey
+        options.account != nil
             ? "This Balance block reads another account: add its key in the block's options, in the widget's builder."
             : "Add it in the widget's builder, under Widget. Model lists need no key."
     }

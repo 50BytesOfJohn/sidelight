@@ -334,7 +334,7 @@ struct RailwayTests {
              "blockOptions": {"services": {"order": "random", "maximumRows": 99}}}
             """
         let settings = try JSONDecoder().decode(RailwaySettings.self, from: Data(json.utf8))
-        #expect(settings.account == .automatic)
+        #expect(settings.account == AccountID(rawValue: "carrierPigeon"))
         #expect(settings.glance == .health)
         #expect(settings.refreshMinutes == 1)
         #expect(settings.blocks.shownBlocks == [.services])
@@ -343,7 +343,7 @@ struct RailwayTests {
     }
 
     @Test func `a Railway widget round-trips through the configuration`() throws {
-        var settings = RailwaySettings(account: .token, refreshMinutes: 5)
+        var settings = RailwaySettings(account: .newKey(), refreshMinutes: 5)
         settings.projectID = "p1"
         settings.environmentName = "staging"
         settings.blocks = BlockLayout(shown: [.usage, .services])
@@ -372,7 +372,8 @@ struct RailwayTests {
         var first = RailwaySettings(refreshMinutes: 5, blocks: BlockLayout(shown: [.services]))
         first.workspaceID = "ws1"
         let second = RailwaySettings(refreshMinutes: nil, blocks: BlockLayout(shown: [.usage]))
-        let third = RailwaySettings(account: .token, refreshMinutes: 15, blocks: BlockLayout(shown: [.incidents]))
+        let third = RailwaySettings(
+            account: .migratedRailwayToken, refreshMinutes: 15, blocks: BlockLayout(shown: [.incidents]))
         let needs = ServiceDemand.railwayNeeds(
             of: [first, second, third].map { WidgetInstance(settings: .railway($0)) } + [WidgetInstance(kind: .clock)])
 

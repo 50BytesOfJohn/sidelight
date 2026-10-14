@@ -10,7 +10,7 @@ struct OpenRouterConfigurationTests {
 
     @Test func `new widgets and details use approved defaults`() throws {
         let balance = try decode(OpenRouterBalanceOptions.self, "{}")
-        #expect(!balance.usesOwnKey && balance.title == nil)
+        #expect(balance.account == nil && balance.title == nil)
         #expect(balance.chart.isShown && balance.chart.days == 7 && balance.chart.scope == .account)
         let models = try decode(OpenRouterSettings.self, "{}")
         #expect(models.sync == .minutes(1440) && models.refresh == .minutes(15))
@@ -36,8 +36,8 @@ struct OpenRouterConfigurationTests {
         #expect(chart.days == 30 && chart.scope == .account)
         let models = try decode(OpenRouterSettings.self, #"{"sync":"future","glance":"future","refresh":"manual"}"#)
         #expect(models.sync == .minutes(1440) && models.glance == .automatic && models.refresh == .manual)
-        let balance = try decode(OpenRouterBalanceOptions.self, #"{"usesOwnKey":true,"chart":{"days":-10}}"#)
-        #expect(balance.usesOwnKey && balance.chart.days == 7)
+        let balance = try decode(OpenRouterBalanceOptions.self, #"{"account":7,"chart":{"days":-10}}"#)
+        #expect(balance.account == nil && balance.chart.days == 7)
     }
 
     @Test func `preset changes keep repeatable list identity and hidden options`() throws {
@@ -79,10 +79,12 @@ struct OpenRouterConfigurationTests {
         var settings = OpenRouterSettings(preset: .overview)
         let presetID = OpenRouterPreset.balanceID
         settings.setBalanceOptions(.init(title: "Work"), for: presetID)
-        let added = settings.addBalanceBlock(.init(title: "Personal", usesOwnKey: true))
-        guard case .balance(let addedID) = added else { throw TestFailure.notAList }
-        #expect(settings.shownBalances.map(\.options.title) == ["Work", "Personal"])
         let widget = UUID()
+        let added = settings.addBalanceBlock(.init(title: "Personal"))
+        guard case .balance(let addedID) = added else { throw TestFailure.notAList }
+        settings.setBalanceOptions(
+            .init(title: "Personal", account: .migratedOpenRouterKey(widget: widget, block: addedID)), for: addedID)
+        #expect(settings.shownBalances.map(\.options.title) == ["Work", "Personal"])
         #expect(settings.balanceOptions(presetID).account(widget: widget, block: presetID) == .shared)
         #expect(
             settings.balanceOptions(addedID).account(widget: widget, block: addedID)
@@ -110,10 +112,13 @@ struct OpenRouterConfigurationTests {
 
     @Test func `kept accounts follow balance blocks shown or hidden and their own keys`() {
         var settings = OpenRouterSettings(preset: .overview)
-        let added = settings.addBalanceBlock(.init(usesOwnKey: true))
+        let widgetID = UUID()
+        let added = settings.addBalanceBlock()
         guard case .balance(let addedID) = added else { return }
+        settings.setBalanceOptions(
+            .init(account: .migratedOpenRouterKey(widget: widgetID, block: addedID)), for: addedID)
         settings.blocks.setShown(added, false)
-        let widget = WidgetInstance(settings: .openRouter(settings))
+        let widget = WidgetInstance(id: widgetID, settings: .openRouter(settings))
         var config = AppConfiguration()
         config.sections = [PanelSection(widgets: [widget, WidgetInstance(settings: .openRouter(.init()))])]
         #expect(config.openRouterAccounts == [.shared, .own(widget: widget.id, block: addedID)])
@@ -125,8 +130,12 @@ struct OpenRouterConfigurationTests {
 
     @Test func `the balance glance fetches only the first balance and no chart`() {
         var settings = OpenRouterSettings(glance: .balance, preset: .overview)
-        settings.addBalanceBlock(.init(usesOwnKey: true))
-        let widget = WidgetInstance(settings: .openRouter(settings))
+        let widgetID = UUID()
+        if case .balance(let addedID) = settings.addBalanceBlock() {
+            settings.setBalanceOptions(
+                .init(account: .migratedOpenRouterKey(widget: widgetID, block: addedID)), for: addedID)
+        }
+        let widget = WidgetInstance(id: widgetID, settings: .openRouter(settings))
         var config = AppConfiguration()
         config.sections = [PanelSection(widgets: [widget])]
         let bar = config.openRouterDemand(panels: [.init(position: .top, density: .regular)])
@@ -210,7 +219,7 @@ struct OpenRouterConfigurationTests {
         var models = OpenRouterSettings(sync: .manual, glance: .count, preset: .richList)
         models.addBalanceBlock(
             .init(
-                title: "Side project", usesOwnKey: true,
+                title: "Side project", account: .newKey(),
                 chart: .init(
                     isShown: true, days: 14, scope: .key, keyHash: String(repeating: "d", count: 64),
                     keyName: "Fixture key")))

@@ -346,7 +346,7 @@ private struct OpenRouterBalanceEditor: View {
 
         Divider()
         if let widgetID = windows.builderWidgetID {
-            OpenRouterOwnKeyEditor(account: .own(widget: widgetID, block: id), usesOwnKey: option(\.usesOwnKey))
+            OpenRouterOwnKeyEditor(account: .own(widget: widgetID, block: id), usesOwnKey: usesOwnKey(widget: widgetID))
         }
 
         Divider()
@@ -374,9 +374,17 @@ private struct OpenRouterBalanceEditor: View {
     /// The account the block reads: the shared one, or its own once the service has set that up.
     private var account: OpenRouterAccount? {
         let options = settings.balanceOptions(id)
-        guard options.usesOwnKey else { return service.shared }
+        guard options.account != nil else { return service.shared }
         guard let widgetID = windows.builderWidgetID else { return nil }
         return service.account(options.account(widget: widgetID, block: id))
+    }
+
+    private func usesOwnKey(widget: UUID) -> Binding<Bool> {
+        Binding {
+            settings.balanceOptions(id).account != nil
+        } set: { isOn in
+            update { $0.account = isOn ? .migratedOpenRouterKey(widget: widget, block: id) : nil }
+        }
     }
 
     private func dayChoices(_ days: Int) -> [Int] {
