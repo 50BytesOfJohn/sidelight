@@ -9,6 +9,7 @@ public enum Log {
 
     public static let app = Logger(subsystem: subsystem, category: "app")
     public static let configuration = Logger(subsystem: subsystem, category: "configuration")
+    public static let accounts = Logger(subsystem: subsystem, category: "accounts")
     public static let avoidance = Logger(subsystem: subsystem, category: "avoidance")
     public static let codex = Logger(subsystem: subsystem, category: "codex")
     public static let claudeCode = Logger(subsystem: subsystem, category: "claude-code")

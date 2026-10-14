@@ -120,6 +120,25 @@ public struct Account: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+/// How an account is doing, as the data service that uses it last found: never checked on a timer of its own.
+public enum AccountStatus: Hashable, Sendable {
+    case connected
+    /// There's no sign-in to use: no key saved, or the app isn't signed in.
+    case needsSignIn
+    /// The provider no longer accepts the sign-in.
+    case expired
+    /// The last request failed for another reason, which this says.
+    case failed(String)
+
+    /// Only signing in again (or replacing the key) fixes it.
+    public var needsSignIn: Bool {
+        switch self {
+        case .needsSignIn, .expired: true
+        case .connected, .failed: false
+        }
+    }
+}
+
 /// Which account a widget uses, worked out from its account reference and the accounts there are.
 public enum AccountResolution: Hashable, Sendable {
     case account(AccountID)

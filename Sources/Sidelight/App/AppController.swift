@@ -22,8 +22,11 @@ final class AppController {
         let codexSessions = CodexSessionsService()
         let cursorChats = CursorChatsService.cursor()
         let openCodeSessions = OpenCodeSessionsService.openCode()
+        let configurationStore = ConfigurationStore(fileURL: composition.configurationFile)
+        let keyring = AccountKeyring(secrets: composition.accountSecrets)
         let environment = AppEnvironment(
-            configurationStore: ConfigurationStore(fileURL: composition.configurationFile),
+            configurationStore: configurationStore,
+            accounts: AccountStore(configuration: configurationStore, keyring: keyring),
             displays: DisplayMonitor(),
             desktopPictures: DesktopPictures(),
             calendar: CalendarService(),

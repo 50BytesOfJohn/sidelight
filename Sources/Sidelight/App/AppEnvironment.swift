@@ -4,6 +4,8 @@ import SwiftUI
 /// The long-lived objects views depend on, handed to SwiftUI through the environment.
 struct AppEnvironment {
     let configurationStore: ConfigurationStore
+    /// Every account, each provider's default, and how each is doing. Never hands out a secret.
+    let accounts: AccountStore
     let displays: DisplayMonitor
     let desktopPictures: DesktopPictures
     let calendar: CalendarService
@@ -60,6 +62,7 @@ extension AppEnvironment {
 extension View {
     func environment(_ app: AppEnvironment) -> some View {
         environment(app.configurationStore)
+            .environment(app.accounts)
             .environment(app.displays)
             .environment(app.desktopPictures)
             .environment(app.calendar)
