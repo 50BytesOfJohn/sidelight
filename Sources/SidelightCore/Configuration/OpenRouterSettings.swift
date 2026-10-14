@@ -73,8 +73,7 @@ public struct OpenRouterBalanceOptions: Codable, Hashable, Sendable {
         self.chart = chart
     }
 
-    /// Missing options take their defaults. Whether the block used its own key, as versions before accounts saved
-    /// it, is read where the widget's ID is known (``OpenRouterSettings/migrateOwnKeys(_:widget:)``).
+    /// Missing options take their defaults, and an account reference that can't be read is the default account.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = OpenRouterBalanceOptions()
@@ -84,7 +83,8 @@ public struct OpenRouterBalanceOptions: Codable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case title, account, chart
+        case title, chart
+        case account = "accountID"
     }
 }
 
@@ -453,18 +453,6 @@ public struct OpenRouterSettings: Codable, Hashable, Sendable {
         let balances = try container.decodeIfPresent([String: OpenRouterBalanceOptions].self, forKey: .balances)
         self.balances = (balances ?? [:]).filter { key, _ in
             UUID(uuidString: key).map { blocks.contains(.balance($0)) } ?? false
-        }
-    }
-
-    /// The Balance blocks that used their own key, as versions before accounts saved it (`usesOwnKey`), now name
-    /// the account that key becomes. Their accounts are added once the key is moved to them; a block whose key isn't
-    /// there goes back to the default account.
-    mutating func migrateOwnKeys(_ legacy: LegacyOpenRouterSettings, widget: UUID) {
-        for (key, options) in legacy.balances where options.usesOwnKey == true {
-            guard let block = UUID(uuidString: key), var current = balances[block.uuidString], current.account == nil
-            else { continue }
-            current.account = .migratedOpenRouterKey(widget: widget, block: block)
-            balances[block.uuidString] = current
         }
     }
 

@@ -84,7 +84,7 @@ struct AccountStoreTests {
             secrets.withLock { $0[account.id] = secret }
             return true
         }
-        memory.lookUp = { id in secrets.withLock { $0[id] }.map(KeychainLookup.found) ?? .missing }
+        memory.read = { id in secrets.withLock { $0[id] } }
         let deleted = Mutex<[AccountID]>([])
         memory.delete = { id in
             secrets.withLock { $0[id] = nil }
@@ -123,10 +123,10 @@ struct AccountStoreTests {
     @Test func `a key is read from the keychain once`() async {
         let lookUps = Mutex(0)
         var secrets = AccountSecrets.memory([AccountID(rawValue: "A"): "secret"])
-        let lookUp = secrets.lookUp
-        secrets.lookUp = { id in
+        let read = secrets.read
+        secrets.read = { id in
             lookUps.withLock { $0 += 1 }
-            return await lookUp(id)
+            return await read(id)
         }
         let keyring = AccountKeyring(secrets: secrets)
         async let first = keyring.secret(for: AccountID(rawValue: "A"))
@@ -138,22 +138,19 @@ struct AccountStoreTests {
 
     @Test func `widgets say why they show no account's data, and nothing otherwise`() async throws {
         let (accounts, _, _) = store()
-        let navigator = SettingsNavigator()
-        func title(_ resolution: AccountResolution) -> String? {
-            AccountMessage(
-                resolution, provider: .openRouter, accounts: accounts, navigator: navigator, widget: UUID(),
-                layout: .regular)?.message.title
-        }
-        #expect(title(.noAccount) == "Add an account to see OpenRouter data.")
-        #expect(title(.notFound(.newKey())) == "Account not found.")
+        #expect(AccountNotice(nil, at: .openRouter, in: accounts) == .addAccount)
+        #expect(AccountNotice(.newKey(), at: .openRouter, in: accounts) == .chooseAccount(isMissing: true))
         let work = try #require(await accounts.add(at: .openRouter, name: "Work", secret: "key"))
-        #expect(title(.account(work.id)) == nil)
+        #expect(AccountNotice(nil, at: .openRouter, in: accounts) == nil)
         accounts.report(.failed("Can't reach OpenRouter"), for: work.id)
-        #expect(title(.account(work.id)) == nil)
+        #expect(AccountNotice(work.id, at: .openRouter, in: accounts) == nil)
         accounts.report(.expired, for: work.id)
-        #expect(title(.account(work.id)) == "Work needs you to sign in again.")
-        accounts.isMovingLegacySecrets = true
-        #expect(title(.noAccount) == "Loading accounts…")
+        #expect(AccountNotice(work.id, at: .openRouter, in: accounts) == .signIn(work))
+        _ = try #require(await accounts.add(at: .openRouter, name: "Personal", secret: "key 2"))
+        accounts.makeDefault(work.id)
+        accounts.remove(work.id)
+        _ = try #require(await accounts.add(at: .openRouter, name: "Other", secret: "key 3"))
+        #expect(AccountNotice(nil, at: .openRouter, in: accounts) == nil)
     }
 
     @Test func `asking for a provider's accounts opens Settings there`() {

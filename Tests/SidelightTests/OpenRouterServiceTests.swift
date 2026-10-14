@@ -358,11 +358,11 @@ final class TestAccounts {
 
     init(_ keys: [AccountID: String] = [:]) {
         var secrets = AccountSecrets.memory(keys)
-        let lookUp = secrets.lookUp
+        let read = secrets.read
         let lookUps = lookUps
-        secrets.lookUp = { id in
+        secrets.read = { id in
             lookUps.count.withLock { $0 += 1 }
-            return await lookUp(id)
+            return await read(id)
         }
         keyring = AccountKeyring(secrets: secrets)
     }

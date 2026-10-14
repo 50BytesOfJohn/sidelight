@@ -279,83 +279,78 @@ struct AccountPicker: View {
     }
 }
 
-/// What a widget shows in place of an account's data when it has no account to use, the one it names is gone, or the
-/// account needs signing in again. `nil` from ``init(_:provider:accounts:navigator:widget:layout:)`` when there's
-/// nothing to say: the widget shows the account's data.
-struct AccountMessage: View {
-    let message: WidgetMessage
+/// Why a widget can't show an account's data, and what to do about it.
+enum AccountNotice: Equatable {
+    /// The provider has no account the widget could use.
+    case addAccount
+    /// The account the widget names is gone, or it names none of several with no default: one has to be chosen.
+    case chooseAccount(isMissing: Bool)
+    /// The account needs signing in again, or its key replacing.
+    case signIn(Account)
 
-    var body: some View { message }
-
-    /// The message for the widget `widget` at `provider`, whose account resolved to `resolution`. Choosing an account
-    /// opens the widget's settings, where its account is chosen; without a widget, Settings' Accounts pane.
-    init?(
-        _ resolution: AccountResolution, provider: AccountProvider, accounts: AccountStore,
-        navigator: SettingsNavigator, widget: WidgetInstance.ID?, layout: WidgetLayout
-    ) {
-        func action(_ title: String, adding: Bool = false) -> WidgetMessage.Action {
-            WidgetMessage.Action(title: title, runsOnGlanceClick: true) {
-                navigator.showAccounts(provider, adding: adding)
-            }
-        }
-        func choose() -> WidgetMessage.Action {
-            guard let widget else { return action("Choose Account") }
-            return WidgetMessage.Action(title: "Choose Account", runsOnGlanceClick: true) {
-                navigator.showWidgetSettings(widget)
-            }
-        }
-        switch resolution {
+    /// What `accounts` says about a widget at `provider` naming `reference`; `nil` when it can show the account's
+    /// data.
+    init?(_ reference: AccountID?, at provider: AccountProvider, in accounts: AccountStore) {
+        switch accounts.resolve(reference, at: provider) {
         case .account(let id):
-            guard let status = accounts.status(of: id), status.needsSignIn, let account = accounts.account(id) else {
-                return nil
-            }
-            message = WidgetMessage(
-                title: "\(account.name) needs you to sign in again.",
-                detail: account.kind == .appSignIn ? provider.signInAdvice : nil,
-                systemImage: "person.crop.circle.badge.exclamationmark", layout: layout,
-                action: action("Open Accounts"))
-        case .notFound:
-            message = WidgetMessage(
-                title: "Account not found.",
-                detail: "It may have been removed. Choose another in this widget's settings.",
-                systemImage: "person.crop.circle.badge.questionmark", layout: layout, action: choose())
-        case .chooseAccount:
-            message = WidgetMessage(
-                title: "Choose an account to see \(provider.title) data.", systemImage: "person.2", layout: layout,
-                action: choose())
-        case .noAccount:
-            if accounts.isMovingLegacySecrets {
-                message = WidgetMessage(title: "Loading accounts…", systemImage: "hourglass", layout: layout)
-            } else {
-                message = WidgetMessage(
-                    title: "Add an account to see \(provider.title) data.",
-                    systemImage: "person.crop.circle.badge.plus",
-                    layout: layout, action: action("Add Account", adding: true))
-            }
+            guard accounts.status(of: id)?.needsSignIn == true, let account = accounts.account(id) else { return nil }
+            self = .signIn(account)
+        case .notFound: self = .chooseAccount(isMissing: true)
+        case .chooseAccount: self = .chooseAccount(isMissing: false)
+        case .noAccount: self = .addAccount
         }
     }
 }
 
-/// Opens Settings at the Accounts pane, from wherever something needs an account: a widget on a panel, or a widget's
-/// settings.
-@Observable
-final class SettingsNavigator {
-    /// What Settings shows next. Settings clears it once it has.
-    var request: Request?
-    /// Brings the Settings window to the front.
-    @ObservationIgnored var showSettings: () -> Void = {}
-    /// Opens a widget's settings, where its accounts are chosen.
-    @ObservationIgnored var showWidgetSettings: (WidgetInstance.ID) -> Void = { _ in }
+/// A widget's content for the account it uses, or in its place, why it has none to use: no account yet, the one it
+/// names is gone, or the account needs signing in again. Each says so with a button that leads to the fix.
+struct AccountGate<Content: View>: View {
+    /// The widget's account reference: `nil` for the default account.
+    let reference: AccountID?
+    let provider: AccountProvider
+    let layout: WidgetLayout
+    @ViewBuilder let content: (AccountID) -> Content
+    @Environment(AccountStore.self) private var accounts
+    @Environment(SettingsNavigator.self) private var navigator
+    @Environment(\.widgetPlacement) private var placement
 
-    struct Request: Equatable {
-        /// The provider to show; `nil` for the top of the pane.
-        var provider: AccountProvider?
-        /// Opens the sheet that adds an account at `provider`.
-        var adding: Bool
+    var body: some View {
+        if let notice = AccountNotice(reference, at: provider, in: accounts) {
+            message(notice)
+        } else if let id = accounts.resolve(reference, at: provider).accountID {
+            content(id)
+        }
     }
 
-    func showAccounts(_ provider: AccountProvider? = nil, adding: Bool = false) {
-        request = Request(provider: provider, adding: adding && provider?.acceptsKeys == true)
-        showSettings()
+    private func message(_ notice: AccountNotice) -> WidgetMessage {
+        switch notice {
+        case .addAccount:
+            WidgetMessage(
+                title: "Add an account to see \(provider.title) data.", systemImage: "person.crop.circle.badge.plus",
+                layout: layout,
+                action: action("Add Account") { navigator.showAccounts(provider, adding: true) })
+        case .chooseAccount(let isMissing):
+            WidgetMessage(
+                title: isMissing ? "Account not found." : "Choose an account to see \(provider.title) data.",
+                detail: isMissing ? "It may have been removed. Choose another in this widget's settings." : nil,
+                systemImage: "person.crop.circle.badge.questionmark", layout: layout,
+                action: action("Choose Account") {
+                    if let widget = placement?.widgetID {
+                        navigator.showWidgetSettings(widget)
+                    } else {
+                        navigator.showAccounts(provider)
+                    }
+                })
+        case .signIn(let account):
+            WidgetMessage(
+                title: "\(account.name) needs you to sign in again.",
+                detail: account.kind == .appSignIn ? provider.signInAdvice : nil,
+                systemImage: "person.crop.circle.badge.exclamationmark", layout: layout,
+                action: action("Open Accounts") { navigator.showAccounts(provider) })
+        }
+    }
+
+    private func action(_ title: String, run: @escaping () -> Void) -> WidgetMessage.Action {
+        WidgetMessage.Action(title: title, runsOnGlanceClick: true, run: run)
     }
 }

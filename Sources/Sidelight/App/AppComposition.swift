@@ -2,7 +2,7 @@ import AppKit
 import SidelightCore
 import os
 
-/// The outside things the app is built on: its configuration file, how it reaches OpenRouter and keeps its keys, which
+/// The outside things the app is built on: its configuration file, how it reaches OpenRouter and keeps accounts' keys, which
 /// apps' windows it may move, and which data services may run. ``standard`` is the real thing; anything else stands in
 /// for part of it, so the app can be tried out without touching someone's setup, keychain, account, data or windows.
 struct AppComposition {
@@ -10,10 +10,6 @@ struct AppComposition {
     var openRouterTransport: OpenRouterService.Transport = { try await HTTP.send($0) }
     /// Where key accounts' secrets are kept.
     var accountSecrets = AccountSecrets.keychain
-    /// Where versions before accounts kept theirs, moved from there at launch.
-    var legacySecrets = LegacySecretLocation.keychain
-    /// Copies those secrets without deleting them, so an installed release that still reads them keeps working.
-    var keepsLegacySecrets = false
     /// Which apps' windows window avoidance may move, besides being regular or accessory apps other than Sidelight.
     var movesWindows: (NSRunningApplication) -> Bool = { _ in true }
     /// The kinds of widget whose data services may run, shown or previewed; `nil` for every kind. The others never
@@ -27,10 +23,7 @@ struct AppComposition {
     ///
     /// - `-SidelightConfigurationFile <path>`: another `config.json`.
     /// - `-SidelightMovesWindowsOf <bundle identifier>`: window avoidance moves only that app's windows.
-    /// - `-SidelightKeychainService <service>`: accounts' keys live in other keychain items, under `<service>`. The
-    ///   secrets versions before accounts kept are moved from there too: OpenRouter's under `<service>`, their
-    ///   removals noted next to the configuration, and Railway's under `<service>.railway`. Without it, a debug build
-    ///   copies those secrets from the real items but leaves them there, for the installed release.
+    /// - `-SidelightKeychainService <service>`: accounts' keys live in other keychain items, under `<service>`.
     /// - `-SidelightOpenRouterURL <http://127.0.0.1:port/…>`: OpenRouter requests go to a server on this Mac instead.
     ///   Only `http` or `https` on a loopback address is accepted; anything else, or a request that can't be sent
     ///   there, fails rather than reach OpenRouter.
@@ -48,11 +41,6 @@ struct AppComposition {
         }
         if let service = arguments.string(forKey: "SidelightKeychainService") {
             composition.accountSecrets = .keychain(service: service)
-            composition.legacySecrets = .keychain(
-                openRouterService: service, railwayService: service + ".railway",
-                removalsIn: composition.configurationFile.deletingLastPathComponent())
-        } else {
-            composition.keepsLegacySecrets = true
         }
         if let text = arguments.string(forKey: "SidelightOpenRouterURL") {
             composition.openRouterTransport = loopbackTransport(text)

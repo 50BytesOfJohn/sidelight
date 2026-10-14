@@ -26,7 +26,7 @@ extension WidgetInstance: Codable {
             case .noodleComputer: .noodleComputer(try container.decode(.settings, or: .init()))
             case .railway: .railway(try container.decode(.settings, or: .init()))
             case .agentSessions: .agentSessions(try container.decode(.settings, or: .init()))
-            case .openRouter: .openRouter(try Self.openRouterSettings(in: container, widget: id))
+            case .openRouter: .openRouter(try container.decode(.settings, or: .init()))
             }
         self.init(
             id: id,
@@ -34,17 +34,6 @@ extension WidgetInstance: Codable {
             showsInSidePanel: try container.decode(Bool.self, forKey: .showsInSidePanel),
             showsInBar: try container.decode(Bool.self, forKey: .showsInBar)
         )
-    }
-
-    /// An OpenRouter widget's settings, with Balance blocks that used their own key naming the account it becomes.
-    private static func openRouterSettings(
-        in container: KeyedDecodingContainer<CodingKeys>, widget: UUID
-    ) throws -> OpenRouterSettings {
-        var settings = try container.decode(.settings, or: OpenRouterSettings())
-        if let legacy = container.decodeLeniently(.settings, or: LegacyOpenRouterSettings?.none) {
-            settings.migrateOwnKeys(legacy, widget: widget)
-        }
-        return settings
     }
 
     public func encode(to encoder: any Encoder) throws {

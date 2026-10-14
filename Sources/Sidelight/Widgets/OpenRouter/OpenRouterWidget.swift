@@ -52,7 +52,6 @@ struct OpenRouterWidgetView: View {
     let settings: OpenRouterSettings
     let layout: WidgetLayout
     @Environment(OpenRouterService.self) private var service
-    @Environment(AccountStore.self) private var accounts
     @Environment(DetailsPresenter.self) private var details
     @Environment(\.widgetPlacement) private var placement
     @Environment(\.isWidgetPreview) private var isPreview
@@ -70,13 +69,6 @@ struct OpenRouterWidgetView: View {
     /// added has fetched it, a few models as OpenRouter listed them.
     private func catalogue(now: Date) -> OpenRouterCatalogue? {
         service.catalogue.value ?? (isPreview ? .sample(at: now) : nil)
-    }
-
-    /// Which account a Balance block reads. Previews read none: they show an example.
-    private func account(_ options: OpenRouterBalanceOptions) -> OpenRouterBalanceBlock.Source {
-        guard placement != nil else { return .preview }
-        let resolution = accounts.resolve(options.account, at: .openRouter)
-        return .account(resolution, resolution.accountID.flatMap(service.account))
     }
 
     // MARK: Blocks
@@ -117,7 +109,7 @@ struct OpenRouterWidgetView: View {
         switch block {
         case .balance(let id):
             let options = settings.balanceOptions(id)
-            OpenRouterBalanceBlock(options: options, source: account(options), layout: layout, now: now)
+            OpenRouterBalanceBlock(options: options, layout: layout, now: now)
         case .summary, .list:
             if let catalogue {
                 OpenRouterCatalogueBlocks(
@@ -171,7 +163,7 @@ struct OpenRouterWidgetView: View {
         switch settings.resolvedGlance {
         case .balance:
             if let (_, options) = settings.glanceBalance {
-                OpenRouterBalanceBlock(options: options, source: account(options), layout: layout, now: now)
+                OpenRouterBalanceBlock(options: options, layout: layout, now: now)
             } else {
                 WidgetMessage(
                     title: "No Balance block", detail: "Add one in this widget's builder, or show a model instead.",

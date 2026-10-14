@@ -37,23 +37,17 @@ public struct KeychainItem: Hashable, Sendable {
         ]
     }
 
-    /// What the keychain says it holds: the secret, nothing, or that it couldn't be asked (it's locked, say), so
-    /// "there's none" is never mistaken for "can't tell".
+    /// The saved secret; `nil` when there's none, or it can't be read.
     @concurrent
-    public func lookUp() async -> KeychainLookup {
+    public func read() async -> String? {
         var query = query
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
-        switch SecItemCopyMatching(query as CFDictionary, &item) {
-        case errSecSuccess:
-            guard let data = item as? Data, let secret = String(data: data, encoding: .utf8) else { return .failed }
-            return .found(secret)
-        case errSecItemNotFound:
-            return .missing
-        default:
-            return .failed
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else {
+            return nil
         }
+        return String(data: data, encoding: .utf8)
     }
 
     /// Saves `secret`, replacing any saved before; returns whether it was saved.
@@ -76,12 +70,4 @@ public struct KeychainItem: Hashable, Sendable {
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
     }
-}
-
-/// What a keychain item holds, as far as the keychain could say.
-public enum KeychainLookup: Equatable, Sendable {
-    case found(String)
-    case missing
-    /// The keychain couldn't be asked, or what it holds can't be read.
-    case failed
 }

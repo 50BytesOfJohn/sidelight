@@ -4,41 +4,29 @@ import SwiftUI
 /// A Balance block: an account's balance, and optionally what it spent each UTC day. In the minimal and bar sizes, it's
 /// the widget's glance: just the balance.
 struct OpenRouterBalanceBlock: View {
-    /// Where the block's balance comes from.
-    enum Source {
-        /// The Widgets window or the builder: an example, never an account's money.
-        case preview
-        /// The account the block uses, and the service's view of it once it has one.
-        case account(AccountResolution, OpenRouterAccount?)
-    }
-
     let options: OpenRouterBalanceOptions
-    let source: Source
     let layout: WidgetLayout
     let now: Date
-    @Environment(AccountStore.self) private var accounts
+    @Environment(OpenRouterService.self) private var service
     @Environment(SettingsNavigator.self) private var navigator
-    @Environment(\.widgetPlacement) private var placement
+    @Environment(\.isWidgetPreview) private var isPreview
 
     var body: some View {
-        switch source {
-        case .preview:
+        if isPreview {
             // The Widgets window and the builder show what the block looks like, with an example marked as one: never
             // an account's money, and no key is ever read for it.
             OpenRouterBalanceContent(
                 balance: .example(at: now), problem: nil, isFetching: false,
                 chart: options.chart.isShown ? .example(at: now) : nil, options: options, layout: layout,
                 now: now, isExample: true, refresh: nil)
-        case .account(let resolution, let account):
-            if let message = AccountMessage(
-                resolution, provider: .openRouter, accounts: accounts, navigator: navigator,
-                widget: placement?.widgetID, layout: layout)
-            {
-                message
-            } else if let account {
-                content(account)
-            } else {
-                WidgetMessage(title: "Connecting to OpenRouter…", detail: nil, systemImage: "hourglass", layout: layout)
+        } else {
+            AccountGate(reference: options.account, provider: .openRouter, layout: layout) { id in
+                if let account = service.account(id) {
+                    content(account)
+                } else {
+                    WidgetMessage(
+                        title: "Connecting to OpenRouter…", detail: nil, systemImage: "hourglass", layout: layout)
+                }
             }
         }
     }

@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 /// A service Sidelight connects to with an account.
@@ -81,22 +80,6 @@ public struct AccountID: RawRepresentable, Codable, Hashable, Comparable, Sendab
     public static let claudeCodeApp = AccountID(rawValue: "claudeCode.app")
     public static let codexApp = AccountID(rawValue: "codex.app")
     public static let cursorApp = AccountID(rawValue: "cursor.app")
-
-    /// The same UUID for the same `name` every time (a version 5 UUID): what an account made from an earlier
-    /// version's key is called, so moving it over again makes the same account, not another.
-    static func derived(from name: String) -> AccountID {
-        var bytes = Array(Insecure.SHA1.hash(data: Data(namespace.utf8) + Data(name.utf8)).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x50
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        let uuid = UUID(
-            uuid: (
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
-                bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
-            ))
-        return AccountID(rawValue: uuid.uuidString)
-    }
-
-    private static let namespace = "app.getsidelight.Sidelight.accounts"
 }
 
 /// One identity at one provider.
@@ -206,5 +189,71 @@ extension AppConfiguration {
         var number = 2
         while names.contains("\(provider.title) \(number)") { number += 1 }
         return "\(provider.title) \(number)"
+    }
+}
+
+// MARK: - References
+
+extension AppConfiguration {
+    /// How many widgets (counting each Balance block) name `id`.
+    public func references(to id: AccountID) -> Int {
+        widgets.reduce(0) { count, widget in
+            switch widget.settings {
+            case .openRouter(let settings): count + settings.allBalances.count { $0.options.account == id }
+            case .railway(let settings): count + (settings.account == id ? 1 : 0)
+            default: count
+            }
+        }
+    }
+
+    /// How many widgets (counting each Balance block) use `id`: those that name it, and if it's its provider's default,
+    /// those that name none.
+    public func uses(of id: AccountID, signedIn: Set<AccountID> = []) -> Int {
+        guard let provider = account(id)?.provider else { return references(to: id) }
+        let usesDefault = defaultAccount(for: provider, signedIn: signedIn) == .account(id)
+        return widgets.reduce(0) { count, widget in
+            switch widget.settings {
+            case .openRouter(let settings) where provider == .openRouter:
+                count
+                    + settings.allBalances.count {
+                        $0.options.account == id || usesDefault && $0.options.account == nil
+                    }
+            case .railway(let settings) where provider == .railway:
+                count + (settings.account == id || usesDefault && settings.account == nil ? 1 : 0)
+            default: count
+            }
+        }
+    }
+
+    /// Widgets and blocks that name `id` use their provider's default account instead.
+    public mutating func forgetReferences(to id: AccountID) {
+        for widget in widgets {
+            switch widget.settings {
+            case .openRouter(var settings):
+                var changed = false
+                for (block, var options) in settings.allBalances where options.account == id {
+                    options.account = nil
+                    settings.setBalanceOptions(options, for: block)
+                    changed = true
+                }
+                if changed { updateWidget(widget.id) { $0.settings = .openRouter(settings) } }
+            case .railway(var settings) where settings.account == id:
+                settings.account = nil
+                updateWidget(widget.id) { $0.settings = .railway(settings) }
+            default:
+                break
+            }
+        }
+    }
+
+    /// Removes the key account `id`, and the widgets that named it use the default. If it was the default and
+    /// several accounts are left, the first of them is the default now, so widgets keep showing one.
+    public mutating func removeAccount(_ id: AccountID) {
+        accounts.removeAll { $0.id == id }
+        for (provider, account) in defaultAccounts where account == id {
+            let left = keyAccounts(of: provider)
+            defaultAccounts[provider] = left.count > 1 ? left[0].id : nil
+        }
+        forgetReferences(to: id)
     }
 }

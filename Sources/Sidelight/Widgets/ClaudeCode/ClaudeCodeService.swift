@@ -52,11 +52,17 @@ final class ClaudeCodeService: DataService {
     }
     var plan: String? { accountState?.plan }
 
+    /// Hears how Claude Code's sign-in is doing.
+    @ObservationIgnored private let accounts: AccountAccess
     @ObservationIgnored private var isEnabled = false
     @ObservationIgnored private var watchers: [FileWatcher] = []
     @ObservationIgnored private let reload = CoalescedReload()
     @ObservationIgnored private var stateFileModificationDate: Date?
     @ObservationIgnored private let schedule = FetchSchedule(minimumManualGap: .seconds(30), tolerance: .seconds(10))
+
+    init(accounts: AccountAccess) {
+        self.accounts = accounts
+    }
 
     func start() {
         guard !isEnabled else { return }
@@ -101,6 +107,7 @@ final class ClaudeCodeService: DataService {
             stateFileModificationDate = state.modificationDate
         }
         hasLoaded = true
+        reportSignIn()
     }
 
     private struct Files: Sendable {
@@ -146,14 +153,23 @@ final class ClaudeCodeService: DataService {
         case .success(let usage):
             anthropicUsage = usage
             anthropicProblem = nil
+            reportSignIn()
             return .succeeded
         case .failure(let problem):
             if problem != anthropicProblem {
                 Log.claudeCode.notice("Can't fetch Claude usage from Anthropic: \(String(describing: problem))")
             }
             anthropicProblem = problem
+            reportSignIn()
             return .failed
         }
+    }
+
+    /// Claude Code's sign-in, as the last fetch from Anthropic found or its state file says.
+    private func reportSignIn() {
+        guard let status = AccountStatus.claudeCode(fetched: anthropicUsage, problem: anthropicProblem, plan: plan)
+        else { return }
+        accounts.report(status, .claudeCodeApp)
     }
 
     /// Reads Claude Code's sign-in afresh each time, since Claude Code renews it every few hours, and holds it only

@@ -49,16 +49,6 @@ struct AccountModelTests {
         #expect(configuration.defaultAccounts == [.openRouter: AccountID(rawValue: "C")])
     }
 
-    @Test func `derived IDs are the same every time, and differ by name`() {
-        let first = AccountID.derived(from: "openRouter.shared")
-        #expect(first == AccountID.derived(from: "openRouter.shared"))
-        #expect(first != AccountID.derived(from: "railway.token"))
-        let uuid = UUID(uuidString: first.rawValue)
-        #expect(uuid != nil)
-        // A name-based (version 5) UUID.
-        #expect(first.rawValue.split(separator: "-")[2].first == "5")
-    }
-
     @Test func `app sign-ins have fixed IDs and are found without being saved`() {
         let configuration = AppConfiguration()
         #expect(configuration.account(.railwayCLI)?.kind == .appSignIn)
@@ -157,5 +147,60 @@ struct AppSignInStatusTests {
         #expect(AccountStatus.cursor(fetched: nil, problem: .notSignedIn) == .needsSignIn)
         #expect(AccountStatus.cursor(fetched: nil, problem: .rejected(status: 403)) == .expired)
         #expect(AccountStatus.cursor(fetched: nil, problem: .rejected(status: 500))?.needsSignIn == false)
+    }
+}
+
+struct AccountReferenceTests {
+    private let work = Account.key(.openRouter, name: "Work")
+    private let personal = Account.key(.openRouter, name: "Personal")
+
+    /// Work is the default; a Credits widget's preset block names none, its second names Personal; a Railway widget
+    /// names the CLI.
+    private func configuration() -> AppConfiguration {
+        var credits = OpenRouterSettings(preset: .credits)
+        credits.addBalanceBlock(.init(account: personal.id))
+        var configuration = AppConfiguration()
+        configuration.accounts = [work, personal]
+        configuration.defaultAccounts = [.openRouter: work.id]
+        configuration.sections = [
+            PanelSection(widgets: [
+                WidgetInstance(settings: .openRouter(credits)),
+                WidgetInstance(settings: .railway(RailwaySettings(account: .railwayCLI))),
+            ])
+        ]
+        return configuration
+    }
+
+    @Test func `uses count the blocks that name an account, and those on the default`() {
+        let configuration = configuration()
+        #expect(configuration.references(to: personal.id) == 1 && configuration.uses(of: personal.id) == 1)
+        #expect(configuration.references(to: work.id) == 0 && configuration.uses(of: work.id) == 1)
+        #expect(configuration.uses(of: .railwayCLI) == 1)
+    }
+
+    @Test func `removing an account sends the widgets that named it back to the default`() {
+        var configuration = configuration()
+        configuration.removeAccount(personal.id)
+        #expect(configuration.accounts == [work])
+        #expect(configuration.references(to: personal.id) == 0 && configuration.uses(of: work.id) == 2)
+        configuration.removeAccount(work.id)
+        #expect(configuration.defaultAccounts.isEmpty)
+    }
+
+    @Test func `removing the default of several accounts makes the first left the default`() {
+        var configuration = AppConfiguration()
+        let accounts = (1...3).map { Account.key(.openRouter, name: "Account \($0)") }
+        configuration.accounts = accounts
+        configuration.defaultAccounts = [.openRouter: accounts[1].id]
+        configuration.removeAccount(accounts[1].id)
+        #expect(configuration.defaultAccounts == [.openRouter: accounts[0].id])
+    }
+
+    @Test func `references are saved apart from anything earlier versions wrote`() throws {
+        let configuration = configuration()
+        let json = String(decoding: try configuration.json(), as: UTF8.self)
+        #expect(json.contains(#""accountID" : "\#(personal.id.rawValue)""#))
+        #expect(json.contains(#""accountID" : "railway.cli""#))
+        #expect(try AppConfiguration(json: configuration.json()) == configuration)
     }
 }

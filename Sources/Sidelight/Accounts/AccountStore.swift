@@ -17,9 +17,6 @@ final class AccountStore {
     private(set) var foundAppSignIns: Set<AccountID> = []
     /// App sign-ins signed in now, as their services last looked.
     private(set) var signedInAppSignIns: Set<AccountID> = []
-    /// Secrets saved by versions before accounts are still moving to their accounts: until they have, a widget
-    /// without an account waits rather than ask for one.
-    var isMovingLegacySecrets = false
 
     @ObservationIgnored private let configurationStore: ConfigurationStore
     @ObservationIgnored private let keyring: AccountKeyring
@@ -136,17 +133,6 @@ final class AccountStore {
             }
         }
         Log.accounts.info("Removed a \(account.provider.rawValue, privacy: .public) account")
-    }
-
-    /// Moves the secrets versions before accounts kept to their accounts, before any is read.
-    func moveLegacySecrets(_ migration: LegacySecretMigration) {
-        isMovingLegacySecrets = true
-        let configuration = configurationStore
-        let task = Task {
-            await migration.run(on: configuration)
-            isMovingLegacySecrets = false
-        }
-        keyring.waitFor(task)
     }
 
     // MARK: From the data services

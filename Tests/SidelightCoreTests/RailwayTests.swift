@@ -334,7 +334,8 @@ struct RailwayTests {
              "blockOptions": {"services": {"order": "random", "maximumRows": 99}}}
             """
         let settings = try JSONDecoder().decode(RailwaySettings.self, from: Data(json.utf8))
-        #expect(settings.account == AccountID(rawValue: "carrierPigeon"))
+        // The sign-in choice saved before shared accounts is left behind: the widget uses its default account.
+        #expect(settings.account == nil)
         #expect(settings.glance == .health)
         #expect(settings.refreshMinutes == 1)
         #expect(settings.blocks.shownBlocks == [.services])

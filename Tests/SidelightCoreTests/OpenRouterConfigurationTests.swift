@@ -48,7 +48,8 @@ struct OpenRouterConfigurationTests {
         #expect(chart.days == 30 && chart.scope == .account)
         let models = try decode(OpenRouterSettings.self, #"{"sync":"future","glance":"future","refresh":"manual"}"#)
         #expect(models.sync == .minutes(1440) && models.glance == .automatic && models.refresh == .manual)
-        let balance = try decode(OpenRouterBalanceOptions.self, #"{"account":7,"chart":{"days":-10}}"#)
+        let balance = try decode(
+            OpenRouterBalanceOptions.self, #"{"accountID":7,"usesOwnKey":true,"chart":{"days":-10}}"#)
         #expect(balance.account == nil && balance.chart.days == 7)
     }
 

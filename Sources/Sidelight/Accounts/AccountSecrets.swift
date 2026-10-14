@@ -6,7 +6,8 @@ import os
 /// Each call runs off the main actor. Nothing is ever read from other apps, shells or files here: app sign-ins are
 /// read by their own services.
 nonisolated struct AccountSecrets: Sendable {
-    var lookUp: @Sendable (AccountID) async -> KeychainLookup
+    /// The secret saved for the account; `nil` when there's none, or it can't be read.
+    var read: @Sendable (AccountID) async -> String?
     /// Saves the secret for the account, replacing any saved before; returns whether it was saved.
     var save: @Sendable (String, Account) async -> Bool
     /// Returns whether nothing is saved for the account any more: deleted, or there was nothing.
@@ -22,7 +23,7 @@ nonisolated struct AccountSecrets: Sendable {
             KeychainItem(service: service, account: id.rawValue, label: label)
         }
         return AccountSecrets(
-            lookUp: { await item($0).lookUp() },
+            read: { await item($0).read() },
             save: { secret, account in
                 await item(account.id, label: "Sidelight: \(account.provider.title) key").save(secret)
             },
@@ -33,7 +34,7 @@ nonisolated struct AccountSecrets: Sendable {
     static func memory(_ saved: [AccountID: String] = [:]) -> AccountSecrets {
         let secrets = OSAllocatedUnfairLock(initialState: saved)
         return AccountSecrets(
-            lookUp: { id in secrets.withLock { $0[id] }.map(KeychainLookup.found) ?? .missing },
+            read: { id in secrets.withLock { $0[id] } },
             save: { secret, account in
                 secrets.withLock { $0[account.id] = secret }
                 return true
@@ -54,8 +55,6 @@ final class AccountKeyring {
     private var reads: [AccountID: Task<String?, Never>] = [:]
     private var writes: [AccountID: Task<Bool, Never>] = [:]
     private var observers: [(AccountID) -> Void] = []
-    /// Secrets of versions before accounts moving to their accounts: reads wait for it.
-    private var migration: Task<Void, Never>?
 
     init(secrets: AccountSecrets) {
         self.secrets = secrets
@@ -74,19 +73,10 @@ final class AccountKeyring {
     private func readTask(_ id: AccountID) -> Task<String?, Never> {
         let secrets = secrets
         let pending = writes[id]
-        let migration = migration
         return Task {
-            await migration?.value
             _ = await pending?.value
-            if case .found(let secret) = await secrets.lookUp(id) { return secret }
-            return nil
+            return await secrets.read(id)
         }
-    }
-
-    /// Reads wait for `migration`, which moves secrets into accounts' items.
-    func waitFor(_ migration: Task<Void, Never>) {
-        self.migration = migration
-        reads = [:]
     }
 
     /// Calls `observer` with an account's ID whenever its secret is replaced or removed: what was fetched with the

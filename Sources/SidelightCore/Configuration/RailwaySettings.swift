@@ -241,7 +241,7 @@ public struct RailwaySettings: Codable, Hashable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = RailwaySettings()
-        account = container.decodeLeniently(.account, or: String?.none).flatMap(Self.account(saved:))
+        account = container.decodeLeniently(.account, or: nil)
         workspaceID = try container.decodeIfPresent(String.self, forKey: .workspaceID)
         workspaceName = try container.decodeIfPresent(String.self, forKey: .workspaceName)
         projectID = try container.decodeIfPresent(String.self, forKey: .projectID)
@@ -260,16 +260,10 @@ public struct RailwaySettings: Codable, Hashable, Sendable {
         }
     }
 
-    /// The account reference saved as `value`. Versions before accounts saved whose sign-in to use instead:
-    /// `automatic` is the default account now, `cli` the Railway CLI's sign-in, and `token` the account the saved
-    /// token becomes (it goes back to the default if there's no token to move).
-    private static func account(saved value: String) -> AccountID? {
-        switch value {
-        case "", "automatic": nil
-        case "cli": .railwayCLI
-        case "token": .migratedRailwayToken
-        default: AccountID(rawValue: value)
-        }
+    private enum CodingKeys: String, CodingKey {
+        case account = "accountID"
+        case workspaceID, workspaceName, projectID, projectName, environmentName, refreshMinutes, blocks, glance
+        case blockOptions, serviceBlocks
     }
 
     /// A Service block's options; the defaults until it has any.

@@ -221,7 +221,7 @@ struct ConfigurationStoreTests {
             Issue.record("The Railway widget is gone")
             return
         }
-        #expect(railway.account == .migratedRailwayToken)
+        #expect(railway.account == nil)
         store.configuration.windowAvoidance = .off
         store.flush()
         #expect(backups(prefix: "config.unsupported-").count == 1)

@@ -14,7 +14,6 @@ final class AppController {
     private var observations: [Task<Void, Never>] = []
     /// The kinds of widget whose data services may run; `nil` for every kind.
     private let serviceKinds: Set<WidgetKind>?
-    private let legacySecrets: LegacySecretMigration
 
     private var store: ConfigurationStore { environment.configurationStore }
 
@@ -34,9 +33,9 @@ final class AppController {
             displays: DisplayMonitor(),
             desktopPictures: DesktopPictures(),
             calendar: CalendarService(),
-            codex: CodexService(),
-            claudeCode: ClaudeCodeService(),
-            cursor: CursorService(),
+            codex: CodexService(accounts: accountAccess),
+            claudeCode: ClaudeCodeService(accounts: accountAccess),
+            cursor: CursorService(accounts: accountAccess),
             nowPlaying: NowPlayingService(),
             claudeSessions: claudeSessions,
             codexSessions: codexSessions,
@@ -57,9 +56,6 @@ final class AppController {
         )
         self.environment = environment
         serviceKinds = composition.serviceKinds
-        legacySecrets = LegacySecretMigration(
-            old: composition.legacySecrets, new: composition.accountSecrets,
-            keepsOldSecrets: composition.keepsLegacySecrets)
         windows = WindowCoordinator(environment: environment)
         environment.settingsNavigator.showSettings = { [windows] in windows.show(.settings) }
         environment.settingsNavigator.showWidgetSettings = { [windows, environment] id in
@@ -71,7 +67,6 @@ final class AppController {
     }
 
     func start() {
-        environment.accounts.moveLegacySecrets(legacySecrets)
         let configuration = store.configuration
         store.startWatchingFile()
 
@@ -98,7 +93,6 @@ final class AppController {
 
         observeConfiguration()
         observeServiceDemand()
-        observeAppSignIns()
     }
 
     /// Stops helper processes and flushes unsaved configuration. Call before the app terminates.
@@ -132,32 +126,6 @@ final class AppController {
         environment.windowAvoider.mode = configuration.windowAvoidance
         environment.hotkeys.register(configuration.hotkey, for: .togglePanels)
         environment.updater.apply(configuration.updates)
-    }
-
-    /// How the sign-ins Claude Code, Codex and Cursor own are doing, as their services last found while a widget ran
-    /// them, for Settings' Accounts pane. Nothing is checked for it: it's only what those services already read.
-    private func observeAppSignIns() {
-        let environment = environment
-        observations.append(
-            Task {
-                let statuses = Observations {
-                    let claudeCode = environment.claudeCode
-                    let cursor = environment.cursor
-                    return [
-                        AccountID.claudeCodeApp: AccountStatus.claudeCode(
-                            fetched: claudeCode.anthropicUsage, problem: claudeCode.anthropicProblem,
-                            plan: claudeCode.plan),
-                        .codexApp: AccountStatus.codex(environment.codex.state),
-                        .cursorApp: AccountStatus.cursor(fetched: cursor.usage, problem: cursor.problem),
-                    ]
-                }
-                for await statuses in statuses {
-                    for (id, status) in statuses where status != nil {
-                        environment.accounts.report(status, for: id)
-                    }
-                }
-            }
-        )
     }
 
     /// What the data services have to do, from everything on screen.
