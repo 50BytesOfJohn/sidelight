@@ -368,25 +368,35 @@ struct RailwayTests {
         #expect(settings.needs.usage)
     }
 
-    @Test func `merges widgets' needs by sign-in, automatic winning over a fixed pace`() {
+    @Test func `merges widgets' needs by account, automatic winning over a fixed pace`() {
+        let token = Account.key(.railway, name: "Acme")
         var first = RailwaySettings(refreshMinutes: 5, blocks: BlockLayout(shown: [.services]))
         first.workspaceID = "ws1"
         let second = RailwaySettings(refreshMinutes: nil, blocks: BlockLayout(shown: [.usage]))
-        let third = RailwaySettings(
-            account: .migratedRailwayToken, refreshMinutes: 15, blocks: BlockLayout(shown: [.incidents]))
-        let needs = ServiceDemand.railwayNeeds(
-            of: [first, second, third].map { WidgetInstance(settings: .railway($0)) } + [WidgetInstance(kind: .clock)])
-
-        let automatic = needs[.automatic]
-        #expect(automatic?.usage == true)
-        #expect(automatic?.commits == true)
-        #expect(automatic?.incidents == false)
-        #expect(automatic?.refreshMinutes == nil)
-        #expect(automatic?.workspaceIDs == ["ws1", nil])
+        let third = RailwaySettings(account: token.id, refreshMinutes: 15, blocks: BlockLayout(shown: [.incidents]))
+        let missing = RailwaySettings(account: .newKey(), blocks: BlockLayout(shown: [.usage]))
+        var configuration = AppConfiguration()
+        configuration.accounts = [token, Account.key(.railway, name: "Other")]
+        configuration.sections = [
+            PanelSection(
+                widgets: [first, second, third, missing].map { WidgetInstance(settings: .railway($0)) }
+                    + [WidgetInstance(kind: .clock)])
+        ]
+        // Without the CLI signed in, two tokens and no default: only the widget naming one fetches.
+        var demand = configuration.railwayDemand(of: configuration.widgets)
+        #expect(demand.isShown && Array(demand.accounts.keys) == [token.id])
+        demand = configuration.railwayDemand(of: configuration.widgets, signedIn: [.railwayCLI])
+        let cli = demand.accounts[.railwayCLI]
+        #expect(cli?.usage == true)
+        #expect(cli?.commits == true)
+        #expect(cli?.incidents == false)
+        #expect(cli?.refreshMinutes == nil)
+        #expect(cli?.workspaceIDs == ["ws1", nil])
         #expect(
-            needs[.token]
+            demand.accounts[token.id]
                 == RailwayNeeds(incidents: true, refreshMinutes: 15, workspaceIDs: [nil], environmentNames: [nil]))
-        #expect(needs[.cli] == nil)
+        #expect(demand.accounts.count == 2)
+        #expect(!configuration.railwayDemand(of: [WidgetInstance(kind: .clock)]).isShown)
     }
 
     @Test func `two fixed paces merge to the quicker one`() {

@@ -46,7 +46,7 @@ final class AppController {
                 claudeCode: claudeSessions, codex: codexSessions, cursor: cursorChats, openCode: openCodeSessions),
             systemStats: SystemStatsService(),
             noodleComputer: NoodleComputerService(),
-            railway: RailwayService(),
+            railway: RailwayService(accounts: accountAccess),
             openRouter: OpenRouterService(transport: composition.openRouterTransport, accounts: accountAccess),
             details: DetailsPresenter(),
             hotkeys: HotkeyCenter(),
@@ -149,6 +149,7 @@ final class AppController {
         let monitor = environment.displays
         let coordinator = panels
         let kinds = serviceKinds
+        let accounts = environment.accounts
         observations.append(
             Task { [weak self] in
                 let demand = Observations {
@@ -173,7 +174,8 @@ final class AppController {
                         openRouter.merge(details.openRouterDemand(in: configuration))
                     }
                     let services = configuration.serviceDemand(
-                        at: panels.map(\.panel.position), previewsEveryWidget: previews, previewing: previewed)
+                        at: panels.map(\.panel.position), previewsEveryWidget: previews, previewing: previewed,
+                        signedIn: accounts.signedInAppSignIns)
                     guard let kinds else { return Demand(services: services, openRouter: openRouter) }
                     return Demand(services: services.limited(to: kinds), openRouter: openRouter.limited(to: kinds))
                 }
@@ -225,8 +227,8 @@ final class AppController {
                 environment.noodleComputer.setRunning(isNeeded)
             case .railway:
                 // Not for the Widgets window's previews alone: Railway's sign-in isn't read until a widget is added.
-                environment.railway.needs = demand.railway
-                environment.railway.setRunning(isNeeded && !demand.railway.isEmpty)
+                environment.railway.needs = demand.railway.accounts
+                environment.railway.setRunning(isNeeded && demand.railway.isShown)
             // Theirs goes by the OpenRouter demand, which also counts the details panel.
             case .openRouter: break
             }

@@ -58,27 +58,6 @@ public enum RailwayGlance: String, Codable, CaseIterable, Identifiable, Sendable
     public var id: Self { self }
 }
 
-/// Whose sign-in a Railway widget asks Railway with, until the service moves to accounts.
-public enum RailwayAccountChoice: String, Codable, CaseIterable, Identifiable, Sendable {
-    /// The Railway CLI's when it's signed in, otherwise the API token saved in Sidelight.
-    case automatic
-    /// The Railway CLI's, from `railway login`.
-    case cli
-    /// An account or workspace token saved in Sidelight, kept in the keychain.
-    case token
-
-    public var id: Self { self }
-
-    /// The choice an account reference stands for.
-    public init(_ account: AccountID?) {
-        switch account {
-        case .railwayCLI?: self = .cli
-        case .migratedRailwayToken?: self = .token
-        default: self = .automatic
-        }
-    }
-}
-
 public enum RailwayServiceOrder: String, Codable, CaseIterable, Identifiable, Sendable {
     /// Failing services first, then deploying ones, then by name.
     case attention
@@ -347,6 +326,19 @@ public struct RailwaySettings: Codable, Hashable, Sendable {
             environmentNames: [environmentName],
             services: detailedServices
         )
+    }
+}
+
+/// What the Railway widgets on screen need.
+public struct RailwayDemand: Equatable, Sendable {
+    /// A Railway widget is shown, whether or not it has an account to use.
+    public var isShown = false
+    /// What each account the widgets use needs fetched.
+    public var accounts: [AccountID: RailwayNeeds] = [:]
+
+    public init(isShown: Bool = false, accounts: [AccountID: RailwayNeeds] = [:]) {
+        self.isShown = isShown || !accounts.isEmpty
+        self.accounts = accounts
     }
 }
 

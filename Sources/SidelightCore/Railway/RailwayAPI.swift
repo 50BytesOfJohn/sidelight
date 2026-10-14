@@ -283,10 +283,11 @@ public enum RailwayFetchProblem: Error, Equatable, Sendable {
 
     public var advice: String {
         switch self {
-        case .notSignedIn: "Run railway login, or save an API token in the widget's settings."
-        case .cliNotSignedIn, .cliSignInExpired: "Run railway login, or use an API token instead."
-        case .noToken: "Save an account or workspace token in the widget's settings."
-        case .rejected: "The token may have been revoked. Sign in again or save a new token."
+        case .notSignedIn: "Run railway login, or add a token account in Settings, under Accounts."
+        case .cliNotSignedIn, .cliSignInExpired:
+            "Run railway login, or add a token account in Settings, under Accounts."
+        case .noToken: "Replace the account's token in Settings, under Accounts."
+        case .rejected: "The token may have been revoked. Sign in again, or replace it in Settings, under Accounts."
         case .notAuthorized: "Use an account or workspace token; project tokens can't list projects."
         case .rateLimited: "Trying less often."
         case .refused, .unreachable: "Trying again later."

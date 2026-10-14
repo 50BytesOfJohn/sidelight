@@ -59,9 +59,11 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     /// window shows a live preview of every kind, and of every widget in the configuration), all of them run, and
     /// every widget's opt-ins count, shown or hidden. Otherwise the widgets `previewing` lists (the one a builder
     /// edits) count too, shown or hidden; nothing else is previewed.
+    ///
+    /// `signedIn` holds the app sign-ins signed in now, which decide the account some widgets use.
     public func serviceDemand(
         at positions: some Sequence<PanelPosition>, previewsEveryWidget: Bool = false,
-        previewing: Set<WidgetInstance.ID> = []
+        previewing: Set<WidgetInstance.ID> = [], signedIn: Set<AccountID> = []
     ) -> ServiceDemand {
         let placed = Set(widgets.map(\.kind))
         guard !previewsEveryWidget else {
@@ -69,13 +71,30 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
             usage.providers = Set(AIUsageProvider.allCases)
             return ServiceDemand(
                 kinds: Set(WidgetKind.allCases), placedKinds: placed, usage: usage,
-                railway: ServiceDemand.railwayNeeds(of: widgets), sessions: Set(AgentProvider.allCases))
+                railway: railwayDemand(of: widgets, signedIn: signedIn), sessions: Set(AgentProvider.allCases))
         }
         let shown = Set(visibleWidgets(at: positions).map(\.id)).union(previewing)
         let visible = widgets.filter { shown.contains($0.id) }
         return ServiceDemand(
             kinds: Set(visible.map(\.kind)), placedKinds: placed, usage: UsageServiceDemand(widgets: visible),
-            railway: ServiceDemand.railwayNeeds(of: visible), sessions: ServiceDemand.sessionProviders(of: visible))
+            railway: railwayDemand(of: visible, signedIn: signedIn),
+            sessions: ServiceDemand.sessionProviders(of: visible))
+    }
+
+    /// What the Railway widgets among `widgets` need, merged for each account they use. Widgets without an account
+    /// they can use fetch nothing, but still count as shown: the service looks for the CLI's sign-in for them.
+    public func railwayDemand(of widgets: some Sequence<WidgetInstance>, signedIn: Set<AccountID> = []) -> RailwayDemand
+    {
+        var demand = RailwayDemand()
+        for widget in widgets {
+            guard case .railway(let settings) = widget.settings else { continue }
+            demand.isShown = true
+            guard let id = resolveAccount(settings.account, at: .railway, signedIn: signedIn).accountID else {
+                continue
+            }
+            demand.accounts[id] = demand.accounts[id].map { $0.merged(with: settings.needs) } ?? settings.needs
+        }
+        return demand
     }
 }
 
@@ -128,17 +147,17 @@ public struct ServiceDemand: Equatable, Sendable {
     /// Widgets window previews every kind.
     public var placedKinds: Set<WidgetKind>
     public var usage: UsageServiceDemand
-    /// What Railway widgets need fetched, by whose sign-in they use. Only widgets in the configuration count, even
+    /// What Railway widgets need fetched, by the account they use. Only widgets in the configuration count, even
     /// while the Widgets window previews every kind: Sidelight doesn't read the Railway CLI's sign-in until a
     /// Railway widget is added.
-    public var railway: [RailwayAccountChoice: RailwayNeeds]
+    public var railway: RailwayDemand
     /// The agents whose sessions are listed: each session service runs once for its own widget and every Agent
     /// sessions widget showing that agent.
     public var sessions: Set<AgentProvider>
 
     public init(
         kinds: Set<WidgetKind>, placedKinds: Set<WidgetKind>? = nil, usage: UsageServiceDemand,
-        railway: [RailwayAccountChoice: RailwayNeeds] = [:], sessions: Set<AgentProvider>? = nil
+        railway: RailwayDemand = RailwayDemand(), sessions: Set<AgentProvider>? = nil
     ) {
         self.kinds = kinds
         self.placedKinds = placedKinds ?? kinds
@@ -172,7 +191,7 @@ public struct ServiceDemand: Equatable, Sendable {
                 }
             return kinds.contains(.agentSessions) || (kind.map { kinds.contains($0) } ?? false)
         }
-        if !kinds.contains(.railway) { demand.railway = [:] }
+        if !kinds.contains(.railway) { demand.railway = RailwayDemand() }
         return demand
     }
 
@@ -197,16 +216,6 @@ public struct ServiceDemand: Equatable, Sendable {
         sessionProviders(of: kinds.map(WidgetInstance.init(kind:)))
     }
 
-    /// The needs of the Railway widgets among `widgets`, merged per sign-in.
-    public static func railwayNeeds(of widgets: some Sequence<WidgetInstance>) -> [RailwayAccountChoice: RailwayNeeds] {
-        var needs: [RailwayAccountChoice: RailwayNeeds] = [:]
-        for widget in widgets {
-            guard case .railway(let settings) = widget.settings else { continue }
-            let choice = RailwayAccountChoice(settings.account)
-            needs[choice] = needs[choice].map { $0.merged(with: settings.needs) } ?? settings.needs
-        }
-        return needs
-    }
 }
 
 /// What the Codex, Claude Code and Cursor services have to do for a set of widgets: each runs while its own widget

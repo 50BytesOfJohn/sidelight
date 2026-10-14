@@ -138,20 +138,27 @@ struct AccountAccess {
     var observeChanges: (@escaping (AccountID) -> Void) -> Void
     /// Says how an account is doing, from a fetch.
     var report: (AccountStatus?, AccountID) -> Void
+    /// Says whether an app sign-in's app was found, and whether it's signed in.
+    var reportAppSignIn: (_ id: AccountID, _ isFound: Bool, _ isSignedIn: Bool) -> Void
 
     init(
         secret: @escaping (AccountID) async -> String?,
         observeChanges: @escaping (@escaping (AccountID) -> Void) -> Void = { _ in },
-        report: @escaping (AccountStatus?, AccountID) -> Void = { _, _ in }
+        report: @escaping (AccountStatus?, AccountID) -> Void = { _, _ in },
+        reportAppSignIn: @escaping (AccountID, Bool, Bool) -> Void = { _, _, _ in }
     ) {
         self.secret = secret
         self.observeChanges = observeChanges
         self.report = report
+        self.reportAppSignIn = reportAppSignIn
     }
 
     init(keyring: AccountKeyring, accounts: AccountStore) {
         self.init(
             secret: { await keyring.secret(for: $0) }, observeChanges: { keyring.observeChanges($0) },
-            report: { [weak accounts] status, id in accounts?.report(status, for: id) })
+            report: { [weak accounts] status, id in accounts?.report(status, for: id) },
+            reportAppSignIn: { [weak accounts] id, isFound, isSignedIn in
+                accounts?.appSignIn(id, isFound: isFound, isSignedIn: isSignedIn)
+            })
     }
 }
