@@ -27,6 +27,9 @@ struct ManagerView: View {
         .onChange(of: selection) {
             if selection != nil { isInspectorShown = true }
         }
+        .onChange(of: windows.managerSelectionRequest, initial: true) {
+            if let id = windows.takeManagerSelectionRequest() { selection = .widget(id) }
+        }
         // Clocks in the previews stop while the window is covered, minimized or on another Space.
         .environment(\.isPanelShown, windows.isManagerVisible)
     }
@@ -98,19 +101,6 @@ private struct GallerySearchField: View {
             Button("Search Widgets") { isFocused = true }
                 .keyboardShortcut("f")
                 .hidden()
-        }
-    }
-}
-
-/// Column title with a one-line explanation, as the builder heads its columns.
-struct ColumnHeader: View {
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.system(size: 20, weight: .bold))
-            Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
         }
     }
 }

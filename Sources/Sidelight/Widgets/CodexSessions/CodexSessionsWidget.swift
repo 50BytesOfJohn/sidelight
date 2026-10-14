@@ -126,7 +126,7 @@ extension CodexSessionsBlock: DescribedBlock {
 
     var blurb: String {
         switch self {
-        case .spotlight: "The most urgent session in detail: its plan, context, changes and last message."
+        case .spotlight: "The most urgent session's plan, context, changes and last message."
         case .sessions: "Sessions most urgent first. Click one to open it."
         case .limits: "Your plan's 5-hour and weekly limits, as Codex last reported them."
         }
@@ -135,15 +135,9 @@ extension CodexSessionsBlock: DescribedBlock {
 
 extension CodexSessionsSettings: BlockBuiltWidget {
     static let presets = [
-        BlockPreset<CodexSessionsBlock>(
-            id: "focus", title: "Focus", systemImage: "scope",
-            summary: "The most urgent session in detail, then the rest", blocks: [.spotlight, .sessions]),
-        BlockPreset(
-            id: "list", title: "List", systemImage: "list.bullet.rectangle",
-            summary: "Just the sessions, one row each", blocks: [.sessions]),
-        BlockPreset(
-            id: "everything", title: "Everything", systemImage: "square.grid.2x2",
-            summary: "Spotlight, sessions and your limits", blocks: [.spotlight, .sessions, .limits]),
+        BlockPreset<CodexSessionsBlock>(id: "focus", title: "Focus", blocks: [.spotlight, .sessions]),
+        BlockPreset(id: "list", title: "List", blocks: [.sessions]),
+        BlockPreset(id: "everything", title: "Everything", blocks: [.spotlight, .sessions, .limits]),
     ]
 
     static func options(for block: CodexSessionsBlock, settings: Binding<CodexSessionsSettings>) -> some View {
@@ -193,11 +187,17 @@ struct CodexSessionsWidgetOptions: View {
     }
 }
 
+/// One block's options, as a section of the inspector's form.
 private struct CodexSessionsBlockOptionsEditor: View {
     let block: CodexSessionsBlock
     @Binding var settings: CodexSessionsSettings
 
     var body: some View {
+        Section { options }
+    }
+
+    @ViewBuilder
+    private var options: some View {
         switch block {
         case .spotlight:
             Toggle(isOn: $settings.blockOptions.spotlight.showsPlan) {

@@ -16,7 +16,7 @@ extension AIUsageProvider {
     var blurb: String {
         switch self {
         case .codex: "Your ChatGPT plan's limits, as Codex reports them."
-        case .claudeCode: "A Claude account's session and weekly limits. Add one for each account."
+        case .claudeCode: "A Claude account's session and weekly limits. Add one per account."
         case .cursor: "Your Cursor plan's included usage over the billing cycle."
         }
     }
@@ -29,27 +29,11 @@ extension AIUsagePreset {
         case .codexAndClaude: "Codex and Claude"
         }
     }
-
-    var systemImage: String {
-        switch self {
-        case .everyAgent: "square.stack.3d.up"
-        case .codexAndClaude: "terminal"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .everyAgent: "Codex, Claude Code and Cursor"
-        case .codexAndClaude: "The two that need nothing connected"
-        }
-    }
 }
 
 extension AIUsageSettings: BlockBuiltWidget {
     static let presets = AIUsagePreset.allCases.map { preset in
-        BlockPreset<AIUsageBlock>(
-            id: preset.rawValue, title: preset.title, systemImage: preset.systemImage, summary: preset.summary,
-            blocks: preset.blocks)
+        BlockPreset<AIUsageBlock>(id: preset.rawValue, title: preset.title, blocks: preset.blocks)
     }
 
     static func options(for block: AIUsageBlock, settings: Binding<AIUsageSettings>) -> some View {
@@ -63,7 +47,7 @@ extension AIUsageSettings: BlockBuiltWidget {
     static let addableBlocks = AIUsageProvider.allCases.map { provider in
         AddableBlock(
             id: provider.rawValue, title: provider.title, systemImage: "gauge.with.dots.needle.67percent",
-            logo: provider.agent.logoAsset, blurb: provider.blurb)
+            logo: provider.agent.logoAsset)
     }
 
     mutating func addBlock(_ id: AddableBlock.ID) -> AIUsageBlock? {
@@ -103,20 +87,17 @@ private struct AIUsageWidgetOptions: View {
                     : "Like Codex's /status. Meters drain as you use each agent, and the tick drains with the "
                         + "window's time. A meter below its tick runs out before the reset.")
         }
-        .pickerStyle(.segmented)
         Toggle(isOn: $settings.showsOtherLimits) {
             InfoLabel(
                 "Show other limits",
                 info: "Each agent's other windows or pools next to its main one, in regular and compact cards.")
         }
         if has(.claudeCode) {
-            Divider()
             AnthropicRefreshPicker(
                 title: "Refresh Claude from Anthropic", isOn: $settings.refreshesClaudeFromAnthropic,
                 minutes: $settings.claudeRefreshMinutes)
         }
         if has(.cursor) {
-            Divider()
             CursorFetchPicker(isOn: $settings.refreshesCursor, minutes: $settings.cursorRefreshMinutes)
         }
     }
@@ -127,16 +108,21 @@ private struct AIUsageWidgetOptions: View {
     }
 }
 
-/// One block's label, its account for an agent with accounts, and where its numbers come from.
+/// One block's label, its account for an agent with accounts, and where its numbers come from, as a section of the
+/// inspector's form.
 private struct AIUsageBlockOptionsEditor: View {
     let block: AIUsageBlock
     @Binding var settings: AIUsageSettings
 
     var body: some View {
-        TextField("Label", text: label, prompt: Text(block.provider.title))
-            .textFieldStyle(.roundedBorder)
-        SettingsCaption("Shown in place of the agent's name, to tell its blocks apart.")
-        Divider()
+        Section { options }
+    }
+
+    @ViewBuilder
+    private var options: some View {
+        TextField(text: label, prompt: Text(block.provider.title)) {
+            InfoLabel("Label", info: "Shown in place of the agent's name, to tell its blocks apart.")
+        }
         if block.provider.hasAccounts {
             AccountPicker(provider: block.provider.accountProvider, selection: option(\.account))
         }
@@ -153,9 +139,7 @@ private struct AIUsageBlockOptionsEditor: View {
             if settings.refreshesCursor {
                 CursorFetchStatus()
             } else {
-                SettingsCaption(
-                    "Cursor keeps no usage on this Mac. Turn on Fetch usage from Cursor in the widget's "
-                        + "options to see it.")
+                SettingsCaption("Cursor keeps no usage on this Mac. Turn on Fetch usage from Cursor in the widget.")
             }
         }
     }

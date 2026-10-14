@@ -16,7 +16,9 @@
    - Widgets with many pieces (several sources, lists, totals) are built from blocks instead of piling up
      options: a `WidgetBlockKind` enum and a `BlockLayout` in their settings (see `RailwaySettings`), and a
      `BlockBuiltWidget` conformance with each block's options, presets and any blocks that can be added more
-     than once. The builder window (`Builder/BlockBuilder.swift`) comes for free; add the kind to
+     than once. Block options are form `Section`s; widget options are rows of one, shared with the Widgets
+     window, with rarely changed ones in an `ExpandableRow(title: "Advanced")`. Longer explanations go behind an
+     `InfoLabel`, not in captions. The builder window (`Builder/`) comes for free; add the kind to
      `WidgetSettings.blockBuilt` and `WidgetBuilderWindow`. Fetch only what the shown blocks need.
 3. Add the case to the switches in `Widgets/Framework/WidgetViews.swift` and `WidgetMetadata.swift`.
 4. If it signs in to a provider, it uses accounts (see SKILL.md): add the provider to `AccountProvider`, save an

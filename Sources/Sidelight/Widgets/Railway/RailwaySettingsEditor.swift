@@ -27,8 +27,8 @@ extension RailwayBlock: DescribedBlock {
         case .summary: "The project or workspace, and how its services are doing."
         case .services: "Each service with its latest deploy. Click one to open it."
         case .usage: "The bill so far, where it's heading, and your usage limit."
-        case .incidents: "Railway's incidents and maintenance, only while there's one."
-        case .service: "One service in detail: its deploy, commit, CPU, memory and recent deploys."
+        case .incidents: "Railway's incidents and maintenance. Shows only while there is one."
+        case .service: "One service's deploy, commit, CPU, memory and recent deploys."
         }
     }
 }
@@ -36,15 +36,9 @@ extension RailwayBlock: DescribedBlock {
 extension RailwaySettings: BlockBuiltWidget {
     static let presets = [
         BlockPreset<RailwayBlock>(
-            id: "overview", title: "Overview", systemImage: "square.grid.2x2",
-            summary: "Summary, services, bill and Railway's incidents",
-            blocks: [.summary, .services, .usage, .incidents]),
-        BlockPreset(
-            id: "services", title: "Services", systemImage: "square.stack.3d.up",
-            summary: "Just the services and their deploys", blocks: [.services, .incidents]),
-        BlockPreset(
-            id: "costs", title: "Costs", systemImage: "dollarsign.circle",
-            summary: "The bill against your usage limit", blocks: [.usage, .summary]),
+            id: "overview", title: "Overview", blocks: [.summary, .services, .usage, .incidents]),
+        BlockPreset(id: "services", title: "Services", blocks: [.services, .incidents]),
+        BlockPreset(id: "costs", title: "Costs", blocks: [.usage, .summary]),
     ]
 
     static func options(for block: RailwayBlock, settings: Binding<RailwaySettings>) -> some View {
@@ -55,11 +49,7 @@ extension RailwaySettings: BlockBuiltWidget {
         RailwayWidgetOptions(settings: settings)
     }
 
-    static let addableBlocks = [
-        AddableBlock(
-            id: "service", title: "Service", systemImage: "cube",
-            blurb: "One service in detail. Add one for each service to watch.")
-    ]
+    static let addableBlocks = [AddableBlock(id: "service", title: "Service", systemImage: "cube")]
 
     mutating func addBlock(_ id: AddableBlock.ID) -> RailwayBlock? {
         id == "service" ? addServiceBlock() : nil
@@ -125,16 +115,18 @@ struct RailwayWidgetOptions: View {
         } label: {
             InfoLabel("Environment", info: "The primary environment is usually production.")
         }
-        Picker(selection: $settings.refreshMinutes) {
-            Text("Automatic").tag(Int?.none)
-            ForEach(RailwaySettings.refreshMinuteChoices, id: \.self) { minutes in
-                Text(minutes == 1 ? "Every minute" : "Every \(minutes) minutes").tag(Optional(minutes))
+        ExpandableRow(title: "Advanced") {
+            Picker(selection: $settings.refreshMinutes) {
+                Text("Automatic").tag(Int?.none)
+                ForEach(RailwaySettings.refreshMinuteChoices, id: \.self) { minutes in
+                    Text(minutes == 1 ? "Every minute" : "Every \(minutes) minutes").tag(Optional(minutes))
+                }
+            } label: {
+                InfoLabel("Refresh", info: refreshInfo(connection))
             }
-        } label: {
-            InfoLabel("Refresh", info: refreshCaption(connection))
-        }
-        Picker("Minimal and bar show", selection: $settings.glance) {
-            ForEach(RailwayGlance.allCases) { Text($0.title).tag($0) }
+            Picker("Minimal and bar show", selection: $settings.glance) {
+                ForEach(RailwayGlance.allCases) { Text($0.title).tag($0) }
+            }
         }
     }
 
@@ -171,13 +163,13 @@ struct RailwayWidgetOptions: View {
         return service.cliIsSignedIn ? ("Railway CLI signed in", .blue) : ("Railway CLI not signed in", .orange)
     }
 
-    private func refreshCaption(_ connection: RailwayConnection?) -> String {
+    private func refreshInfo(_ connection: RailwayConnection?) -> String {
         let limit = connection?.rateLimit?.hourlyLimit.map { Int($0) }
         let share = limit.map {
             " Railway allows this account \($0.formatted()) requests an hour, shared with the CLI."
         }
         if settings.refreshMinutes == nil {
-            return "Every 2 minutes, quicker while something deploys, and never more than a small share of the "
+            return "Every 2 minutes, faster while something deploys, and never more than a small share of the "
                 + "rate limit. The bill refreshes every 15 minutes." + (share ?? "")
         }
         return "The bill refreshes every 15 minutes, or at this pace if slower." + (share ?? "")
@@ -232,12 +224,17 @@ struct RailwayWidgetOptions: View {
     }
 }
 
-/// One Railway block's options.
+/// One Railway block's options, as a section of the inspector's form.
 private struct RailwayBlockOptionsEditor: View {
     let block: RailwayBlock
     @Binding var settings: RailwaySettings
 
     var body: some View {
+        Section { options }
+    }
+
+    @ViewBuilder
+    private var options: some View {
         switch block {
         case .summary:
             Toggle(isOn: $settings.blockOptions.summary.showsWorkspace) {
@@ -269,9 +266,7 @@ private struct RailwayBlockOptionsEditor: View {
             }
         case .incidents:
             Toggle(isOn: $settings.blockOptions.incidents.showsMaintenance) {
-                InfoLabel(
-                    "Include planned maintenance",
-                    info: "From status.railway.com. The block shows only while Railway reports something.")
+                InfoLabel("Include planned maintenance", info: "From status.railway.com.")
             }
         case .service(let id):
             RailwayServiceBlockEditor(id: id, settings: $settings)

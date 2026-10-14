@@ -51,29 +51,29 @@ struct BlockLayoutTests {
         #expect(layout.shownBlocks == [.header, .list, .footer])
     }
 
-    @Test func `reordering the shown blocks leaves hidden ones where they are`() {
+    @Test func `moves blocks as a list's drag and drop reports it, hidden ones included`() {
         var layout = BlockLayout<Block>(
             entries: [
                 .init(block: .header, isShown: true), .init(block: .extra, isShown: false),
                 .init(block: .list, isShown: true), .init(block: .footer, isShown: true),
             ])
-        layout.reorderShown([.footer, .header, .list])
-        #expect(layout.entries.map(\.block) == [.footer, .extra, .header, .list])
-        #expect(layout.shownBlocks == [.footer, .header, .list])
+        layout.move(fromOffsets: [3], toOffset: 0)
+        #expect(layout.entries.map(\.block) == [.footer, .header, .extra, .list])
+        layout.move(fromOffsets: [0, 2], toOffset: 4)
+        #expect(layout.entries.map(\.block) == [.header, .list, .footer, .extra])
+        #expect(layout.shownBlocks == [.header, .list, .footer])
     }
 
-    @Test func `moves a block past hidden neighbors`() {
-        var layout = BlockLayout<Block>(
-            entries: [
-                .init(block: .header, isShown: true), .init(block: .extra, isShown: false),
-                .init(block: .list, isShown: true), .init(block: .footer, isShown: true),
-            ])
-        layout.moveAmongShown(.list, by: -1)
-        #expect(layout.shownBlocks == [.list, .header, .footer])
-        layout.moveAmongShown(.list, by: -1)
-        #expect(layout.shownBlocks == [.list, .header, .footer])
-        layout.moveAmongShown(.footer, by: 1)
-        #expect(layout.shownBlocks == [.list, .header, .footer])
+    @Test func `moves a block up or down, and not past either end`() {
+        var layout = BlockLayout<Block>()
+        layout.move(.list, by: -1)
+        #expect(layout.entries.map(\.block) == [.list, .header, .footer, .extra])
+        layout.move(.list, by: -1)
+        #expect(layout.entries.map(\.block) == [.list, .header, .footer, .extra])
+        layout.move(.extra, by: 1)
+        #expect(layout.entries.map(\.block) == [.list, .header, .footer, .extra])
+        layout.move(.header, by: 1)
+        #expect(layout.entries.map(\.block) == [.list, .footer, .header, .extra])
     }
 
     @Test func `added blocks join the shown ones, and only they can be removed`() throws {
