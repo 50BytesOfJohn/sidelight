@@ -86,18 +86,26 @@ final class RailwayService: DataService {
         token.refreshNow()
     }
 
+    /// Asks Railway whether `token` can read an account; returns why it can't be used.
+    func checkToken(_ token: String) async -> RailwayFetchProblem? {
+        let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return .noToken }
+        let request = RailwayAPI.request(RailwayAPI.accountQuery, token: token, userAgent: AppInfo.userAgent)
+        switch await RailwayConnection.send(request).map({ RailwayAPI.account(status: $0.status, body: $0.body) }) {
+        case .failure(let problem), .success(.failure(let problem)): return problem
+        case .success(.success): return nil
+        }
+    }
+
     /// Checks `token` with Railway and saves it in the keychain; returns why it wasn't saved. A token removed or
     /// saved again while it's checked is left to that newer change.
     func saveToken(_ token: String) async -> RailwayFetchProblem? {
         let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !token.isEmpty else { return .noToken }
         tokenChanges += 1
         let change = tokenChanges
-        let request = RailwayAPI.request(RailwayAPI.accountQuery, token: token, userAgent: AppInfo.userAgent)
-        let check = await RailwayConnection.send(request)
-        switch check.map({ RailwayAPI.account(status: $0.status, body: $0.body) }) {
-        case .failure(let problem), .success(.failure(let problem)): return problem
-        case .success(.success):
+        switch await checkToken(token) {
+        case let problem?: return problem
+        case nil:
             guard change == tokenChanges else { return nil }
             guard await writeToken({ await KeychainItem.railwayToken.save(token) }).value else {
                 return .refused(message: "Couldn't save to the keychain")

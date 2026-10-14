@@ -23,12 +23,13 @@ extension OpenRouterProblem {
     var advice: String {
         switch self {
         case .noKey:
-            "Add a management key in the widget's builder."
+            "Replace the account's key in Settings, under Accounts."
         case .invalidKey:
-            "The key may have been deleted or disabled. Save a current management key in the widget's builder."
+            "The key may have been deleted or disabled. Replace it with a current management key in Settings, under "
+                + "Accounts."
         case .notPermitted:
-            "The key's permissions don't cover this. Check the key in OpenRouter, then save it again in the "
-                + "widget's builder."
+            "The key's permissions don't cover this. Check the key in OpenRouter, then replace it in Settings, under "
+                + "Accounts."
         case .notManagementKey:
             "An inference key can't read the account's balance or spending. Create a management key in OpenRouter."
         case .keyNotFound:
@@ -47,6 +48,16 @@ extension OpenRouterProblem {
             "Check your connection. Sidelight tries again in a while."
         case .keychain:
             "Sidelight couldn't save the key in your keychain."
+        }
+    }
+
+    /// How the account is doing, when it's this; `nil` for what isn't about the account (a chart's key that's gone).
+    var accountStatus: AccountStatus? {
+        switch self {
+        case .noKey: .needsSignIn
+        case .invalidKey: .expired
+        case .keyNotFound: nil
+        default: .failed(title)
         }
     }
 

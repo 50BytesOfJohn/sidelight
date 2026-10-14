@@ -4,25 +4,40 @@ import SwiftUI
 /// A Balance block: an account's balance, and optionally what it spent each UTC day. In the minimal and bar sizes, it's
 /// the widget's glance: just the balance.
 struct OpenRouterBalanceBlock: View {
+    /// Where the block's balance comes from.
+    enum Source {
+        /// The Widgets window or the builder: an example, never an account's money.
+        case preview
+        /// The account the block uses, and the service's view of it once it has one.
+        case account(AccountResolution, OpenRouterAccount?)
+    }
+
     let options: OpenRouterBalanceOptions
-    /// The account it reads; `nil` while the service hasn't set up the block's own key's account yet.
-    let account: OpenRouterAccount?
+    let source: Source
     let layout: WidgetLayout
     let now: Date
-    @Environment(\.isWidgetPreview) private var isPreview
+    @Environment(AccountStore.self) private var accounts
+    @Environment(SettingsNavigator.self) private var navigator
 
     var body: some View {
-        if isPreview {
+        switch source {
+        case .preview:
             // The Widgets window and the builder show what the block looks like, with an example marked as one: never
             // an account's money, and no key is ever read for it.
             OpenRouterBalanceContent(
                 balance: .example(at: now), problem: nil, isFetching: false,
                 chart: options.chart.isShown ? .example(at: now) : nil, options: options, layout: layout,
                 now: now, isExample: true, refresh: nil)
-        } else if let account {
-            content(account)
-        } else {
-            WidgetMessage(title: "Connecting to OpenRouter…", detail: nil, systemImage: "hourglass", layout: layout)
+        case .account(let resolution, let account):
+            if let message = AccountMessage(
+                resolution, provider: .openRouter, accounts: accounts, navigator: navigator, layout: layout)
+            {
+                message
+            } else if let account {
+                content(account)
+            } else {
+                WidgetMessage(title: "Connecting to OpenRouter…", detail: nil, systemImage: "hourglass", layout: layout)
+            }
         }
     }
 
@@ -40,28 +55,17 @@ struct OpenRouterBalanceBlock: View {
             let retry = WidgetMessage.Action(title: "Try Again", isDisabled: balance.isFetching) {
                 account.refreshAccount(scope: scope)
             }
+            let openAccounts = WidgetMessage.Action(title: "Open Accounts") {
+                navigator.showAccounts(.openRouter)
+            }
             WidgetMessage(
-                title: problem == .noKey ? addKeyTitle : problem.title,
-                detail: problem == .noKey ? addKeyDetail : problem.advice,
+                title: problem.title, detail: problem.advice,
                 systemImage: problem.needsKey ? "key" : "exclamationmark.triangle",
                 layout: layout,
-                action: problem.needsKey ? nil : retry)
-        } else if account.hasKey == false {
-            WidgetMessage(title: addKeyTitle, detail: addKeyDetail, systemImage: "key", layout: layout)
+                action: problem.needsKey ? openAccounts : retry)
         } else {
             WidgetMessage(title: "Connecting to OpenRouter…", detail: nil, systemImage: "hourglass", layout: layout)
         }
-    }
-
-    private var addKeyTitle: String {
-        let name = options.title.map { " for “\($0)”" } ?? ""
-        return "Add an OpenRouter management key\(name)"
-    }
-
-    private var addKeyDetail: String {
-        options.account != nil
-            ? "This Balance block reads another account: add its key in the block's options, in the widget's builder."
-            : "Add it in the widget's builder, under Widget. Model lists need no key."
     }
 
     /// What the chart shows, when it's on.

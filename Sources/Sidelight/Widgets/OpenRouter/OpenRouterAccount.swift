@@ -3,49 +3,29 @@ import Observation
 import SidelightCore
 import os
 
-/// One OpenRouter account, as one management key reads it: the key itself, the balance, spending by day, and the key
-/// list for a chart's key picker. The shared key's account serves every Balance block that doesn't use its own key;
-/// each block with its own key has an account of its own.
+/// One OpenRouter account, as its management key reads it: the balance, spending by day, and the key list for a
+/// chart's key picker. Every Balance block that uses the account shares it.
 ///
 /// Every request made with the key (balance, spending, the key list) shares one pace: once OpenRouter asks to wait,
-/// none is sent before it allows, once it rejects the key, none is sent with it again until a key is saved, and
+/// none is sent before it allows, once it rejects the key, none is sent with it again until the key is replaced, and
 /// someone's clicks (refresh, more keys) are sent at most once per ``OpenRouterService/manualActionGap`` between
-/// them.
-///
-/// Removing the key stops its use at once, and for good: the removal is noted outside the keychain before the
-/// keychain is asked to delete the key, so a key it couldn't delete isn't used after a restart either. Whether it's
-/// still stored is a separate matter: Settings says so, and it stays unused until it's removed or a key is saved
-/// again.
+/// them. The key itself is the account store's: this only reads it, and starts over when it's replaced or removed.
 @Observable
 final class OpenRouterAccount {
-    let id: OpenRouterAccountID
+    let id: AccountID
     let balance: RemoteResource<OpenRouterBalance, OpenRouterProblem>
     /// Spending by day, for each scope a chart showed since the key was saved.
     private(set) var activities: [OpenRouterSpendScope: RemoteResource<OpenRouterActivity, OpenRouterProblem>] = [:]
-    /// Whether a management key is saved; `nil` until the keychain has been looked at.
+    /// Whether the account has a key; `nil` until it's been read.
     private(set) var hasKey: Bool?
-    /// The keychain still holds a key someone removed (it couldn't delete it): it isn't used. Removing it again or
-    /// saving a key ends this.
-    private(set) var keyRemovalFailed = false
-    /// A change to the key that couldn't be noted outside the keychain, so it won't outlast a restart.
-    private(set) var unnotedKeyChange: UnnotedKeyChange?
     private(set) var keyList = OpenRouterKeyList()
 
-    /// A change to the key that Sidelight couldn't note outside the keychain.
-    enum UnnotedKeyChange: Equatable {
-        /// The key was removed but is still in the keychain, and the removal couldn't be noted: once Sidelight
-        /// restarts, it uses that key again.
-        case removal
-        /// A key was saved, but an earlier removal is still noted: once Sidelight restarts, it doesn't use the key
-        /// until it's saved again.
-        case save
-    }
-
-    /// Whether the account can be read now: a key is saved, and isn't one someone removed.
-    var canUseKey: Bool { hasKey == true && !keyRemovalFailed }
+    /// Whether the account can be read now: it has a key.
+    var canUseKey: Bool { hasKey == true }
 
     @ObservationIgnored private let client: OpenRouterClient
-    @ObservationIgnored private let keyStore: OpenRouterKeyStore
+    @ObservationIgnored private let secret: () async -> String?
+    @ObservationIgnored private let report: (AccountStatus?) -> Void
     @ObservationIgnored private let now: @Sendable () -> Date
     /// Someone's clicks are this far apart at least.
     @ObservationIgnored private let manualActionGap: Duration
@@ -53,19 +33,8 @@ final class OpenRouterAccount {
     /// A Balance block reads this account, shown or not: what it showed is worth keeping.
     @ObservationIgnored private var isKept = false
     @ObservationIgnored private var isEnabled = false
-    /// Reading the key, once; everything that needs it waits for this one read.
-    @ObservationIgnored private var keyLoad: Task<StoredKey, Never>?
-    /// The last change to the key: saving it or removing it, in the keychain and in the note of its removal. Each
-    /// waits for the one before, so a removal still under way can't delete a key saved after it.
-    @ObservationIgnored private var keyOperation: Task<OpenRouterProblem?, Never>?
-    /// Counts the saves and removals asked for, so a save that a later one overtook before its turn writes nothing.
-    @ObservationIgnored private var keyRequests = 0
-    /// Counts the removals asked for: a key saved while one was asked for isn't used.
-    @ObservationIgnored private var keyRemovals = 0
     /// Bumped whenever the key changes: an answer fetched with the old key is dropped rather than shown.
     @ObservationIgnored private var keyGeneration = 0
-    /// Someone removed the key, and hasn't saved one since: whatever the keychain still holds isn't used.
-    @ObservationIgnored private var isKeyWithdrawn = false
     /// What OpenRouter said about asking with the current key, for every request made with it.
     @ObservationIgnored private var pacing = AccountPacing()
     @ObservationIgnored private var keyListTask: Task<Void, Never>?
@@ -77,10 +46,17 @@ final class OpenRouterAccount {
     @ObservationIgnored private var pendingRequests: [ManualRequest] = []
     @ObservationIgnored private let manualRequestWait = DelayedTask()
 
-    init(id: OpenRouterAccountID, client: OpenRouterClient, keyStore: OpenRouterKeyStore, manualActionGap: Duration) {
+    /// - Parameters:
+    ///   - secret: Reads the account's key; `nil` when it has none.
+    ///   - report: Says how the account is doing, after each answer from OpenRouter.
+    init(
+        id: AccountID, client: OpenRouterClient, secret: @escaping () async -> String?,
+        report: @escaping (AccountStatus?) -> Void = { _ in }, manualActionGap: Duration
+    ) {
         self.id = id
         self.client = client
-        self.keyStore = keyStore
+        self.secret = secret
+        self.report = report
         self.manualActionGap = manualActionGap
         now = client.now
         balance = RemoteResource(now: client.now)
@@ -249,6 +225,7 @@ final class OpenRouterAccount {
         }
         guard !Task.isCancelled, generation == keyGeneration else { return nil }
         pace(after: answer)
+        if case .success = answer.result { report(.connected) }
         if case .failure(let problem) = answer.result, problem != balance.problem {
             Log.openRouter.notice("Can't fetch the balance: \(String(describing: problem), privacy: .public)")
         }
@@ -297,143 +274,21 @@ final class OpenRouterAccount {
         return answer.fetchResult
     }
 
-    /// Notes what OpenRouter said about asking with the key, for every request made with it.
+    /// Notes what OpenRouter said about asking with the key, for every request made with it, and how the account is
+    /// doing when that's a problem with the account.
     private func pace<Value: Sendable>(after answer: OpenRouterClient.Answer<Value>) {
         guard case .failure(let problem) = answer.result else { return }
         pacing.record(problem, retry: answer.retry, at: now())
+        if let status = problem.accountStatus { report(status) }
     }
 
     // MARK: The management key
 
-    /// Looks in the keychain for a saved key, once, so Settings can say whether there is one.
-    func lookForKey() {
-        guard hasKey == nil, !isKeyWithdrawn else { return }
-        Task { _ = await managementKey() }
-    }
-
-    /// Checks `candidate` with OpenRouter and saves it in the keychain; returns why it wasn't saved. Only a management
-    /// key can read the account's balance and spending.
-    ///
-    /// Checking it asks OpenRouter once with the candidate itself, whatever the saved key's pace: it's a different
-    /// key, and someone just asked. A save cancelled before its turn to be written, or overtaken by a newer save or
-    /// removal by then, writes and reports nothing. Once written, it's the keychain's key, but a removal asked for
-    /// meanwhile still keeps it from being used. A save that fails changes nothing: a key someone removed stays unused.
-    func saveKey(_ candidate: String) async -> OpenRouterProblem? {
-        let key = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { return .noKey }
-        keyRequests += 1
-        let request = keyRequests
-        let removals = keyRemovals
-        if let problem = await checkManagementKey(key) { return problem }
-        guard !Task.isCancelled, request == keyRequests else { return nil }
-        let store = keyStore
-        let operation = queueKeyOperation { [weak self] in
-            // Whoever saved it gave up, or a newer save or removal came, before its turn: nothing is written.
-            guard let self, !Task.isCancelled, request == keyRequests else { return nil }
-            guard await store.save(key) else {
-                Log.openRouter.error("Couldn't save the OpenRouter management key in the keychain")
-                return .keychain
-            }
-            // In the keychain now, whoever gave up meanwhile: an earlier removal no longer applies to it.
-            let forgotRemoval = await store.removal.note(false)
-            if !forgotRemoval {
-                Log.openRouter.error("Saved an OpenRouter management key, but couldn't forget an earlier removal")
-            }
-            // Removed again while it was written: that removal deletes it next, and meanwhile it isn't used.
-            guard removals == keyRemovals else { return nil }
-            keyLoad = Task { StoredKey.key(key) }
-            hasKey = true
-            isKeyWithdrawn = false
-            keyRemovalFailed = false
-            unnotedKeyChange = forgotRemoval ? nil : .save
-            keyChanged()
-            Log.openRouter.info("Saved an OpenRouter management key")
-            return nil
-        }
-        // Cancelling the save cancels its turn: one not yet written never is. One under way can't be undone.
-        return await withTaskCancellationHandler {
-            await operation.value
-        } onCancel: {
-            operation.cancel()
-        }
-    }
-
-    /// Removes the saved key, and everything it showed. Sidelight stops using it right away, whatever happens in
-    /// the keychain, and notes the removal before the keychain is asked to delete it, so a key it couldn't delete
-    /// isn't used after a restart either. ``keyRemovalFailed`` then says it's still there; only removing it again or
-    /// saving a key changes that. What OpenRouter said about the key (a rejection, a wait) still holds meanwhile.
-    /// Returns the removal in the keychain, to wait for.
-    @discardableResult
-    func removeKey() -> Task<OpenRouterProblem?, Never> {
-        keyRequests += 1
-        keyRemovals += 1
-        let removal = keyRemovals
-        isKeyWithdrawn = true
-        keyLoad = nil
-        hasKey = false
-        keyRemovalFailed = false
-        unnotedKeyChange = nil
-        forgetKeyData()
-        let store = keyStore
-        return queueKeyOperation { [weak self] in
-            let noted = await store.removal.note(true)
-            let deleted = await store.delete()
-            // Gone: nothing left to keep from use. Should forgetting the note fail, saving a key forgets it.
-            if deleted { _ = await store.removal.note(false) }
-            self?.removalFinished(removal, deleted: deleted, noted: noted)
-            return nil
-        }
-    }
-
-    private func removalFinished(_ removal: Int, deleted: Bool, noted: Bool) {
-        // Removed again since: that removal shows its own result. A save asked for since comes after this, and
-        // shows its own.
-        guard removal == keyRemovals else { return }
-        guard !deleted else {
-            Log.openRouter.info("Removed the OpenRouter management key")
-            return
-        }
-        // Still stored, as far as anyone knows, but not used: it was asked to go.
-        keyRemovalFailed = true
-        hasKey = true
-        if noted {
-            Log.openRouter.error("Couldn't remove the OpenRouter management key from the keychain")
-        } else {
-            unnotedKeyChange = .removal
-            Log.openRouter.error(
-                "Couldn't remove the OpenRouter management key from the keychain, nor note that it was removed")
-        }
-    }
-
-    /// Asks OpenRouter whether `key` is a management key, which can read the account.
-    private func checkManagementKey(_ key: String) async -> OpenRouterProblem? {
-        let check = await client.send(OpenRouterAPI.currentKeyRequest(key: key, userAgent: AppInfo.userAgent)) {
-            response, _ in OpenRouterAPI.keyCheck(response)
-        }
-        guard !Task.isCancelled else { return nil }
-        switch check.result {
-        case .failure(let problem):
-            return problem
-        case .success(let check) where check.isManagementKey == true:
-            return nil
-        case .success(let check) where check.isManagementKey == false:
-            return .notManagementKey
-        case .success:
-            // OpenRouter didn't say: whether it may read the credits settles it.
-            let credits = await client.send(OpenRouterAPI.creditsRequest(key: key, userAgent: AppInfo.userAgent)) {
-                OpenRouterAPI.balance($0, fetchedAt: $1)
-            }
-            switch credits.result {
-            case .success: return nil
-            case .failure(.invalidKey), .failure(.notPermitted): return .notManagementKey
-            case .failure(let problem): return problem
-            }
-        }
-    }
-
-    /// A key was saved: everything the old one showed goes before the new one shows anything, and what OpenRouter said
-    /// about the old key no longer holds. A key picker on screen lists the keys again, with the new one.
-    private func keyChanged() {
+    /// The account's key was replaced or removed: everything the old one showed goes before the new one shows
+    /// anything, and what OpenRouter said about the old key no longer holds. A key picker on screen lists the keys
+    /// again, with the new one.
+    func keyChanged() {
+        hasKey = nil
         pacing = AccountPacing()
         forgetKeyData()
         if keyPickers > 0 { loadNextKeyPage() }
@@ -449,65 +304,13 @@ final class OpenRouterAccount {
         for activity in activities.values { activity.reset() }
     }
 
-    /// What the keychain holds, as far as Sidelight may use it.
-    private enum StoredKey {
-        case key(String)
-        case missing
-        /// Someone removed the key, and hasn't saved one since: the keychain may still hold it, but it isn't used.
-        case removed(isStillStored: Bool)
-    }
-
-    /// The key to use: the saved one, read from the keychain the first time; `nil` without one, or once someone
-    /// removed it, even if the keychain still holds it, and even if that was before Sidelight last quit.
+    /// The account's key, read through the account store's keyring (which reads the keychain once); `nil` without
+    /// one, which the account then reports.
     private func managementKey() async -> String? {
-        guard !isKeyWithdrawn else { return nil }
-        let load = keyLoad ?? readStoredKey()
-        keyLoad = load
-        let stored = await load.value
-        // Saved or removed during this read: the newer answer stands.
-        guard keyLoad == load else { return await managementKey() }
-        switch stored {
-        case .key(let key):
-            if hasKey != true { hasKey = true }
-            return key
-        case .missing:
-            if hasKey != false { hasKey = false }
-            return nil
-        case .removed(let isStillStored):
-            isKeyWithdrawn = true
-            if hasKey != isStillStored { hasKey = isStillStored }
-            if keyRemovalFailed != isStillStored { keyRemovalFailed = isStillStored }
-            return nil
-        }
-    }
-
-    /// The key in use, for copying it to a duplicated widget's block; `nil` without one, or once someone removed it.
-    func key() async -> String? {
-        await managementKey()
-    }
-
-    private func readStoredKey() -> Task<StoredKey, Never> {
-        let store = keyStore
-        return Task {
-            // A removal is noted: the keychain is only asked whether it still holds the key, to say so.
-            if await store.removal.isNoted() { return .removed(isStillStored: await store.read() != nil) }
-            return await store.read().map(StoredKey.key) ?? .missing
-        }
-    }
-
-    /// Queues `operation` on the key, to run once the one before it is done: the key and the note of its removal
-    /// change one operation at a time, in the order asked. Cancelling the task it returns cancels the operation;
-    /// it checks for that before it changes anything.
-    private func queueKeyOperation(
-        _ operation: @escaping @MainActor () async -> OpenRouterProblem?
-    ) -> Task<OpenRouterProblem?, Never> {
-        let previous = keyOperation
-        let task = Task {
-            _ = await previous?.value
-            return await operation()
-        }
-        keyOperation = task
-        return task
+        let key = await secret()
+        if hasKey != (key != nil) { hasKey = key != nil }
+        if key == nil { report(.needsSignIn) }
+        return key
     }
 
     // MARK: Key picker

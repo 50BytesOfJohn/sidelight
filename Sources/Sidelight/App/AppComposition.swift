@@ -8,7 +8,6 @@ import os
 struct AppComposition {
     var configurationFile = ConfigurationStore.defaultFileURL
     var openRouterTransport: OpenRouterService.Transport = { try await HTTP.send($0) }
-    var openRouterKeys = OpenRouterKeyring.keychain
     /// Where key accounts' secrets are kept.
     var accountSecrets = AccountSecrets.keychain
     /// Where versions before accounts kept theirs, moved from there at launch.
@@ -48,8 +47,6 @@ struct AppComposition {
             composition.movesWindows = { $0.bundleIdentifier == bundleIdentifier }
         }
         if let service = arguments.string(forKey: "SidelightKeychainService") {
-            composition.openRouterKeys = .keychain(
-                service: service, notingRemovalIn: composition.configurationFile.deletingLastPathComponent())
             composition.accountSecrets = .keychain(service: service)
             composition.legacySecrets = .keychain(
                 openRouterService: service, railwayService: service + ".railway",

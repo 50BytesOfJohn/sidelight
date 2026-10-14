@@ -128,3 +128,30 @@ final class AccountKeyring {
         return task
     }
 }
+
+/// What a data service may do with accounts: read a key account's secret, hear when one changes, and say how an
+/// account is doing. The composition root makes one from the keyring and the account store, for data services only.
+struct AccountAccess {
+    /// The secret of a key account; `nil` when there's none.
+    var secret: (AccountID) async -> String?
+    /// Registers a handler, called with an account's ID whenever its secret is replaced or removed.
+    var observeChanges: (@escaping (AccountID) -> Void) -> Void
+    /// Says how an account is doing, from a fetch.
+    var report: (AccountStatus?, AccountID) -> Void
+
+    init(
+        secret: @escaping (AccountID) async -> String?,
+        observeChanges: @escaping (@escaping (AccountID) -> Void) -> Void = { _ in },
+        report: @escaping (AccountStatus?, AccountID) -> Void = { _, _ in }
+    ) {
+        self.secret = secret
+        self.observeChanges = observeChanges
+        self.report = report
+    }
+
+    init(keyring: AccountKeyring, accounts: AccountStore) {
+        self.init(
+            secret: { await keyring.secret(for: $0) }, observeChanges: { keyring.observeChanges($0) },
+            report: { [weak accounts] status, id in accounts?.report(status, for: id) })
+    }
+}

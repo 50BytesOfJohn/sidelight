@@ -25,9 +25,12 @@ final class AppController {
         let openCodeSessions = OpenCodeSessionsService.openCode()
         let configurationStore = ConfigurationStore(fileURL: composition.configurationFile)
         let keyring = AccountKeyring(secrets: composition.accountSecrets)
+        let accounts = AccountStore(configuration: configurationStore, keyring: keyring)
+        let accountAccess = AccountAccess(keyring: keyring, accounts: accounts)
         let environment = AppEnvironment(
             configurationStore: configurationStore,
-            accounts: AccountStore(configuration: configurationStore, keyring: keyring),
+            accounts: accounts,
+            settingsNavigator: SettingsNavigator(),
             displays: DisplayMonitor(),
             desktopPictures: DesktopPictures(),
             calendar: CalendarService(),
@@ -44,8 +47,7 @@ final class AppController {
             systemStats: SystemStatsService(),
             noodleComputer: NoodleComputerService(),
             railway: RailwayService(),
-            openRouter: OpenRouterService(
-                transport: composition.openRouterTransport, keys: composition.openRouterKeys),
+            openRouter: OpenRouterService(transport: composition.openRouterTransport, accounts: accountAccess),
             details: DetailsPresenter(),
             hotkeys: HotkeyCenter(),
             windowAvoider: WindowAvoider(includes: composition.movesWindows),
@@ -59,6 +61,7 @@ final class AppController {
             old: composition.legacySecrets, new: composition.accountSecrets,
             keepsOldSecrets: composition.keepsLegacySecrets)
         windows = WindowCoordinator(environment: environment)
+        environment.settingsNavigator.showSettings = { [windows] in windows.show(.settings) }
         panels = PanelCoordinator(environment: environment)
     }
 
