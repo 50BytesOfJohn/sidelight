@@ -145,6 +145,20 @@ The cask lives in `50BytesOfJohn/homebrew-tap`, separate from the app. The `home
 release and uses the `HOMEBREW_TAP_DEPLOY_KEY` secret in the tag-restricted `release` environment. The matching
 public key is a write-enabled deploy key on the tap only; it cannot push to Sidelight or other repositories.
 
+For a fresh setup, generate a dedicated key, register its public half on the tap, and store the private half
+in Sidelight's release environment:
+
+```sh
+umask 077
+KEY_DIR=$(mktemp -d)
+ssh-keygen -q -t ed25519 -N '' -C sidelight-release-homebrew-tap -f "$KEY_DIR/deploy-key"
+gh api repos/50BytesOfJohn/homebrew-tap/keys -X POST \
+  -f title='Sidelight release updates' -f key="$(cat "$KEY_DIR/deploy-key.pub")" -F read_only=false
+gh secret set HOMEBREW_TAP_DEPLOY_KEY --env release --repo 50BytesOfJohn/sidelight < "$KEY_DIR/deploy-key"
+rm "$KEY_DIR/deploy-key" "$KEY_DIR/deploy-key.pub"
+rmdir "$KEY_DIR"
+```
+
 The tap also checks the latest stable release hourly using its own `GITHUB_TOKEN`. If a tap update fails, the
 app release remains published and Sparkle continues working. Retry without rebuilding or republishing the app:
 
