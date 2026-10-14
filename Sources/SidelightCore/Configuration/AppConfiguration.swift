@@ -23,6 +23,11 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public var sections: [PanelSection] = [PanelSection(widgets: AppConfiguration.defaultWidgets)]
     /// Per-display overrides of ``panel``.
     public var displays: [DisplayProfile] = []
+    /// The key accounts someone added, each provider's in the order they were added. App sign-ins aren't saved:
+    /// Sidelight finds them, under their fixed IDs.
+    public var accounts: [Account] = []
+    /// The account each provider's widgets use when they name none.
+    public var defaultAccounts: [AccountProvider: AccountID] = [:]
 
     public init() {}
 
@@ -76,7 +81,8 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
 
 extension AppConfiguration {
     private enum CodingKeys: String, CodingKey {
-        case panel, appearance, windowAvoidance, hotkey, updates, details, sections, displays
+        case panel, appearance, windowAvoidance, hotkey, updates, details, sections, displays, accounts
+        case defaultAccounts
     }
 
     /// Every setting released versions saved is required, as it always was. Settings added since take their
@@ -91,6 +97,14 @@ extension AppConfiguration {
         details = try container.decode(.details, or: DetailsPanelSettings())
         sections = try container.decode([PanelSection].self, forKey: .sections)
         displays = try container.decode([DisplayProfile].self, forKey: .displays)
+        // An account or provider only a newer version knows is left out, rather than failing the whole file.
+        let accounts = container.decodeLeniently(.accounts, or: [LenientElement<Account>]()).compactMap(\.value)
+        self.accounts = accounts.filter { $0.kind == .key }.reduce(into: []) { kept, account in
+            if !kept.contains(where: { $0.id == account.id }) { kept.append(account) }
+        }
+        let defaults = container.decodeLeniently(.defaultAccounts, or: [String: AccountID]())
+        defaultAccounts = Dictionary(
+            uniqueKeysWithValues: defaults.compactMap { key, id in AccountProvider(rawValue: key).map { ($0, id) } })
     }
 
     public init(json: Data) throws {

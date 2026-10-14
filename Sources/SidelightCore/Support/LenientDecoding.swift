@@ -60,3 +60,13 @@ extension Comparable {
         min(max(self, range.lowerBound), range.upperBound)
     }
 }
+
+/// One element of a list, `nil` when it can't be read (such as one only a newer version writes), so one odd element
+/// doesn't fail the whole list.
+struct LenientElement<Value: Decodable>: Decodable {
+    let value: Value?
+
+    init(from decoder: any Decoder) throws {
+        value = try? Value(from: decoder)
+    }
+}
