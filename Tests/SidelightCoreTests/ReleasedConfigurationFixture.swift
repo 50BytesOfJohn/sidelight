@@ -57,8 +57,8 @@ struct ReleasedConfigurationFixture {
         serviceBlock.showsMetrics = false
         serviceBlock.showsHistory = false
         railway.setServiceOptions(serviceBlock, for: Self.id(501))
-        let personalClaude = AIUsageBlock(.claudeCode, id: Self.id(601))
-        let workClaude = AIUsageBlock(.claudeCode, id: Self.id(602))
+        let personalClaude = AIUsageBlock(.claudeCode, uuid: Self.id(601))
+        let workClaude = AIUsageBlock(.claudeCode, uuid: Self.id(602))
         var aiUsage = AIUsageSettings(
             reading: .remaining, showsOtherLimits: false, refreshesClaudeFromAnthropic: true,
             claudeRefreshMinutes: 15, refreshesCursor: true, cursorRefreshMinutes: 60)

@@ -20,9 +20,10 @@ struct AIUsageSettingsTests {
 
     @Test func `a block is stored as its agent and ID`() {
         let block = AIUsageBlock(.claudeCode)
-        #expect(block.rawValue == "claudeCode:\(block.id.uuidString)")
+        #expect(block.rawValue == "claudeCode:\(block.uuid.uuidString)")
+        #expect(block.id == block.rawValue)
         #expect(AIUsageBlock(rawValue: block.rawValue) == block)
-        #expect(AIUsageBlock(rawValue: "gemini:\(block.id.uuidString)") == nil)
+        #expect(AIUsageBlock(rawValue: "gemini:\(block.uuid.uuidString)") == nil)
         #expect(AIUsageBlock(rawValue: "claudeCode") == nil)
         #expect(AIUsageBlock(rawValue: "claudeCode:not-a-uuid") == nil)
     }
@@ -65,10 +66,10 @@ struct AIUsageSettingsTests {
     }
 
     @Test func `unknown blocks, readings and stray options are skipped, and intervals moved into range`() throws {
-        let kept = AIUsageBlock.claudeCode.id.uuidString
+        let kept = AIUsageBlock.claudeCode.rawValue
         let json = #"""
-            {"blocks":[{"block":"gemini:\#(UUID().uuidString)","shown":true},{"block":"claudeCode:\#(kept)","shown":true}],
-             "blockOptions":{"\#(kept)":{"label":"","accountID":42},"\#(UUID().uuidString)":{"label":"Gone"}},
+            {"blocks":[{"block":"gemini:\#(UUID().uuidString)","shown":true},{"block":"\#(kept)","shown":true}],
+             "blockOptions":{"\#(kept)":{"label":"","accountID":42},"codex:\#(UUID().uuidString)":{"label":"Gone"}},
              "reading":"sideways","claudeRefreshMinutes":0}
             """#
         let settings = try JSONDecoder().decode(AIUsageSettings.self, from: Data(json.utf8))
@@ -78,6 +79,31 @@ struct AIUsageSettingsTests {
         #expect(settings.reading == .used)
         #expect(settings.claudeRefreshMinutes == 1)
         #expect(settings.cursorRefreshMinutes == 15)
+    }
+
+    @Test func `one unreadable block's options don't lose the others'`() throws {
+        let codex = AIUsageBlock.codex.rawValue
+        let claude = AIUsageBlock.claudeCode.rawValue
+        let cursor = AIUsageBlock.cursor.rawValue
+        let json = #"""
+            {"blockOptions":{"\#(codex)":{"label":42},"\#(claude)":{"label":"Work"},"\#(cursor)":"odd"}}
+            """#
+        let settings = try JSONDecoder().decode(AIUsageSettings.self, from: Data(json.utf8))
+        #expect(settings.options(.claudeCode).label == "Work")
+        #expect(settings.options(.codex) == AIUsageBlockOptions())
+        #expect(settings.options(.cursor) == AIUsageBlockOptions())
+    }
+
+    @Test func `blocks of two agents sharing a UUID keep apart`() {
+        let uuid = UUID()
+        let claude = AIUsageBlock(.claudeCode, uuid: uuid)
+        let cursor = AIUsageBlock(.cursor, uuid: uuid)
+        var settings = AIUsageSettings(blocks: [claude, cursor])
+        settings.setOptions(AIUsageBlockOptions(label: "Work"), for: claude)
+        #expect(claude.id != cursor.id)
+        #expect(settings.options(cursor) == AIUsageBlockOptions())
+        settings.removeBlock(cursor)
+        #expect(settings.options(claude).label == "Work")
     }
 
     @Test func `the same agent can be added again, and removing a block forgets its options`() {

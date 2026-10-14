@@ -23,14 +23,15 @@ public enum AIUsageProvider: String, Codable, CaseIterable, Identifiable, Sendab
 /// One block of an AI Usage widget: one agent's limits, for one of its accounts. A widget can have any number, the
 /// same agent's more than once, each with its options in ``AIUsageSettings/options(_:)`` under its ID.
 ///
-/// Stored as `<agent>:<UUID>`, like `claudeCode:6F1C2D3E-…`.
+/// Stored as `<agent>:<UUID>`, like `claudeCode:6F1C2D3E-…`, which is also its ID: the agent and the UUID together
+/// tell blocks apart, even two hand-edited to share a UUID.
 public struct AIUsageBlock: WidgetBlockKind, Identifiable {
     public var provider: AIUsageProvider
-    public var id: UUID
+    public var uuid: UUID
 
-    public init(_ provider: AIUsageProvider, id: UUID = UUID()) {
+    public init(_ provider: AIUsageProvider, uuid: UUID = UUID()) {
         self.provider = provider
-        self.id = id
+        self.uuid = uuid
     }
 
     public init?(rawValue: String) {
@@ -38,10 +39,12 @@ public struct AIUsageBlock: WidgetBlockKind, Identifiable {
         guard parts.count == 2, let provider = AIUsageProvider(rawValue: parts[0]),
             let id = UUID(uuidString: parts[1])
         else { return nil }
-        self.init(provider, id: id)
+        self.init(provider, uuid: id)
     }
 
-    public var rawValue: String { "\(provider.rawValue):\(id.uuidString)" }
+    public var rawValue: String { "\(provider.rawValue):\(uuid.uuidString)" }
+
+    public var id: String { rawValue }
 
     /// None: every block is added, and can be removed.
     public static let fixedBlocks: [AIUsageBlock] = []
@@ -50,10 +53,10 @@ public struct AIUsageBlock: WidgetBlockKind, Identifiable {
 
     /// Each agent's block in the presets. Their IDs are fixed, so choosing a preset again brings back the block as it
     /// was left, rather than adding another.
-    public static let codex = AIUsageBlock(.codex, id: UUID(uuidString: "6F1C2D3E-7A8B-4C9D-8E0F-A1B2C3D40001")!)
+    public static let codex = AIUsageBlock(.codex, uuid: UUID(uuidString: "6F1C2D3E-7A8B-4C9D-8E0F-A1B2C3D40001")!)
     public static let claudeCode = AIUsageBlock(
-        .claudeCode, id: UUID(uuidString: "6F1C2D3E-7A8B-4C9D-8E0F-A1B2C3D40002")!)
-    public static let cursor = AIUsageBlock(.cursor, id: UUID(uuidString: "6F1C2D3E-7A8B-4C9D-8E0F-A1B2C3D40003")!)
+        .claudeCode, uuid: UUID(uuidString: "6F1C2D3E-7A8B-4C9D-8E0F-A1B2C3D40002")!)
+    public static let cursor = AIUsageBlock(.cursor, uuid: UUID(uuidString: "6F1C2D3E-7A8B-4C9D-8E0F-A1B2C3D40003")!)
 }
 
 /// What one block shows besides its agent.
@@ -68,10 +71,10 @@ public struct AIUsageBlockOptions: Codable, Hashable, Sendable {
         self.account = account
     }
 
-    /// An empty label is no label, and an account reference that can't be read is the default account.
+    /// An empty or unreadable label is no label, and an account reference that can't be read is the default account.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        label = try container.decodeIfPresent(String.self, forKey: .label).flatMap { $0.isEmpty ? nil : $0 }
+        label = container.decodeLeniently(.label, or: String?.none).flatMap { $0.isEmpty ? nil : $0 }
         account = container.decodeLeniently(.account, or: nil)
     }
 
@@ -104,7 +107,7 @@ public enum AIUsagePreset: String, CaseIterable, Identifiable, Sendable {
 /// opt-in, separate from the Claude Code and Cursor widgets', so it works without them.
 public struct AIUsageSettings: Codable, Hashable, Sendable {
     public var blocks = BlockLayout<AIUsageBlock>(shown: AIUsagePreset.everyAgent.blocks)
-    /// Each block's options, by its ID; a block without any has the defaults.
+    /// Each block's options, by its raw value; a block without any has the defaults.
     public private(set) var blockOptions: [String: AIUsageBlockOptions] = [:]
     /// Defaults to what's used, like Claude Code and Cursor; Codex's own widget defaults to what's left.
     public var reading = UsageReading.used
@@ -141,8 +144,12 @@ public struct AIUsageSettings: Codable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = AIUsageSettings()
         blocks = container.decodeLeniently(.blocks, or: defaults.blocks)
-        let options = container.decodeLeniently(.blockOptions, or: [String: AIUsageBlockOptions]())
-        blockOptions = options.filter { key, _ in blocks.entries.contains { $0.block.id.uuidString == key } }
+        // Entry by entry, so one that can't be read doesn't lose every other block's options.
+        let options = container.decodeLeniently(
+            .blockOptions, or: [String: LenientElement<AIUsageBlockOptions>]()
+        )
+        .compactMapValues(\.value)
+        blockOptions = options.filter { key, _ in blocks.entries.contains { $0.block.rawValue == key } }
         reading = container.decodeLeniently(.reading, or: defaults.reading)
         showsOtherLimits = try container.decode(.showsOtherLimits, or: defaults.showsOtherLimits)
         refreshesClaudeFromAnthropic =
@@ -157,12 +164,12 @@ public struct AIUsageSettings: Codable, Hashable, Sendable {
     // MARK: Blocks
 
     public func options(_ block: AIUsageBlock) -> AIUsageBlockOptions {
-        blockOptions[block.id.uuidString] ?? AIUsageBlockOptions()
+        blockOptions[block.rawValue] ?? AIUsageBlockOptions()
     }
 
     public mutating func setOptions(_ options: AIUsageBlockOptions, for block: AIUsageBlock) {
         guard blocks.contains(block) else { return }
-        blockOptions[block.id.uuidString] = options
+        blockOptions[block.rawValue] = options
     }
 
     /// Adds a block for `provider`, shown at the end, and returns it.
@@ -170,14 +177,14 @@ public struct AIUsageSettings: Codable, Hashable, Sendable {
     public mutating func addBlock(_ provider: AIUsageProvider, options: AIUsageBlockOptions = .init()) -> AIUsageBlock {
         let block = AIUsageBlock(provider)
         blocks.add(block)
-        blockOptions[block.id.uuidString] = options
+        blockOptions[block.rawValue] = options
         return block
     }
 
     /// Removes a block with its options.
     public mutating func removeBlock(_ block: AIUsageBlock) {
         blocks.remove(block)
-        blockOptions[block.id.uuidString] = nil
+        blockOptions[block.rawValue] = nil
     }
 
     /// Shows `preset`'s blocks and hides the rest. Its blocks keep whatever options they were left with.

@@ -136,15 +136,18 @@ struct WidgetBuilderWindow: View {
             .id(id)
     }
 
-    /// Looks the widget up by identity on every access, so edits never land on another widget. A widget whose
-    /// settings are now of another kind reads as it last was.
+    /// Looks the widget up by identity on every access, so edits never land on another widget, or on settings of
+    /// another kind.
     private func binding<Settings: BlockBuiltWidget>(
         _ id: WidgetInstance.ID, current: Settings, embed: @escaping (Settings) -> WidgetSettings
     ) -> Binding<Settings> {
         Binding {
             store.configuration.widget(id)?.settings.blockBuilt as? Settings ?? current
         } set: { updated in
-            store.configuration.updateWidget(id) { $0.settings = embed(updated) }
+            // A widget whose settings are now of another kind, edited elsewhere, keeps them.
+            store.configuration.updateWidget(id) { widget in
+                if widget.settings.blockBuilt is Settings { widget.settings = embed(updated) }
+            }
         }
     }
 }
