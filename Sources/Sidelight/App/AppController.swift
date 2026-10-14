@@ -14,6 +14,7 @@ final class AppController {
     private var observations: [Task<Void, Never>] = []
     /// The kinds of widget whose data services may run; `nil` for every kind.
     private let serviceKinds: Set<WidgetKind>?
+    private let legacySecrets: LegacySecretMigration
 
     private var store: ConfigurationStore { environment.configurationStore }
 
@@ -54,11 +55,15 @@ final class AppController {
         )
         self.environment = environment
         serviceKinds = composition.serviceKinds
+        legacySecrets = LegacySecretMigration(
+            old: composition.legacySecrets, new: composition.accountSecrets,
+            keepsOldSecrets: composition.keepsLegacySecrets)
         windows = WindowCoordinator(environment: environment)
         panels = PanelCoordinator(environment: environment)
     }
 
     func start() {
+        environment.accounts.moveLegacySecrets(legacySecrets)
         let configuration = store.configuration
         store.startWatchingFile()
 

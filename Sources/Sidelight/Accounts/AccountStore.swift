@@ -138,6 +138,17 @@ final class AccountStore {
         Log.accounts.info("Removed a \(account.provider.rawValue, privacy: .public) account")
     }
 
+    /// Moves the secrets versions before accounts kept to their accounts, before any is read.
+    func moveLegacySecrets(_ migration: LegacySecretMigration) {
+        isMovingLegacySecrets = true
+        let configuration = configurationStore
+        let task = Task {
+            await migration.run(on: configuration)
+            isMovingLegacySecrets = false
+        }
+        keyring.waitFor(task)
+    }
+
     // MARK: From the data services
 
     /// How `id` is doing, from a data service's fetch; `nil` once nothing tells.

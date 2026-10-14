@@ -54,6 +54,8 @@ final class AccountKeyring {
     private var reads: [AccountID: Task<String?, Never>] = [:]
     private var writes: [AccountID: Task<Bool, Never>] = [:]
     private var observers: [(AccountID) -> Void] = []
+    /// Secrets of versions before accounts moving to their accounts: reads wait for it.
+    private var migration: Task<Void, Never>?
 
     init(secrets: AccountSecrets) {
         self.secrets = secrets
@@ -72,11 +74,19 @@ final class AccountKeyring {
     private func readTask(_ id: AccountID) -> Task<String?, Never> {
         let secrets = secrets
         let pending = writes[id]
+        let migration = migration
         return Task {
+            await migration?.value
             _ = await pending?.value
             if case .found(let secret) = await secrets.lookUp(id) { return secret }
             return nil
         }
+    }
+
+    /// Reads wait for `migration`, which moves secrets into accounts' items.
+    func waitFor(_ migration: Task<Void, Never>) {
+        self.migration = migration
+        reads = [:]
     }
 
     /// Calls `observer` with an account's ID whenever its secret is replaced or removed: what was fetched with the
