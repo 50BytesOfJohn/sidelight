@@ -133,3 +133,29 @@ struct AccountResolutionTests {
         #expect(AppConfiguration().resolveAccount(nil, at: .cursor) == .account(.cursorApp))
     }
 }
+
+struct AppSignInStatusTests {
+    @Test func `Claude Code's status comes from the last fetch, or its plan without one`() {
+        #expect(AccountStatus.claudeCode(fetched: nil, problem: nil, plan: nil) == nil)
+        #expect(AccountStatus.claudeCode(fetched: nil, problem: nil, plan: "Max") == .connected)
+        #expect(AccountStatus.claudeCode(fetched: nil, problem: .notSignedIn, plan: "Max") == .needsSignIn)
+        #expect(AccountStatus.claudeCode(fetched: nil, problem: .signInExpired, plan: nil) == .expired)
+        #expect(AccountStatus.claudeCode(fetched: nil, problem: .rejected(status: 401), plan: nil) == .expired)
+        let unreachable = AccountStatus.claudeCode(fetched: nil, problem: .unreachable, plan: nil)
+        #expect(unreachable == .failed(ClaudeCodeFetchProblem.unreachable.message))
+        #expect(unreachable?.needsSignIn == false)
+    }
+
+    @Test func `Codex is signed in once its app-server says who as`() {
+        #expect(AccountStatus.codex(CodexState()) == nil)
+        #expect(AccountStatus.codex(CodexState(source: .appServer)) == .needsSignIn)
+        #expect(AccountStatus.codex(CodexState(source: .appServer, problem: "Timed out")) == .failed("Timed out"))
+    }
+
+    @Test func `Cursor's status comes from the last fetch`() {
+        #expect(AccountStatus.cursor(fetched: nil, problem: nil) == nil)
+        #expect(AccountStatus.cursor(fetched: nil, problem: .notSignedIn) == .needsSignIn)
+        #expect(AccountStatus.cursor(fetched: nil, problem: .rejected(status: 403)) == .expired)
+        #expect(AccountStatus.cursor(fetched: nil, problem: .rejected(status: 500))?.needsSignIn == false)
+    }
+}
