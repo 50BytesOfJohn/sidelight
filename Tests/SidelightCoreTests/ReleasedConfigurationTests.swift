@@ -6,9 +6,10 @@ import Testing
 /// An app update must never reset someone's panel. Each file in `ReleasedConfigurations` was saved by that
 /// release's own code, with every option it offered set away from its default (v0.1.0 and v0.1.1 save the same
 /// schema as v0.1.2). Loading one and saving it again must keep everything it says; newer options may only add to
-/// it. The exceptions are a retired widget kind, which is dropped on purpose (``WidgetKind/retiredRawValues``), and
-/// the credential choices widgets saved before shared accounts, which are left behind on purpose: accounts start
-/// empty (``withoutCredentialChoices(_:)``).
+/// it. The exceptions are a retired widget kind, which is dropped on purpose (``WidgetKind/retiredRawValues``), the
+/// credential choices widgets saved before shared accounts, which are left behind on purpose: accounts start
+/// empty (``withoutCredentialChoices(_:)``), and the agents an AI Usage widget showed before it was built from blocks,
+/// which start over as every agent's block (``withoutAIUsageAgents(_:)``).
 struct ReleasedConfigurationTests {
     static let legacyReleases = ["v0.1.2", "v0.2.0", "v0.2.1", "v0.3.0", "v0.4.0", "v0.5.0", "v0.6.0"]
     static let releases = legacyReleases + ["v0.7.0"]
@@ -18,7 +19,8 @@ struct ReleasedConfigurationTests {
         let released = try Self.load(release)
         let saved = try AppConfiguration(json: released).json()
         let kept = try Self.values(in: JSONSerialization.jsonObject(with: saved))
-        let original = try Self.withoutRetiredWidgets(JSONSerialization.jsonObject(with: released))
+        let original = try Self.withoutAIUsageAgents(
+            Self.withoutRetiredWidgets(JSONSerialization.jsonObject(with: released)))
         let expected = Self.legacyReleases.contains(release) ? Self.withoutCredentialChoices(original) : original
         let changed = Self.values(in: expected).filter { path, value in kept[path] != value }
         #expect(changed.isEmpty, "Lost or changed: \(changed.keys.sorted())")
@@ -86,6 +88,28 @@ struct ReleasedConfigurationTests {
                 if let balances = settings["balances"] as? [String: [String: Any]] {
                     settings["balances"] = balances.mapValues { $0.filter { $0.key != "usesOwnKey" } }
                 }
+                widget["settings"] = settings
+                return widget
+            }
+            return section
+        }
+        return root
+    }
+
+    /// `json` without the agents AI Usage widgets saved before blocks: `providers` and `claudeAccount`. How limits
+    /// read and when they're fetched are kept.
+    private static func withoutAIUsageAgents(_ json: Any) -> Any {
+        guard var root = json as? [String: Any], let sections = root["sections"] as? [[String: Any]] else {
+            return json
+        }
+        root["sections"] = sections.map { section in
+            var section = section
+            section["widgets"] = (section["widgets"] as? [[String: Any]] ?? []).map { widget in
+                guard widget["kind"] as? String == "aiUsage", var settings = widget["settings"] as? [String: Any]
+                else { return widget }
+                var widget = widget
+                settings["providers"] = nil
+                settings["claudeAccount"] = nil
                 widget["settings"] = settings
                 return widget
             }

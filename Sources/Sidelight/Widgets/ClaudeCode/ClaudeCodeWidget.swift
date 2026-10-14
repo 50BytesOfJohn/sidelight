@@ -43,24 +43,41 @@ struct AnthropicRefreshSettings: View {
     let account: AccountID?
     @Binding var isOn: Bool
     @Binding var minutes: Int
+
+    var body: some View {
+        AnthropicRefreshPicker(isOn: $isOn, minutes: $minutes)
+        if isOn {
+            AnthropicFetchStatus(account: account)
+        }
+    }
+}
+
+/// The opt-in to fetch Claude usage from Anthropic on a timer, and how often.
+struct AnthropicRefreshPicker: View {
+    var title = "Refresh from Anthropic"
+    @Binding var isOn: Bool
+    @Binding var minutes: Int
+
+    var body: some View {
+        RefreshIntervalPicker(
+            title: title,
+            info: "Asks Anthropic for your plan's usage like /usage does, signed in as Claude Code is, so it also "
+                + "counts claude.ai and your other devices. Sidelight reads the sign-in from your keychain for each "
+                + "request and never stores it. The endpoint is undocumented, so this may stop working.",
+            isOn: $isOn, minutes: $minutes, choices: ClaudeCodeSettings.refreshMinuteChoices)
+    }
+}
+
+/// How the last fetch from Anthropic went for a Claude account.
+struct AnthropicFetchStatus: View {
+    /// `nil` for the default account.
+    let account: AccountID?
     @Environment(AccountStore.self) private var accounts
     @Environment(ClaudeCodeService.self) private var service
 
     private var claude: ClaudeCodeAccount? { service.account(for: account, in: accounts) }
 
     var body: some View {
-        RefreshIntervalPicker(
-            title: "Refresh from Anthropic",
-            info: "Asks Anthropic for your plan's usage like /usage does, signed in as Claude Code is, so it also "
-                + "counts claude.ai and your other devices. Sidelight reads the sign-in from your keychain for each "
-                + "request and never stores it. The endpoint is undocumented, so this may stop working.",
-            isOn: $isOn, minutes: $minutes, choices: ClaudeCodeSettings.refreshMinuteChoices)
-        if isOn {
-            status
-        }
-    }
-
-    private var status: some View {
         StatusRow(
             color: claude?.anthropicProblem != nil ? Color.orange : claude?.anthropicUsage != nil ? .green : .secondary,
             alignment: .firstTextBaseline

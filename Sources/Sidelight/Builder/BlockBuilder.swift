@@ -5,8 +5,14 @@ import SwiftUI
 protocol DescribedBlock: WidgetBlockKind, Identifiable {
     var title: String { get }
     var systemImage: String { get }
+    /// A logo in `ProviderLogos.xcassets`, in its own colors, drawn in place of ``systemImage``.
+    var logo: String? { get }
     /// What it shows, in a line.
     var blurb: String { get }
+}
+
+extension DescribedBlock {
+    var logo: String? { nil }
 }
 
 /// A widget built from blocks, as its builder edits it. The widget's settings conform: their blocks, each block's
@@ -57,6 +63,7 @@ struct AddableBlock: Identifiable {
     let id: String
     let title: String
     let systemImage: String
+    var logo: String?
     let blurb: String
 }
 
@@ -72,15 +79,21 @@ struct BlockPreset<Block: WidgetBlockKind>: Identifiable {
 }
 
 extension WidgetSettings {
-    /// Whether this widget is built from blocks and has a builder.
-    var hasBuilder: Bool {
+    /// The settings of a widget built from blocks; `nil` for any other.
+    var blockBuilt: (any BlockBuiltWidget)? {
         switch self {
-        case .railway, .codexSessions, .openRouter: true
-        case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system,
-            .noodleComputer, .agentSessions:
-            false
+        case .railway(let settings): settings
+        case .codexSessions(let settings): settings
+        case .openRouter(let settings): settings
+        case .aiUsage(let settings): settings
+        case .clock, .codex, .claudeCode, .cursor, .calendar, .nowPlaying, .claudeSessions, .system, .noodleComputer,
+            .agentSessions:
+            nil
         }
     }
+
+    /// Whether this widget is built from blocks and has a builder.
+    var hasBuilder: Bool { blockBuilt != nil }
 }
 
 /// The builder window's content: the builder for the widget it was opened for. Every change applies to the live
@@ -93,34 +106,14 @@ struct WidgetBuilderWindow: View {
         if let id = windows.builderWidgetID, let widget = store.configuration.widget(id) {
             switch widget.settings {
             case .railway(let settings):
-                BlockBuilderView(
-                    kind: widget.kind,
-                    settings: binding(id, current: settings, embed: WidgetSettings.railway) {
-                        if case .railway(let settings) = $0 { settings } else { nil }
-                    },
-                    embed: WidgetSettings.railway
-                )
-                // A new selection for each widget: a block selected in another doesn't exist in this one.
-                .id(id)
+                builder(id, kind: widget.kind, settings: settings, embed: WidgetSettings.railway)
             case .codexSessions(let settings):
-                BlockBuilderView(
-                    kind: widget.kind,
-                    settings: binding(id, current: settings, embed: WidgetSettings.codexSessions) {
-                        if case .codexSessions(let settings) = $0 { settings } else { nil }
-                    },
-                    embed: WidgetSettings.codexSessions
-                )
-                .id(id)
+                builder(id, kind: widget.kind, settings: settings, embed: WidgetSettings.codexSessions)
             case .openRouter(let settings):
-                BlockBuilderView(
-                    kind: widget.kind,
-                    settings: binding(id, current: settings, embed: WidgetSettings.openRouter) {
-                        if case .openRouter(let settings) = $0 { settings } else { nil }
-                    },
-                    embed: WidgetSettings.openRouter
-                )
-                .id(id)
-            case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .system,
+                builder(id, kind: widget.kind, settings: settings, embed: WidgetSettings.openRouter)
+            case .aiUsage(let settings):
+                builder(id, kind: widget.kind, settings: settings, embed: WidgetSettings.aiUsage)
+            case .clock, .codex, .claudeCode, .cursor, .calendar, .nowPlaying, .claudeSessions, .system,
                 .noodleComputer, .agentSessions:
                 ContentUnavailableView(
                     "No builder", systemImage: "square.stack.3d.up.slash",
@@ -133,15 +126,28 @@ struct WidgetBuilderWindow: View {
         }
     }
 
-    /// Looks the widget up by identity on every access, so edits never land on another widget.
-    private func binding<Settings>(
-        _ id: WidgetInstance.ID, current: Settings, embed: @escaping (Settings) -> WidgetSettings,
-        extract: @escaping (WidgetSettings) -> Settings?
+    /// The builder for the widget `id`, whose settings `embed` wraps.
+    private func builder<Settings: BlockBuiltWidget>(
+        _ id: WidgetInstance.ID, kind: WidgetKind, settings: Settings,
+        embed: @escaping (Settings) -> WidgetSettings
+    ) -> some View {
+        BlockBuilderView(kind: kind, settings: binding(id, current: settings, embed: embed), embed: embed)
+            // A new selection for each widget: a block selected in another doesn't exist in this one.
+            .id(id)
+    }
+
+    /// Looks the widget up by identity on every access, so edits never land on another widget, or on settings of
+    /// another kind.
+    private func binding<Settings: BlockBuiltWidget>(
+        _ id: WidgetInstance.ID, current: Settings, embed: @escaping (Settings) -> WidgetSettings
     ) -> Binding<Settings> {
         Binding {
-            store.configuration.widget(id).flatMap { extract($0.settings) } ?? current
+            store.configuration.widget(id)?.settings.blockBuilt as? Settings ?? current
         } set: { updated in
-            store.configuration.updateWidget(id) { $0.settings = embed(updated) }
+            // A widget whose settings are now of another kind, edited elsewhere, keeps them.
+            store.configuration.updateWidget(id) { widget in
+                if widget.settings.blockBuilt is Settings { widget.settings = embed(updated) }
+            }
         }
     }
 }
@@ -350,7 +356,11 @@ struct BlockBuilderView<Widget: BlockBuiltWidget>: View {
     @ViewBuilder
     private func blockInspector(_ block: Widget.Block) -> some View {
         InspectorHeader(title: settings.title(of: block), subtitle: block.blurb) {
-            IconTile(systemImage: block.systemImage, tint: kind.metadata.tint, size: 44)
+            if let logo = block.logo {
+                BlockGlyph(systemImage: block.systemImage, logo: logo, size: 44)
+            } else {
+                IconTile(systemImage: block.systemImage, tint: kind.metadata.tint, size: 44)
+            }
         }
         InspectorSection("Block") {
             Toggle(
@@ -396,11 +406,9 @@ private struct BlockRow<Block: DescribedBlock>: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: block.systemImage)
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 22, height: 22)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.08)))
+            BlockGlyph(systemImage: block.systemImage, logo: block.logo)
                 .foregroundStyle(isShown ? .primary : .secondary)
+                .opacity(block.logo != nil && !isShown ? 0.55 : 1)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                     .font(.system(size: 12.5, weight: .medium))
@@ -430,13 +438,7 @@ private struct AddableBlockRow: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: addable.systemImage)
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 22, height: 22)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
-                )
+            BlockGlyph(systemImage: addable.systemImage, logo: addable.logo, isPlaceholder: true)
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Add \(addable.title)").font(.system(size: 12.5, weight: .medium)).foregroundStyle(.secondary)
@@ -452,6 +454,33 @@ private struct AddableBlockRow: View {
         .padding(.vertical, 2)
         .contentShape(.rect)
         .onTapGesture(count: 2, perform: add)
+    }
+}
+
+/// A block's symbol or logo on a small rounded tile; dashed for a kind of block that's yet to be added.
+private struct BlockGlyph: View {
+    let systemImage: String
+    var logo: String?
+    var size: CGFloat = 22
+    var isPlaceholder = false
+
+    var body: some View {
+        let tile = RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
+        Group {
+            if let logo {
+                BrandLogos.artwork(logo, size: size * 0.6)
+            } else {
+                Image(systemName: systemImage).font(.system(size: size * 0.55, weight: .semibold))
+            }
+        }
+        .frame(width: size, height: size)
+        .background {
+            if isPlaceholder {
+                tile.strokeBorder(Color.primary.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+            } else {
+                tile.fill(Color.primary.opacity(0.08))
+            }
+        }
     }
 }
 

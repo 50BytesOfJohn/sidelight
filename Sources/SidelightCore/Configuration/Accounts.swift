@@ -232,13 +232,13 @@ extension AppConfiguration {
 // MARK: - References
 
 extension AppConfiguration {
-    /// How many widgets (counting each Balance block) name `id`.
+    /// How many widgets name `id`, counting each block that names an account.
     public func references(to id: AccountID) -> Int {
         widgets.reduce(0) { count, widget in count + widget.settings.accountReferences.count { $0.account == id } }
     }
 
-    /// How many widgets (counting each Balance block) use `id`: those that name it, and if it's its provider's default,
-    /// those that name none.
+    /// How many widgets use `id`, counting each block that names an account: those that name it, and if it's its
+    /// provider's default, those that name none.
     public func uses(of id: AccountID, signedIn: Set<AccountID> = []) -> Int {
         guard let provider = account(id)?.provider else { return references(to: id) }
         let usesDefault = defaultAccount(for: provider, signedIn: signedIn) == .account(id)
@@ -273,15 +273,14 @@ extension AppConfiguration {
 }
 
 extension WidgetSettings {
-    /// Each account reference the widget saves, one per block that shows an account: `nil` for its provider's
-    /// default. A reference to a provider the widget doesn't show right now (Claude in an AI Usage widget showing
-    /// only Codex) isn't counted.
+    /// Each account reference the widget saves, one per block that shows an account, hidden blocks included: `nil`
+    /// for its provider's default.
     public var accountReferences: [(provider: AccountProvider, account: AccountID?)] {
         switch self {
         case .openRouter(let settings): settings.allBalances.map { (.openRouter, $0.options.account) }
         case .railway(let settings): [(.railway, settings.account)]
         case .claudeCode(let settings): [(.claudeCode, settings.account)]
-        case .aiUsage(let settings): settings.includes(.claudeCode) ? [(.claudeCode, settings.claudeAccount)] : []
+        case .aiUsage(let settings): settings.accountReferences(shownOnly: false)
         case .clock, .codex, .cursor, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system,
             .noodleComputer, .agentSessions:
             []
@@ -305,9 +304,10 @@ extension WidgetSettings {
         case .claudeCode(var settings) where settings.account == id:
             settings.account = nil
             self = .claudeCode(settings)
-        case .aiUsage(var settings) where settings.claudeAccount == id:
-            settings.claudeAccount = nil
+        case .aiUsage(var settings):
+            let didForget = settings.forgetAccount(id)
             self = .aiUsage(settings)
+            return didForget
         default:
             return false
         }

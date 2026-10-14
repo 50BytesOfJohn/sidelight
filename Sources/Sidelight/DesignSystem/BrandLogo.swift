@@ -20,6 +20,16 @@ enum BrandLogos {
             .frame(width: size, height: size)
             .accessibilityHidden(true)
     }
+
+    /// A logo in its own colors, scaled to `size` points. The asset catalog picks the light or dark artwork for the
+    /// appearance.
+    static func artwork(_ name: String, size: CGFloat) -> some View {
+        Image(name, bundle: bundle)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
 }
 
 /// A widget kind's icon: its service's logo when it has one, otherwise its symbol, in the foreground style.
@@ -44,11 +54,7 @@ struct ProviderLogo: View {
     let size: CGFloat
 
     var body: some View {
-        Image(provider.logoAsset, bundle: BrandLogos.bundle)
-            .resizable()
-            .scaledToFit()
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        BrandLogos.artwork(provider.logoAsset, size: size)
     }
 }
 
