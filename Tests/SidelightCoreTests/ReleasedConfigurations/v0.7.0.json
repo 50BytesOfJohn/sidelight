@@ -1,0 +1,733 @@
+{
+  "accounts" : [
+    {
+      "id" : "00000000-0000-4000-8000-000000000701",
+      "kind" : "key",
+      "name" : "Work",
+      "provider" : "openRouter"
+    },
+    {
+      "id" : "00000000-0000-4000-8000-000000000702",
+      "kind" : "key",
+      "name" : "Personal",
+      "provider" : "openRouter"
+    },
+    {
+      "id" : "00000000-0000-4000-8000-000000000703",
+      "kind" : "key",
+      "name" : "Acme token",
+      "provider" : "railway"
+    },
+    {
+      "folder" : "/Users/example/.claude-work",
+      "id" : "00000000-0000-4000-8000-000000000704",
+      "kind" : "appProfile",
+      "name" : "Work Claude",
+      "provider" : "claudeCode"
+    }
+  ],
+  "appearance" : {
+    "background" : {
+      "blur" : {
+        "material" : "dark",
+        "radius" : 55,
+        "tint" : {
+          "amount" : 0.25,
+          "color" : "#802020"
+        }
+      },
+      "color" : {
+        "angle" : 45,
+        "color" : "#33AA77CC",
+        "fill" : "solid",
+        "gradient" : [
+          "#FF0055",
+          "#FFAA00",
+          "#00CCFF80"
+        ],
+        "isAnimated" : true,
+        "opacity" : 0.8
+      },
+      "glass" : {
+        "tint" : {
+          "amount" : 0.4,
+          "color" : "#2040A0"
+        },
+        "variant" : "clear"
+      },
+      "grain" : 0.35,
+      "image" : {
+        "blur" : 0.05,
+        "dim" : 0.5,
+        "effect" : {
+          "highlights" : "#F5E6C8",
+          "kind" : "dither",
+          "levels" : 6,
+          "shadows" : "#0B1020",
+          "size" : 8
+        },
+        "fade" : 0.2,
+        "path" : "/Users/example/Pictures/wallpaper.heic",
+        "tint" : {
+          "amount" : 0.2,
+          "color" : "#101030"
+        }
+      },
+      "kind" : "image"
+    },
+    "cards" : {
+      "fill" : {
+        "amount" : 0.4,
+        "color" : "#112233"
+      },
+      "showsTitles" : false,
+      "style" : "glass",
+      "tint" : {
+        "amount" : 0.15,
+        "color" : "#FFFFFF"
+      }
+    },
+    "text" : "light"
+  },
+  "defaultAccounts" : {
+    "claudeCode" : "00000000-0000-4000-8000-000000000704",
+    "openRouter" : "00000000-0000-4000-8000-000000000701",
+    "railway" : "railway.cli"
+  },
+  "details" : {
+    "closeHotkey" : {
+      "key" : "Space",
+      "keyCode" : 49,
+      "modifiers" : 4352
+    },
+    "customBackground" : {
+      "blur" : {
+        "material" : "dark",
+        "radius" : 55,
+        "tint" : {
+          "amount" : 0.25,
+          "color" : "#802020"
+        }
+      },
+      "color" : {
+        "angle" : 45,
+        "color" : "#33AA77CC",
+        "fill" : "solid",
+        "gradient" : [
+          "#FF0055",
+          "#FFAA00",
+          "#00CCFF80"
+        ],
+        "isAnimated" : true,
+        "opacity" : 0.8
+      },
+      "glass" : {
+        "tint" : {
+          "amount" : 0.4,
+          "color" : "#2040A0"
+        },
+        "variant" : "clear"
+      },
+      "grain" : 0.35,
+      "image" : {
+        "blur" : 0.05,
+        "dim" : 0.5,
+        "effect" : {
+          "highlights" : "#F5E6C8",
+          "kind" : "dither",
+          "levels" : 6,
+          "shadows" : "#0B1020",
+          "size" : 8
+        },
+        "fade" : 0.2,
+        "path" : "/Users/example/Pictures/wallpaper.heic",
+        "tint" : {
+          "amount" : 0.2,
+          "color" : "#101030"
+        }
+      },
+      "kind" : "image"
+    },
+    "usesCustomStyle" : true
+  },
+  "displays" : [
+    {
+      "alignment" : "start",
+      "id" : "37D8832A-2D66-02CA-B9F7-8F30A301B230",
+      "length" : "fill",
+      "name" : "Studio Display",
+      "position" : "top",
+      "showsPanel" : false,
+      "width" : 320
+    },
+    {
+      "id" : "A1B2C3D4-0000-4000-8000-00000000BEEF",
+      "name" : "LG UltraFine",
+      "width" : "compact"
+    },
+    {
+      "alignment" : "center",
+      "id" : "0F0E0D0C-1111-4222-9333-444455556666",
+      "name" : "Sidecar",
+      "position" : "bottom",
+      "showsPanel" : true,
+      "width" : "minimal"
+    }
+  ],
+  "hotkey" : {
+    "key" : "Space",
+    "keyCode" : 49,
+    "modifiers" : 6656
+  },
+  "panel" : {
+    "alignment" : "end",
+    "length" : "fit",
+    "position" : "right",
+    "shownOn" : "all",
+    "width" : "22.5%"
+  },
+  "sections" : [
+    {
+      "alignment" : "center",
+      "id" : "00000000-0000-4000-8000-000000000901",
+      "name" : "Work",
+      "share" : 2,
+      "widgets" : [
+        {
+          "id" : "00000000-0000-4000-8000-000000000001",
+          "kind" : "clock",
+          "settings" : {
+            "alignment" : "trailing",
+            "analog" : {
+              "dial" : "numerals",
+              "showsDate" : false
+            },
+            "binary" : {
+              "color" : "red",
+              "showsDigits" : false
+            },
+            "flip" : {
+              "showsDate" : false,
+              "tiles" : "paper"
+            },
+            "pixel" : {
+              "color" : "green",
+              "glows" : false,
+              "showsUnlitPixels" : false
+            },
+            "showsSeconds" : true,
+            "style" : "flip",
+            "uses24HourTime" : false,
+            "words" : {
+              "roundsToFiveMinutes" : true,
+              "showsDate" : false,
+              "typeface" : "rounded"
+            }
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000002",
+          "kind" : "codex",
+          "settings" : {
+            "limitReading" : "used",
+            "showsTokenHistory" : false,
+            "showsWeeklyLimit" : false
+          },
+          "showsInBar" : false,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000003",
+          "kind" : "claudeCode",
+          "settings" : {
+            "account" : "00000000-0000-4000-8000-000000000704",
+            "refreshMinutes" : 15,
+            "refreshesFromAnthropic" : true,
+            "showsWeeklyLimit" : false
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000004",
+          "kind" : "cursor",
+          "settings" : {
+            "refreshMinutes" : 30,
+            "refreshesFromCursor" : true,
+            "showsOnDemand" : false
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : true
+        }
+      ]
+    },
+    {
+      "alignment" : "end",
+      "id" : "00000000-0000-4000-8000-000000000902",
+      "widgets" : [
+        {
+          "id" : "00000000-0000-4000-8000-000000000005",
+          "kind" : "aiUsage",
+          "settings" : {
+            "claudeAccount" : "00000000-0000-4000-8000-000000000704",
+            "claudeRefreshMinutes" : 15,
+            "cursorRefreshMinutes" : 60,
+            "providers" : [
+              "claudeCode",
+              "cursor"
+            ],
+            "reading" : "remaining",
+            "refreshesClaudeFromAnthropic" : true,
+            "refreshesCursor" : true,
+            "showsOtherLimits" : false
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000006",
+          "kind" : "calendar",
+          "settings" : {
+            "eventCount" : 7
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000007",
+          "kind" : "nowPlaying",
+          "showsInBar" : true,
+          "showsInSidePanel" : false
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000008",
+          "kind" : "claudeSessions",
+          "settings" : {
+            "recentHours" : 12,
+            "sessionCount" : 8
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000009",
+          "kind" : "system",
+          "settings" : {
+            "metrics" : "cpu"
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000010",
+          "kind" : "clock",
+          "settings" : {
+            "alignment" : "center",
+            "analog" : {
+              "dial" : "ticks",
+              "showsDate" : true
+            },
+            "binary" : {
+              "color" : "cyan",
+              "showsDigits" : true
+            },
+            "flip" : {
+              "showsDate" : true,
+              "tiles" : "graphite"
+            },
+            "pixel" : {
+              "color" : "amber",
+              "glows" : true,
+              "showsUnlitPixels" : true
+            },
+            "showsSeconds" : false,
+            "style" : "words",
+            "uses24HourTime" : true,
+            "words" : {
+              "roundsToFiveMinutes" : true,
+              "showsDate" : true,
+              "typeface" : "sans"
+            }
+          },
+          "showsInBar" : false,
+          "showsInSidePanel" : true
+        }
+      ]
+    },
+    {
+      "alignment" : "start",
+      "id" : "00000000-0000-4000-8000-000000000903",
+      "name" : "Evening",
+      "share" : 0.5,
+      "widgets" : [
+        {
+          "id" : "00000000-0000-4000-8000-000000000011",
+          "kind" : "system",
+          "settings" : {
+            "metrics" : "memory"
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000012",
+          "kind" : "noodleComputer",
+          "settings" : {
+            "computerID" : "00000000-0000-4000-8000-000000000601",
+            "computerName" : "Studio Mac"
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000013",
+          "kind" : "railway",
+          "settings" : {
+            "accountID" : "00000000-0000-4000-8000-000000000703",
+            "blockOptions" : {
+              "incidents" : {
+                "showsMaintenance" : false
+              },
+              "services" : {
+                "maximumRows" : 12,
+                "order" : "recent",
+                "showsCommit" : false,
+                "showsSleeping" : false
+              },
+              "summary" : {
+                "showsWorkspace" : false
+              },
+              "usage" : {
+                "showsEstimate" : false,
+                "showsLimit" : false
+              }
+            },
+            "blocks" : [
+              {
+                "block" : "usage",
+                "shown" : true
+              },
+              {
+                "block" : "summary",
+                "shown" : true
+              },
+              {
+                "block" : "service:00000000-0000-4000-8000-000000000501",
+                "shown" : true
+              },
+              {
+                "block" : "services",
+                "shown" : false
+              },
+              {
+                "block" : "incidents",
+                "shown" : true
+              }
+            ],
+            "environmentName" : "staging",
+            "glance" : "usage",
+            "projectID" : "proj-1b2c",
+            "projectName" : "Storefront",
+            "refreshMinutes" : 15,
+            "serviceBlocks" : {
+              "00000000-0000-4000-8000-000000000501" : {
+                "projectID" : "proj-1b2c",
+                "serviceID" : "svc-9d8e",
+                "serviceName" : "api",
+                "showsCommit" : false,
+                "showsHistory" : false,
+                "showsMetrics" : false
+              }
+            },
+            "workspaceID" : "ws-7f3a",
+            "workspaceName" : "Acme"
+          },
+          "showsInBar" : false,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000014",
+          "kind" : "railway",
+          "settings" : {
+            "accountID" : "railway.cli",
+            "blockOptions" : {
+              "incidents" : {
+                "showsMaintenance" : true
+              },
+              "services" : {
+                "maximumRows" : 8,
+                "order" : "attention",
+                "showsCommit" : true,
+                "showsSleeping" : true
+              },
+              "summary" : {
+                "showsWorkspace" : true
+              },
+              "usage" : {
+                "showsEstimate" : true,
+                "showsLimit" : true
+              }
+            },
+            "blocks" : [
+              {
+                "block" : "summary",
+                "shown" : true
+              },
+              {
+                "block" : "services",
+                "shown" : true
+              },
+              {
+                "block" : "usage",
+                "shown" : true
+              },
+              {
+                "block" : "incidents",
+                "shown" : false
+              }
+            ],
+            "glance" : "health",
+            "serviceBlocks" : {
+
+            }
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : false
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000015",
+          "kind" : "noodleComputer",
+          "settings" : {
+
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000016",
+          "kind" : "codexSessions",
+          "settings" : {
+            "blockOptions" : {
+              "limits" : {
+                "reading" : "used",
+                "showsWeeklyLimit" : false
+              },
+              "sessions" : {
+                "maximumRows" : 3,
+                "showsBranch" : false
+              },
+              "spotlight" : {
+                "showsDetails" : false,
+                "showsLastMessage" : false,
+                "showsPlan" : false
+              }
+            },
+            "blocks" : [
+              {
+                "block" : "limits",
+                "shown" : true
+              },
+              {
+                "block" : "sessions",
+                "shown" : true
+              },
+              {
+                "block" : "spotlight",
+                "shown" : false
+              }
+            ],
+            "includesExec" : true,
+            "recentHours" : 12
+          },
+          "showsInBar" : false,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000017",
+          "kind" : "codexSessions",
+          "settings" : {
+            "blockOptions" : {
+              "limits" : {
+                "reading" : "remaining",
+                "showsWeeklyLimit" : true
+              },
+              "sessions" : {
+                "maximumRows" : 5,
+                "showsBranch" : true
+              },
+              "spotlight" : {
+                "showsDetails" : true,
+                "showsLastMessage" : true,
+                "showsPlan" : true
+              }
+            },
+            "blocks" : [
+              {
+                "block" : "spotlight",
+                "shown" : true
+              },
+              {
+                "block" : "sessions",
+                "shown" : true
+              },
+              {
+                "block" : "limits",
+                "shown" : false
+              }
+            ],
+            "includesExec" : false,
+            "recentHours" : 24
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : false
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000018",
+          "kind" : "agentSessions",
+          "settings" : {
+            "includesCodexExec" : true,
+            "providers" : [
+              "codex",
+              "cursor",
+              "openCode"
+            ],
+            "recentHours" : 24,
+            "sessionCount" : 8
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000019",
+          "kind" : "openRouter",
+          "settings" : {
+            "balances" : {
+              "00000000-0000-4000-8000-000000000503" : {
+                "accountID" : "00000000-0000-4000-8000-000000000702",
+                "chart" : {
+                  "days" : 7,
+                  "isShown" : true,
+                  "scope" : "account"
+                },
+                "title" : "Personal"
+              },
+              "5D0F4A6E-3A55-4C1B-9C0E-6F2D2B7A0101" : {
+                "chart" : {
+                  "days" : 30,
+                  "isShown" : false,
+                  "keyHash" : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "keyName" : "Build fixture",
+                  "scope" : "key"
+                },
+                "title" : "Work"
+              }
+            },
+            "blocks" : [
+              {
+                "block" : "balance:5D0F4A6E-3A55-4C1B-9C0E-6F2D2B7A0101",
+                "shown" : true
+              },
+              {
+                "block" : "balance:00000000-0000-4000-8000-000000000503",
+                "shown" : true
+              },
+              {
+                "block" : "summary",
+                "shown" : false
+              }
+            ],
+            "glance" : "balance",
+            "lists" : {
+
+            },
+            "refresh" : "manual",
+            "summary" : {
+              "filter" : {
+                "inputs" : [
+
+                ],
+                "isExact" : false
+              }
+            },
+            "sync" : 1440
+          },
+          "showsInBar" : false,
+          "showsInSidePanel" : true
+        },
+        {
+          "id" : "00000000-0000-4000-8000-000000000020",
+          "kind" : "openRouter",
+          "settings" : {
+            "balances" : {
+
+            },
+            "blocks" : [
+              {
+                "block" : "list:5D0F4A6E-3A55-4C1B-9C0E-6F2D2B7A0002",
+                "shown" : true
+              },
+              {
+                "block" : "list:00000000-0000-4000-8000-000000000502",
+                "shown" : true
+              },
+              {
+                "block" : "summary",
+                "shown" : false
+              }
+            ],
+            "glance" : "count",
+            "lists" : {
+              "00000000-0000-4000-8000-000000000502" : {
+                "density" : "lean",
+                "filter" : {
+                  "inputs" : [
+                    "text"
+                  ],
+                  "isExact" : true,
+                  "output" : "text"
+                },
+                "maximumRows" : 3,
+                "showsRetiring" : true,
+                "sort" : "context",
+                "title" : "Small"
+              },
+              "5D0F4A6E-3A55-4C1B-9C0E-6F2D2B7A0002" : {
+                "density" : "detail",
+                "filter" : {
+                  "inputs" : [
+
+                  ],
+                  "isExact" : false
+                },
+                "maximumRows" : 12,
+                "showsRetiring" : false,
+                "sort" : "outputPrice",
+                "title" : "Price watch"
+              }
+            },
+            "refresh" : 15,
+            "summary" : {
+              "filter" : {
+                "inputs" : [
+                  "text"
+                ],
+                "isExact" : true,
+                "output" : "text"
+              }
+            },
+            "sync" : "manual"
+          },
+          "showsInBar" : true,
+          "showsInSidePanel" : false
+        }
+      ]
+    }
+  ],
+  "updates" : {
+    "checksAutomatically" : false,
+    "installsAutomatically" : true
+  },
+  "windowAvoidance" : "clip"
+}
