@@ -93,22 +93,27 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     ) -> [AccountID: ClaudeCodeNeeds] {
         var demand: [AccountID: ClaudeCodeNeeds] = [:]
         for widget in widgets {
-            let (reference, minutes): (AccountID?, Int?)
+            // The accounts the widget shows, each with how often it asks Anthropic for them.
+            let references: [AccountID?]
+            let minutes: Int?
             switch widget.settings {
             case .claudeCode(let settings):
-                (reference, minutes) = (
-                    settings.account, settings.refreshesFromAnthropic ? settings.refreshMinutes : nil
-                )
-            case .aiUsage(let settings) where settings.includes(.claudeCode):
-                (reference, minutes) = (settings.claudeAccount, settings.claudeRefreshMinutesIfOptedIn)
+                references = [settings.account]
+                minutes = settings.refreshesFromAnthropic ? settings.refreshMinutes : nil
+            case .aiUsage(let settings):
+                references = settings.accountReferences(shownOnly: true).filter { $0.provider == .claudeCode }
+                    .map(\.account)
+                minutes = settings.claudeRefreshMinutesIfOptedIn
             default:
                 continue
             }
-            guard let id = resolveAccount(reference, at: .claudeCode, signedIn: signedIn).accountID,
-                let profile = claudeCodeProfile(id)
-            else { continue }
-            let needs = ClaudeCodeNeeds(profile: profile, refreshMinutes: minutes)
-            demand[id] = demand[id].map { $0.merged(with: needs) } ?? needs
+            for reference in references {
+                guard let id = resolveAccount(reference, at: .claudeCode, signedIn: signedIn).accountID,
+                    let profile = claudeCodeProfile(id)
+                else { continue }
+                let needs = ClaudeCodeNeeds(profile: profile, refreshMinutes: minutes)
+                demand[id] = demand[id].map { $0.merged(with: needs) } ?? needs
+            }
         }
         return demand
     }
@@ -298,7 +303,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 providers.insert(.cursor)
                 if settings.refreshesFromCursor { cursorMinutes.append(settings.refreshMinutes) }
             case .aiUsage(let settings):
-                providers.formUnion(settings.providers)
+                providers.formUnion(settings.shownProviders)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
             case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway,
                 .agentSessions, .openRouter:

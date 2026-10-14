@@ -9,7 +9,8 @@ extension WidgetMetadata {
         tint: .indigo,
         summary: "Codex, Claude and Cursor limits together",
         details: "Each agent's limit closest to running out, as that agent reports it, and when it resets. Agents "
-            + "measure different things over different windows, so Sidelight doesn't add them up."
+            + "measure different things over different windows, so Sidelight doesn't add them up. Built from blocks: "
+            + "one per agent, or one per account to watch several Claude accounts."
     )
 }
 
@@ -45,86 +46,34 @@ extension AIUsageProvider {
 }
 
 extension AIUsageSettings {
+    /// The Widgets window's one-line description: the shown blocks by name, and how limits read.
     var summary: String {
-        guard !providers.isEmpty else { return "No agents chosen" }
-        return "\(providers.map(\.shortTitle).joined(separator: ", ")) · \(reading.title)"
-    }
-}
-
-// MARK: - Settings
-
-/// How limits read, then a section per agent: whether the card shows it, and while it does, where its numbers
-/// come from. The same opt-ins and setup as the agents' own widgets, kept separately for this one, so it works
-/// without them.
-struct AIUsageSettingsEditor: View {
-    @Binding var settings: AIUsageSettings
-
-    var body: some View {
-        Section("Settings") {
-            Picker(selection: $settings.reading) {
-                ForEach(UsageReading.allCases) { Text($0.title).tag($0) }
-            } label: {
-                InfoLabel(
-                    "Limits show",
-                    info: settings.reading == .used
-                        ? "Meters fill as you use each agent, and the tick moves with the window's time. A meter past "
-                            + "its tick runs out before the reset."
-                        : "Like Codex's /status. Meters drain as you use each agent, and the tick drains with the "
-                            + "window's time. A meter below its tick runs out before the reset.")
-            }
-            .pickerStyle(.segmented)
-            Toggle(isOn: $settings.showsOtherLimits) {
-                InfoLabel(
-                    "Show other limits",
-                    info: "Each agent's other windows or pools next to its main one, in regular and compact cards.")
-            }
-        }
-        ForEach(AIUsageProvider.allCases) { provider in
-            Section {
-                Toggle("Show in this card", isOn: included(provider).animation(Motion.snappy))
-                    // One agent at least: an empty card would only say so.
-                    .disabled(settings.providers == [provider])
-                if settings.includes(provider) {
-                    source(of: provider)
-                }
-            } header: {
-                Label {
-                    Text(provider.title)
-                } icon: {
-                    ProviderLogo(provider: provider.agent, size: 14)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func source(of provider: AIUsageProvider) -> some View {
-        switch provider {
-        case .codex:
-            CodexSourceStatus()
-        case .claudeCode:
-            AccountPicker(provider: .claudeCode, selection: $settings.claudeAccount)
-            AnthropicRefreshSettings(
-                account: settings.claudeAccount, isOn: $settings.refreshesClaudeFromAnthropic,
-                minutes: $settings.claudeRefreshMinutes)
-            StatusLineSetup(account: settings.claudeAccount)
-        case .cursor:
-            CursorFetchSettings(isOn: $settings.refreshesCursor, minutes: $settings.cursorRefreshMinutes)
-        }
-    }
-
-    private func included(_ provider: AIUsageProvider) -> Binding<Bool> {
-        Binding {
-            settings.includes(provider)
-        } set: {
-            settings.set(provider, included: $0)
-        }
+        let names = blocks.shownBlocks.map { options($0).label ?? $0.provider.shortTitle }
+        guard !names.isEmpty else { return "No agents shown" }
+        return "\(names.joined(separator: ", ")) · \(reading.title)"
     }
 }
 
 // MARK: - Widget
 
-/// Reads the shared Codex, Claude Code and Cursor services (never its own copies) for the agents it shows, moving
+/// One block as the card draws it: its agent's numbers, under the name the block goes by.
+struct AIUsageRow: Identifiable {
+    let block: AIUsageBlock
+    let summary: AIUsageSummary
+    /// The block's own label, if it has one.
+    let label: String?
+
+    var id: AIUsageBlock { block }
+    var provider: AIUsageProvider { block.provider }
+    /// The label, or the agent's name.
+    var title: String { label ?? provider.title }
+    /// The label, or the agent's short name, for narrow cards.
+    var shortTitle: String { label ?? provider.shortTitle }
+    /// `Work, Claude Code`: the label and the agent, for VoiceOver and tooltips.
+    var fullTitle: String { label.map { "\($0), \(provider.title)" } ?? provider.title }
+}
+
+/// Reads the shared Codex, Claude Code and Cursor services (never its own copies) for the blocks it shows, moving
 /// on with the clock, or frozen in catalogs.
 struct AIUsageWidgetView: View {
     let settings: AIUsageSettings
@@ -137,34 +86,38 @@ struct AIUsageWidgetView: View {
     var body: some View {
         // Countdowns, the time tick, windows resetting and data ageing all move on with the clock.
         WidgetClock { now in
-            AIUsageView(summaries: summaries(at: now), settings: settings, layout: layout, now: now)
+            AIUsageView(rows: rows(at: now), settings: settings, layout: layout, now: now)
         }
     }
 
-    /// Only the shown agents' services are read, so only their changes redraw the card.
-    private func summaries(at now: Date) -> [AIUsageSummary] {
-        settings.providers.map { provider in
-            switch provider {
-            case .codex:
-                .codex(codex.state, plan: codex.state.plan.flatMap(UsageFormat.planTitle), now: now)
-            case .claudeCode:
-                claudeSummary(at: now)
-            case .cursor:
-                .cursor(
-                    isConnected: settings.refreshesCursor, usage: cursor.usage, problem: cursor.problem,
-                    isStale: cursor.isStale(at: now), now: now)
-            }
+    /// Only the shown blocks' services are read, so only their changes redraw the card.
+    private func rows(at now: Date) -> [AIUsageRow] {
+        settings.blocks.shownBlocks.map { block in
+            let options = settings.options(block)
+            return AIUsageRow(
+                block: block, summary: summary(of: block, options: options, at: now), label: options.label)
         }
     }
-}
 
-extension AIUsageWidgetView {
-    /// The widget's Claude account; a reference to one that's gone says so rather than showing another.
-    private func claudeSummary(at now: Date) -> AIUsageSummary {
-        guard case .account(let id) = accounts.resolve(settings.claudeAccount, at: .claudeCode) else {
+    private func summary(of block: AIUsageBlock, options: AIUsageBlockOptions, at now: Date) -> AIUsageSummary {
+        switch block.provider {
+        case .codex:
+            .codex(codex.state, plan: codex.state.plan.flatMap(UsageFormat.planTitle), now: now)
+        case .claudeCode:
+            claudeSummary(account: options.account, at: now)
+        case .cursor:
+            .cursor(
+                isConnected: settings.refreshesCursor, usage: cursor.usage, problem: cursor.problem,
+                isStale: cursor.isStale(at: now), now: now)
+        }
+    }
+
+    /// A Claude block's account; a reference to one that's gone says so rather than showing another.
+    private func claudeSummary(account: AccountID?, at now: Date) -> AIUsageSummary {
+        guard case .account(let id) = accounts.resolve(account, at: .claudeCode) else {
             return AIUsageSummary(
                 provider: .claudeCode,
-                status: .setup(title: "Claude account not found", detail: "Choose one in this widget's settings."))
+                status: .setup(title: "Claude account not found", detail: "Choose one in this widget's builder."))
         }
         let account = claude.account(id)
         return .claudeCode(
@@ -173,12 +126,12 @@ extension AIUsageWidgetView {
     }
 }
 
-/// One row per agent, each led by its limit closest to running out: its name and window, a meter with the
+/// One row per block, each led by its agent's limit closest to running out: its name and window, a meter with the
 /// window's time tick, and when it resets, with the agent's other limits small beside it. Minimal and bar layouts
-/// keep a mark, a number and a reset per agent. Percentages are never added up or compared across agents: each
+/// keep a mark, a number and a reset per block. Percentages are never added up or compared across agents: each
 /// row reads in its own windows, all of them as used or all as left.
 struct AIUsageView: View {
-    let summaries: [AIUsageSummary]
+    let rows: [AIUsageRow]
     let settings: AIUsageSettings
     let layout: WidgetLayout
     let now: Date
@@ -186,10 +139,10 @@ struct AIUsageView: View {
     private var reading: UsageReading { settings.reading }
 
     var body: some View {
-        if summaries.isEmpty {
+        if rows.isEmpty {
             WidgetMessage(
-                title: "Choose agents in this widget's settings.", systemImage: "gauge.with.dots.needle.0percent",
-                layout: layout, trimsCompact: false)
+                title: "No agents shown", detail: "Add them in this widget's builder.",
+                systemImage: "gauge.with.dots.needle.0percent", layout: layout, trimsCompact: false)
         } else {
             switch layout {
             case .regular: regular
@@ -204,26 +157,28 @@ struct AIUsageView: View {
 
     private var regular: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(summaries.enumerated()), id: \.element.id) { index, summary in
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 if index > 0 {
                     HairlineDivider().padding(.vertical, 9)
                 }
-                regularRow(summary)
+                regularRow(row)
             }
         }
+        .animation(Motion.layout, value: rows.map(\.id))
     }
 
-    private func regularRow(_ summary: AIUsageSummary) -> some View {
+    private func regularRow(_ row: AIUsageRow) -> some View {
+        let summary = row.summary
         let lead = summary.status == .limits ? summary.lead(at: now) : nil
         return VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .center, spacing: 6) {
-                ProviderLogo(provider: summary.provider.agent, size: 16)
-                // Shortens, then drops the window's name, then the age, before the agent's name gives way.
+                ProviderLogo(provider: row.provider.agent, size: 16)
+                // Shortens, then drops the window's name, then the age, before the block's name gives way.
                 ViewThatFits(in: .horizontal) {
-                    regularTitle(summary, window: lead?.title, showsAge: true)
-                    regularTitle(summary, window: lead?.shortTitle, showsAge: true)
-                    regularTitle(summary, window: lead?.shortTitle, showsAge: false)
-                    regularTitle(summary, window: nil, showsAge: false)
+                    regularTitle(row, window: lead?.title, showsAge: true)
+                    regularTitle(row, window: lead?.shortTitle, showsAge: true)
+                    regularTitle(row, window: lead?.shortTitle, showsAge: false)
+                    regularTitle(row, window: nil, showsAge: false)
                 }
                 Spacer(minLength: 4)
                 if let lead {
@@ -249,17 +204,17 @@ struct AIUsageView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .row(summary, spokenValue: spokenValue(summary), help: help(summary))
+        .row(row, spokenValue: spokenValue(summary), help: help(row))
     }
 
     /// `Codex  5-hour  ⏲ 2h ago`
-    private func regularTitle(_ summary: AIUsageSummary, window: String?, showsAge: Bool) -> some View {
+    private func regularTitle(_ row: AIUsageRow, window: String?, showsAge: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(summary.provider.title).font(.system(size: 12, weight: .semibold))
+            Text(row.title).font(.system(size: 12, weight: .semibold))
             if let window {
                 Text(window).font(.system(size: 10.5)).foregroundStyle(.secondary)
             }
-            freshnessBadge(summary, showsAged: true, showsAge: showsAge).font(.system(size: 9.5))
+            freshnessBadge(row.summary, showsAged: true, showsAge: showsAge).font(.system(size: 9.5))
         }
         .lineLimit(1)
     }
@@ -279,21 +234,23 @@ struct AIUsageView: View {
 
     private var compact: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(summaries) { summary in
-                compactRow(summary)
+            ForEach(rows) { row in
+                compactRow(row)
             }
         }
+        .animation(Motion.layout, value: rows.map(\.id))
     }
 
-    private func compactRow(_ summary: AIUsageSummary) -> some View {
+    private func compactRow(_ row: AIUsageRow) -> some View {
+        let summary = row.summary
         let lead = summary.status == .limits ? summary.lead(at: now) : nil
         return VStack(alignment: .leading, spacing: 4) {
-            // Drops the reading, then shortens and finally drops the agent's name, as the card narrows. The mark
+            // Drops the reading, then shortens and finally drops the block's name, as the card narrows. The mark
             // always stays.
             ViewThatFits(in: .horizontal) {
-                compactHeader(summary, lead: lead, title: summary.provider.title, suffix: true)
-                compactHeader(summary, lead: lead, title: summary.provider.title, suffix: false)
-                compactHeader(summary, lead: lead, title: summary.provider.shortTitle, suffix: false)
+                compactHeader(summary, lead: lead, title: row.title, suffix: true)
+                compactHeader(summary, lead: lead, title: row.title, suffix: false)
+                compactHeader(summary, lead: lead, title: row.shortTitle, suffix: false)
                 compactHeader(summary, lead: lead, title: nil, suffix: false)
             }
             if let lead {
@@ -313,7 +270,7 @@ struct AIUsageView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .row(summary, spokenValue: spokenValue(summary), help: help(summary))
+        .row(row, spokenValue: spokenValue(summary), help: help(row))
     }
 
     private func compactHeader(
@@ -352,7 +309,8 @@ struct AIUsageView: View {
         }
     }
 
-    /// A small "used" or "left" above one stack of agents: a mark, the number, a tiny meter and the reset each.
+    /// A small "used" or "left" above one stack of blocks: a mark, the number, a tiny meter and the reset each, and
+    /// the block's label when it has one.
     private var minimal: some View {
         VStack(spacing: 8) {
             Text(reading.suffix.uppercased())
@@ -360,17 +318,21 @@ struct AIUsageView: View {
                 .tracking(0.6)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            ForEach(summaries) { summary in
-                minimalRow(summary)
+            ForEach(rows) { row in
+                minimalRow(row)
             }
         }
     }
 
-    private func minimalRow(_ summary: AIUsageSummary) -> some View {
+    private func minimalRow(_ row: AIUsageRow) -> some View {
+        let summary = row.summary
         let lead = summary.status == .limits ? summary.lead(at: now) : nil
         return VStack(spacing: 3) {
+            if let label = row.label {
+                glanceLabel(label, size: 8)
+            }
             HStack(spacing: 3) {
-                ProviderLogo(provider: summary.provider.agent, size: 13)
+                ProviderLogo(provider: row.provider.agent, size: 13)
                     .opacity(lead == nil ? 0.6 : 1)
                 if let lead {
                     glancePercent(lead, summary: summary, size: 11.5)
@@ -384,24 +346,25 @@ struct AIUsageView: View {
             }
         }
         .lineLimit(1)
-        .row(summary, spokenValue: spokenValue(summary), help: help(summary))
+        .row(row, spokenValue: spokenValue(summary), help: help(row))
     }
 
     private var bar: some View {
         HStack(spacing: 9) {
-            ForEach(Array(summaries.enumerated()), id: \.element.id) { index, summary in
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 if index > 0 {
                     Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 0.5, height: 18)
                 }
-                barItem(summary)
+                barItem(row)
             }
         }
     }
 
-    private func barItem(_ summary: AIUsageSummary) -> some View {
+    private func barItem(_ row: AIUsageRow) -> some View {
+        let summary = row.summary
         let lead = summary.status == .limits ? summary.lead(at: now) : nil
         return HStack(spacing: 5) {
-            ProviderLogo(provider: summary.provider.agent, size: 16)
+            ProviderLogo(provider: row.provider.agent, size: 16)
                 .opacity(lead == nil ? 0.6 : 1)
             if let lead {
                 VStack(alignment: .leading, spacing: 0) {
@@ -411,15 +374,33 @@ struct AIUsageView: View {
                             Text(reading.suffix).font(.system(size: 8.5)).foregroundStyle(.secondary)
                         }
                     }
-                    glanceReset(lead, summary: summary, size: 8.5)
+                    // The label takes the reset's place: telling the blocks apart matters more in a bar.
+                    if let label = row.label {
+                        glanceLabel(label, size: 8.5)
+                    } else {
+                        glanceReset(lead, summary: summary, size: 8.5)
+                    }
                 }
             } else {
+                if let label = row.label {
+                    glanceLabel(label, size: 9)
+                }
                 statusSymbol(summary).font(.system(size: 11))
             }
         }
         .lineLimit(1)
         .fixedSize()
-        .row(summary, spokenValue: spokenValue(summary), help: help(summary))
+        .row(row, spokenValue: spokenValue(summary), help: help(row))
+    }
+
+    /// A block's label in the smallest sizes, kept short.
+    private func glanceLabel(_ label: String, size: CGFloat) -> some View {
+        Text(label)
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .truncationMode(.tail)
+            .frame(maxWidth: 64)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Numbers and meters
@@ -701,8 +682,9 @@ struct AIUsageView: View {
         return parts.joined(separator: ". ")
     }
 
-    private func help(_ summary: AIUsageSummary) -> String {
-        var lines = [[summary.provider.title, summary.plan].compactMap(\.self).joined(separator: " · ")]
+    private func help(_ row: AIUsageRow) -> String {
+        let summary = row.summary
+        var lines = [[row.label, summary.provider.title, summary.plan].compactMap(\.self).joined(separator: " · ")]
         if summary.status == .limits {
             for limit in summary.limits {
                 let value =
@@ -734,13 +716,13 @@ struct AIUsageView: View {
 }
 
 extension View {
-    /// One agent as one VoiceOver element, named after it, with its numbers as the value and the details as a
-    /// tooltip.
-    fileprivate func row(_ summary: AIUsageSummary, spokenValue: String, help: String) -> some View {
+    /// One block as one VoiceOver element, named after its label and agent, with its numbers as the value and the
+    /// details as a tooltip.
+    fileprivate func row(_ row: AIUsageRow, spokenValue: String, help: String) -> some View {
         contentShape(Rectangle())
             .help(help)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(summary.provider.title)
+            .accessibilityLabel(row.fullTitle)
             .accessibilityValue(spokenValue)
     }
 }

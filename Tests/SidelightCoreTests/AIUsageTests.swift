@@ -4,9 +4,12 @@ import Testing
 @testable import SidelightCore
 
 struct AIUsageSettingsTests {
-    @Test func `defaults show every agent as used, with nothing fetched`() {
+    private let work = AccountID(rawValue: "C1A0DE00-0000-4000-8000-000000000001")
+
+    @Test func `defaults show every agent's block as used, with nothing fetched`() {
         let settings = AIUsageSettings()
-        #expect(settings.providers == [.codex, .claudeCode, .cursor])
+        #expect(settings.blocks.shownBlocks == [.codex, .claudeCode, .cursor])
+        #expect(settings.preset == .everyAgent)
         #expect(settings.reading == .used)
         #expect(settings.showsOtherLimits)
         #expect(!settings.refreshesClaudeFromAnthropic)
@@ -15,15 +18,23 @@ struct AIUsageSettingsTests {
         #expect(settings.cursorRefreshMinutesIfOptedIn == nil)
     }
 
-    @Test func `a widget round-trips through config json`() throws {
+    @Test func `a block is stored as its agent and ID`() {
+        let block = AIUsageBlock(.claudeCode)
+        #expect(block.rawValue == "claudeCode:\(block.id.uuidString)")
+        #expect(AIUsageBlock(rawValue: block.rawValue) == block)
+        #expect(AIUsageBlock(rawValue: "gemini:\(block.id.uuidString)") == nil)
+        #expect(AIUsageBlock(rawValue: "claudeCode") == nil)
+        #expect(AIUsageBlock(rawValue: "claudeCode:not-a-uuid") == nil)
+    }
+
+    @Test func `a widget round-trips through config json, with each block's label and account`() throws {
+        var settings = AIUsageSettings(
+            blocks: [.claudeCode, .cursor], options: [.claudeCode: AIUsageBlockOptions(label: "Personal")],
+            reading: .remaining, showsOtherLimits: false, refreshesClaudeFromAnthropic: true,
+            claudeRefreshMinutes: 15, refreshesCursor: true, cursorRefreshMinutes: 30)
+        settings.addBlock(.claudeCode, options: AIUsageBlockOptions(label: "Work", account: work))
         var configuration = AppConfiguration()
-        let widget = WidgetInstance(
-            settings: .aiUsage(
-                AIUsageSettings(
-                    providers: [.cursor, .claudeCode], reading: .remaining, showsOtherLimits: false,
-                    refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 15, refreshesCursor: true,
-                    cursorRefreshMinutes: 30)),
-            showsInBar: false)
+        let widget = WidgetInstance(settings: .aiUsage(settings), showsInBar: false)
         configuration.sections = [PanelSection(widgets: [widget])]
         let json = try configuration.json()
         #expect(String(decoding: json, as: UTF8.self).contains(#""kind" : "aiUsage""#))
@@ -39,33 +50,92 @@ struct AIUsageSettingsTests {
         #expect(widget.settings == .aiUsage(AIUsageSettings()))
     }
 
-    @Test func `unknown agents and readings are skipped, and the order is fixed`() throws {
+    @Test func `settings saved before blocks load with every agent, keeping how limits read and fetch`() throws {
         let json = #"""
-            {"providers":["cursor","gemini","codex","cursor"],"reading":"sideways","claudeRefreshMinutes":0}
+            {"providers":["codex","cursor"],"claudeAccount":"work","reading":"remaining","showsOtherLimits":false,
+             "refreshesClaudeFromAnthropic":true,"claudeRefreshMinutes":15,"refreshesCursor":true,
+             "cursorRefreshMinutes":60}
             """#
         let settings = try JSONDecoder().decode(AIUsageSettings.self, from: Data(json.utf8))
-        #expect(settings.providers == [.codex, .cursor])
+        #expect(
+            settings
+                == AIUsageSettings(
+                    reading: .remaining, showsOtherLimits: false, refreshesClaudeFromAnthropic: true,
+                    claudeRefreshMinutes: 15, refreshesCursor: true, cursorRefreshMinutes: 60))
+    }
+
+    @Test func `unknown blocks, readings and stray options are skipped, and intervals moved into range`() throws {
+        let kept = AIUsageBlock.claudeCode.id.uuidString
+        let json = #"""
+            {"blocks":[{"block":"gemini:\#(UUID().uuidString)","shown":true},{"block":"claudeCode:\#(kept)","shown":true}],
+             "blockOptions":{"\#(kept)":{"label":"","accountID":42},"\#(UUID().uuidString)":{"label":"Gone"}},
+             "reading":"sideways","claudeRefreshMinutes":0}
+            """#
+        let settings = try JSONDecoder().decode(AIUsageSettings.self, from: Data(json.utf8))
+        #expect(settings.blocks.shownBlocks == [.claudeCode])
+        #expect(settings.blockOptions.keys.sorted() == [kept])
+        #expect(settings.options(.claudeCode) == AIUsageBlockOptions())
         #expect(settings.reading == .used)
         #expect(settings.claudeRefreshMinutes == 1)
         #expect(settings.cursorRefreshMinutes == 15)
-        #expect(settings.showsOtherLimits)
     }
 
-    @Test func `adding and removing agents keeps their order`() {
-        var settings = AIUsageSettings(providers: [.cursor])
-        settings.set(.codex, included: true)
-        settings.set(.cursor, included: true)
-        #expect(settings.providers == [.codex, .cursor])
-        settings.set(.codex, included: false)
-        settings.set(.claudeCode, included: true)
-        #expect(settings.providers == [.claudeCode, .cursor])
+    @Test func `the same agent can be added again, and removing a block forgets its options`() {
+        var settings = AIUsageSettings(blocks: [.claudeCode])
+        let work = settings.addBlock(.claudeCode, options: AIUsageBlockOptions(label: "Work", account: work))
+        #expect(settings.blocks.shownBlocks == [.claudeCode, work])
+        #expect(settings.options(work).label == "Work")
+        #expect(settings.preset == nil)
+
+        settings.removeBlock(work)
+        #expect(!settings.blocks.contains(work))
+        #expect(settings.blockOptions.isEmpty)
+        settings.setOptions(AIUsageBlockOptions(label: "Back"), for: work)
+        #expect(settings.blockOptions.isEmpty)
     }
 
-    @Test func `an opt-in only counts for an agent the widget shows`() {
-        let settings = AIUsageSettings(
-            providers: [.codex], refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 2, refreshesCursor: true)
+    @Test func `a preset brings its blocks back as they were left`() {
+        var settings = AIUsageSettings(
+            blocks: [.claudeCode], options: [.claudeCode: AIUsageBlockOptions(label: "Personal")])
+        settings.removeBlock(.claudeCode)
+        settings.setOptions(AIUsageBlockOptions(label: "Lost"), for: .claudeCode)
+        settings.apply(.codexAndClaude)
+        #expect(settings.blocks.shownBlocks == [.codex, .claudeCode])
+        #expect(settings.preset == .codexAndClaude)
+        #expect(settings.options(.claudeCode) == AIUsageBlockOptions())
+
+        settings.setOptions(AIUsageBlockOptions(label: "Personal"), for: .claudeCode)
+        settings.apply(.everyAgent)
+        settings.apply(.codexAndClaude)
+        #expect(settings.blocks.shownBlocks == [.codex, .claudeCode])
+        #expect(settings.blocks.entries.map(\.block) == [.codex, .claudeCode, .cursor])
+        #expect(settings.options(.claudeCode).label == "Personal")
+    }
+
+    @Test func `an opt-in only counts for an agent with a block shown`() {
+        var settings = AIUsageSettings(
+            blocks: [.codex, .claudeCode, .cursor], refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 2,
+            refreshesCursor: true)
+        settings.blocks.setShown(.claudeCode, false)
+        settings.blocks.setShown(.cursor, false)
+        #expect(settings.shownProviders == [.codex])
         #expect(settings.claudeRefreshMinutesIfOptedIn == nil)
         #expect(settings.cursorRefreshMinutesIfOptedIn == nil)
+    }
+
+    @Test func `each block of an agent with accounts names its account, and can forget it`() {
+        var settings = AIUsageSettings(blocks: [.codex, .claudeCode])
+        let workBlock = settings.addBlock(.claudeCode, options: AIUsageBlockOptions(label: "Work", account: work))
+        settings.blocks.setShown(.claudeCode, false)
+        #expect(settings.accountReferences(shownOnly: true).map(\.account) == [work])
+        #expect(settings.accountReferences(shownOnly: false).map(\.account) == [nil, work])
+        #expect(settings.accountReferences(shownOnly: false).allSatisfy { $0.provider == .claudeCode })
+
+        let forgot = settings.forgetAccount(work)
+        #expect(forgot)
+        #expect(settings.options(workBlock) == AIUsageBlockOptions(label: "Work"))
+        let forgotAgain = settings.forgetAccount(work)
+        #expect(!forgotAgain)
     }
 
     @Test func `Codex settings keep reading as before`() throws {
@@ -100,7 +170,7 @@ struct UsageServiceDemandTests {
     }
 
     @Test func `it starts only the agents it shows`() {
-        let widget = WidgetInstance(settings: .aiUsage(AIUsageSettings(providers: [.claudeCode])))
+        let widget = WidgetInstance(settings: .aiUsage(AIUsageSettings(blocks: [.claudeCode])))
         let demand = configuration([widget]).serviceDemand(at: [.right])
         #expect(demand.usage.providers == [.claudeCode])
     }
@@ -117,7 +187,7 @@ struct UsageServiceDemandTests {
 
         let withoutCursor = WidgetInstance(
             settings: .aiUsage(
-                AIUsageSettings(providers: [.codex, .claudeCode], refreshesCursor: true, cursorRefreshMinutes: 5)))
+                AIUsageSettings(blocks: [.codex, .claudeCode], refreshesCursor: true, cursorRefreshMinutes: 5)))
         let demand = configuration([withoutCursor]).serviceDemand(at: [.left]).usage
         #expect(demand.cursorRefreshMinutes == nil)
         #expect(!demand.providers.contains(.cursor))
@@ -127,7 +197,7 @@ struct UsageServiceDemandTests {
         let combined = WidgetInstance(
             settings: .aiUsage(
                 AIUsageSettings(
-                    providers: [.claudeCode, .cursor], refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 5,
+                    blocks: [.claudeCode, .cursor], refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 5,
                     refreshesCursor: true, cursorRefreshMinutes: 60)))
         let demand = configuration([claudeOptIn, cursorOptIn, combined, WidgetInstance(kind: .codex)])
             .serviceDemand(at: [.left])
@@ -141,7 +211,7 @@ struct UsageServiceDemandTests {
         var hidden = claudeOptIn
         hidden.showsInSidePanel = false
         hidden.showsInBar = false
-        let combined = WidgetInstance(settings: .aiUsage(AIUsageSettings(providers: [.claudeCode])))
+        let combined = WidgetInstance(settings: .aiUsage(AIUsageSettings(blocks: [.claudeCode])))
         let demand = configuration([hidden, combined]).serviceDemand(at: [.left])
         #expect(demand.usage == UsageServiceDemand(providers: [.claudeCode]))
         #expect(demand.claudeCode == claudeDefault(every: nil))
@@ -149,7 +219,7 @@ struct UsageServiceDemandTests {
 
     @Test func `a widget shown only in the bar counts only for bars`() {
         let barOnly = WidgetInstance(
-            settings: .aiUsage(AIUsageSettings(providers: [.cursor], refreshesCursor: true)), showsInSidePanel: false)
+            settings: .aiUsage(AIUsageSettings(blocks: [.cursor], refreshesCursor: true)), showsInSidePanel: false)
         let config = configuration([barOnly])
         #expect(config.serviceDemand(at: [.left]).usage == UsageServiceDemand())
         #expect(
@@ -171,7 +241,7 @@ struct UsageServiceDemandTests {
 
         var narrowed = combined
         narrowed.settings = .aiUsage(
-            AIUsageSettings(providers: [.codex], refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 2))
+            AIUsageSettings(blocks: [.codex], refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 2))
         let withoutClaude = configuration([claudeOptIn, narrowed]).serviceDemand(at: [.left])
         #expect(withoutClaude.usage == UsageServiceDemand(providers: [.codex, .claudeCode]))
         #expect(withoutClaude.claudeCode == claudeDefault(every: 15))

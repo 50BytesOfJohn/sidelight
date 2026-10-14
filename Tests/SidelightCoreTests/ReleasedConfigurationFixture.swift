@@ -57,6 +57,17 @@ struct ReleasedConfigurationFixture {
         serviceBlock.showsMetrics = false
         serviceBlock.showsHistory = false
         railway.setServiceOptions(serviceBlock, for: Self.id(501))
+        let personalClaude = AIUsageBlock(.claudeCode, id: Self.id(601))
+        let workClaude = AIUsageBlock(.claudeCode, id: Self.id(602))
+        var aiUsage = AIUsageSettings(
+            reading: .remaining, showsOtherLimits: false, refreshesClaudeFromAnthropic: true,
+            claudeRefreshMinutes: 15, refreshesCursor: true, cursorRefreshMinutes: 60)
+        aiUsage.blocks = BlockLayout(entries: [
+            .init(block: workClaude, isShown: true), .init(block: .codex, isShown: true),
+            .init(block: personalClaude, isShown: true), .init(block: .cursor, isShown: false),
+        ])
+        aiUsage.setOptions(AIUsageBlockOptions(label: "Work", account: .claudeCodeApp), for: workClaude)
+        aiUsage.setOptions(AIUsageBlockOptions(label: "Personal"), for: personalClaude)
         var cliRailway = RailwaySettings(account: .railwayCLI)
         cliRailway.blocks.setShown(.incidents, false)
 
@@ -115,11 +126,7 @@ struct ReleasedConfigurationFixture {
                 widgets: [
                     Self.widget(
                         5,
-                        .aiUsage(
-                            AIUsageSettings(
-                                providers: [.codex, .cursor], reading: .remaining, showsOtherLimits: false,
-                                refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 15,
-                                refreshesCursor: true, cursorRefreshMinutes: 60))),
+                        .aiUsage(aiUsage)),
                     Self.widget(6, .calendar(CalendarSettings(eventCount: 7))),
                     Self.widget(7, .nowPlaying, side: false),
                     Self.widget(8, .claudeSessions(ClaudeSessionsSettings(sessionCount: 8, recentHours: 12))),

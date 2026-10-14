@@ -54,7 +54,7 @@ public struct AIUsageLimit: Equatable, Sendable, Identifiable {
 /// Built from each service's own state, with each provider's semantics kept: nothing is added up across agents or
 /// windows, a reset that has passed is shown as unknown rather than as a full allowance, and nothing missing is
 /// filled in.
-public struct AIUsageSummary: Equatable, Sendable, Identifiable {
+public struct AIUsageSummary: Equatable, Sendable {
     /// Why there are no limits to draw, or `limits` when there are.
     public enum Status: Equatable, Sendable {
         case limits
@@ -109,8 +109,6 @@ public struct AIUsageSummary: Equatable, Sendable, Identifiable {
     public var source: String?
     /// What the numbers alone don't say: why usage stopped, or why they're old.
     public var notice: Notice?
-
-    public var id: AIUsageProvider { provider }
 
     public init(
         provider: AIUsageProvider, status: Status, limits: [AIUsageLimit] = [], plan: String? = nil,
@@ -251,7 +249,7 @@ extension AIUsageSummary {
             } else if hasLoaded {
                 summary.status = .setup(
                     title: "No Claude limits yet",
-                    detail: "Connect Claude Code's status line in this widget's settings, or run /usage in it.")
+                    detail: "Connect Claude Code's status line in this widget's builder, or run /usage in it.")
             }
             return summary
         }

@@ -338,13 +338,9 @@ private struct WidgetInspector: View {
             }
         }
 
-        if widget.kind.editorHasSections {
+        Section("Settings") {
+            builderRow
             WidgetSettingsEditor(settings: $widget.settings)
-        } else {
-            Section("Settings") {
-                builderRow
-                WidgetSettingsEditor(settings: $widget.settings)
-            }
         }
 
         Section {

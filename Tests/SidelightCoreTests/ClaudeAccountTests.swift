@@ -215,9 +215,7 @@ struct ClaudeAccountModelTests {
             WidgetInstance(settings: .claudeCode(ClaudeCodeSettings(account: work.id))),
             WidgetInstance(
                 settings: .aiUsage(
-                    AIUsageSettings(
-                        providers: [.codex], claudeAccount: work.id, refreshesClaudeFromAnthropic: true,
-                        claudeRefreshMinutes: 2))),
+                    AIUsageSettings(blocks: [.codex], refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 2))),
             WidgetInstance(settings: .claudeCode(ClaudeCodeSettings(account: AccountID(rawValue: "gone")))),
         ])
         #expect(
@@ -225,6 +223,24 @@ struct ClaudeAccountModelTests {
                 .claudeCodeApp: ClaudeCodeNeeds(profile: .standard, refreshMinutes: 5),
                 work.id: ClaudeCodeNeeds(profile: ClaudeCodeProfile(configDirectory: "/tmp/claude-work")),
             ])
+    }
+
+    @Test func `one AI Usage widget can show several Claude accounts, each fetched at its interval`() {
+        var usage = AIUsageSettings(blocks: [.codex, .claudeCode], refreshesClaudeFromAnthropic: true)
+        usage.addBlock(.claudeCode, options: AIUsageBlockOptions(label: "Work", account: work.id))
+        var hidden = AIUsageSettings(blocks: [], refreshesClaudeFromAnthropic: true, claudeRefreshMinutes: 2)
+        hidden.blocks.setShown(hidden.addBlock(.claudeCode), false)
+        let configuration = configuration([
+            WidgetInstance(settings: .aiUsage(usage)), WidgetInstance(settings: .aiUsage(hidden)),
+        ])
+        #expect(
+            configuration.serviceDemand(at: [.left]).claudeCode == [
+                .claudeCodeApp: ClaudeCodeNeeds(profile: .standard, refreshMinutes: 5),
+                work.id: ClaudeCodeNeeds(
+                    profile: ClaudeCodeProfile(configDirectory: "/tmp/claude-work"), refreshMinutes: 5),
+            ])
+        #expect(configuration.references(to: work.id) == 1)
+        #expect(configuration.uses(of: .claudeCodeApp) == 2)
     }
 
     @Test func `the Widgets window previews Claude on the default account`() {
@@ -237,20 +253,23 @@ struct ClaudeAccountModelTests {
     @Test func `widgets naming a removed Claude account go back to the default`() {
         var configuration = configuration([
             WidgetInstance(settings: .claudeCode(ClaudeCodeSettings(account: work.id))),
-            WidgetInstance(settings: .aiUsage(AIUsageSettings(claudeAccount: work.id))),
-            WidgetInstance(settings: .aiUsage(AIUsageSettings(providers: [.codex], claudeAccount: work.id))),
+            WidgetInstance(
+                settings: .aiUsage(
+                    AIUsageSettings(
+                        blocks: [.codex, .claudeCode], options: [.claudeCode: AIUsageBlockOptions(account: work.id)]))),
+            // Only Codex: it names no Claude account.
+            WidgetInstance(settings: .aiUsage(AIUsageSettings(blocks: [.codex]))),
         ])
-        // The AI Usage widget showing only Codex doesn't use it.
         #expect(configuration.references(to: work.id) == 2 && configuration.uses(of: work.id) == 2)
         #expect(configuration.uses(of: .claudeCodeApp) == 0)
         configuration.removeAccount(work.id)
         #expect(configuration.references(to: work.id) == 0)
         #expect(configuration.uses(of: .claudeCodeApp) == 2)
-        guard case .aiUsage(let codexOnly) = configuration.widgets.last?.settings else {
+        guard case .aiUsage(let usage) = configuration.widgets[1].settings else {
             Issue.record("Expected AI Usage settings")
             return
         }
-        #expect(codexOnly.claudeAccount == nil)
+        #expect(usage.options(.claudeCode).account == nil)
     }
 
     @Test func `Claude settings saved before accounts still load, and keep the account they name`() throws {
@@ -258,7 +277,8 @@ struct ClaudeAccountModelTests {
         #expect(old.account == nil)
         let settings = ClaudeCodeSettings(account: work.id)
         #expect(try JSONDecoder().decode(ClaudeCodeSettings.self, from: JSONEncoder().encode(settings)) == settings)
-        let usage = AIUsageSettings(claudeAccount: work.id)
+        let usage = AIUsageSettings(
+            blocks: [.claudeCode], options: [.claudeCode: AIUsageBlockOptions(account: work.id)])
         #expect(try JSONDecoder().decode(AIUsageSettings.self, from: JSONEncoder().encode(usage)) == usage)
         let odd = try JSONDecoder().decode(ClaudeCodeSettings.self, from: Data(#"{"account":42}"#.utf8))
         #expect(odd.account == nil)

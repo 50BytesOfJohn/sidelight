@@ -51,7 +51,19 @@ struct CursorSettingsEditor: View {
 struct CursorFetchSettings: View {
     @Binding var isOn: Bool
     @Binding var minutes: Int
-    @Environment(CursorService.self) private var cursor
+
+    var body: some View {
+        CursorFetchPicker(isOn: $isOn, minutes: $minutes)
+        if isOn {
+            CursorFetchStatus()
+        }
+    }
+}
+
+/// The opt-in to fetch usage from Cursor on a timer, and how often.
+struct CursorFetchPicker: View {
+    @Binding var isOn: Bool
+    @Binding var minutes: Int
 
     var body: some View {
         RefreshIntervalPicker(
@@ -61,12 +73,14 @@ struct CursorFetchSettings: View {
                 + "Cursor has no public usage API, so this may stop working.\n\nThe editor, the CLI and cloud "
                 + "agents share the same pools. Cursor doesn't split usage by tool.",
             isOn: $isOn, minutes: $minutes, choices: CursorSettings.refreshMinuteChoices)
-        if isOn {
-            status
-        }
     }
+}
 
-    private var status: some View {
+/// How the last fetch from Cursor went, with a button to fetch now.
+struct CursorFetchStatus: View {
+    @Environment(CursorService.self) private var cursor
+
+    var body: some View {
         StatusRow(
             color: cursor.problem != nil ? Color.orange : cursor.usage != nil ? .green : .secondary,
             alignment: .firstTextBaseline
