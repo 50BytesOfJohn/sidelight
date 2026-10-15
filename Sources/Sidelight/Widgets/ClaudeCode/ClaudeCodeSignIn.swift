@@ -28,6 +28,19 @@ enum ClaudeCodeCLI {
         return ClaudeCodeAuthStatus(json: result.output)
     }
 
+    /// Has Claude Code renew `profile`'s sign-in once it has expired, as it does whenever it starts for anything but
+    /// `claude auth`. Nobody uses an account Sidelight signed in, so otherwise nothing would. `claude plugin list` is
+    /// the cheapest way to start it: it sends nothing to a model, so it uses none of the plan's limits, and starts
+    /// no MCP servers. Claude Code renews the sign-in its own way, guarding against another `claude` renewing it at
+    /// the same time, and keeps it; Sidelight never sees more than the access token. Returns whether it ran.
+    static func renewSignIn(of profile: ClaudeCodeProfile) async -> Bool {
+        guard let executable,
+            let result = await ProcessRunner.result(
+                of: executable, arguments: ["plugin", "list"], environment: profile.environment)
+        else { return false }
+        return result.status == 0
+    }
+
     /// Signs `profile` out, which also revokes its sign-in; returns whether Claude Code says it did.
     static func signOut(_ profile: ClaudeCodeProfile) async -> Bool {
         guard let executable,
