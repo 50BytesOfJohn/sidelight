@@ -13,9 +13,10 @@ public struct StashItem: Identifiable, Hashable, Sendable {
     /// The bundle identifier of the app it came from, shown as that app's icon; `nil` when it was typed in or the
     /// app isn't known.
     public var source: String?
-    public var isPinned: Bool
-    /// When it was marked done; `nil` while it's open.
-    public var doneAt: Date?
+    /// Changed only through ``StashList``, which keeps pinned items from being done.
+    public internal(set) var isPinned: Bool
+    /// When it was marked done; `nil` while it's open. Changed only through ``StashList``.
+    public internal(set) var doneAt: Date?
 
     public init(
         id: UUID = UUID(), text: String, createdAt: Date, updatedAt: Date? = nil, source: String? = nil,

@@ -202,6 +202,12 @@ struct HotkeyTests {
         #expect(hotkey == .defaultToggle && hotkey.isEnabled && hotkey.ifEnabled == hotkey)
     }
 
+    @Test func `a shortcut whose switch can't be read is on`() throws {
+        let json = #"{"keyCode": 1, "modifiers": 2304, "key": "S", "isEnabled": "no"}"#
+        let hotkey = try JSONDecoder().decode(Hotkey.self, from: Data(json.utf8))
+        #expect(hotkey == .defaultToggle && hotkey.isEnabled)
+    }
+
     @Test func `a shortcut turned off keeps its keys`() throws {
         var hotkey = Hotkey.defaultStashCapture
         hotkey.isEnabled = false

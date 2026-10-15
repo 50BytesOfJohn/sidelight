@@ -50,6 +50,9 @@ final class StashStore {
     /// ``list`` has changes no write has saved yet: set by every change, cleared when a write is handed a snapshot,
     /// and set again if that write fails.
     @ObservationIgnored private var hasUnsavedChanges = false
+    /// Counts the writes handed over. Each writes the whole list, so only the latest one's outcome says whether the
+    /// file holds it: an earlier one reporting after a later save or flush is ignored.
+    @ObservationIgnored private var latestWrite = 0
     @ObservationIgnored private let pendingSave = DelayedTask()
 
     static let saveDelay: Duration = .milliseconds(300)
@@ -88,6 +91,7 @@ final class StashStore {
         pendingSave.cancel()
         retryReading()
         guard let writer else { return }
+        latestWrite += 1
         let isSaved = writer.writeNow(list)
         hasUnsavedChanges = !isSaved
         setSaveFailed(!isSaved)
@@ -184,10 +188,13 @@ final class StashStore {
         retryReading()
         guard hasUnsavedChanges, let writer else { return }
         hasUnsavedChanges = false
-        writer.write(list) { [weak self] isSaved in self?.finishedWrite(isSaved: isSaved) }
+        latestWrite += 1
+        let write = latestWrite
+        writer.write(list) { [weak self] isSaved in self?.finishedWrite(write, isSaved: isSaved) }
     }
 
-    private func finishedWrite(isSaved: Bool) {
+    private func finishedWrite(_ write: Int, isSaved: Bool) {
+        guard write == latestWrite else { return }
         setSaveFailed(!isSaved)
         guard !isSaved else { return }
         hasUnsavedChanges = true

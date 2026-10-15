@@ -43,13 +43,14 @@ public struct Hotkey: Codable, Hashable, Sendable {
         self.isEnabled = isEnabled
     }
 
-    /// Shortcuts saved before they could be turned off are on.
+    /// Shortcuts saved before they could be turned off are on, and so is one whose switch can't be read: a typo there
+    /// shouldn't make the whole configuration unreadable.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         keyCode = try container.decode(UInt32.self, forKey: .keyCode)
         modifiers = try container.decode(Modifiers.self, forKey: .modifiers)
         key = try container.decode(String.self, forKey: .key)
-        isEnabled = try container.decode(.isEnabled, or: true)
+        isEnabled = container.decodeLeniently(.isEnabled, or: true)
     }
 
     /// ⌥⌘S

@@ -227,9 +227,12 @@ struct StashWidgetView: View {
                         title: "Stash not saved", detail: Self.saveFailedHelp + ".",
                         systemImage: "exclamationmark.triangle", layout: layout)
                 } else {
+                    // Done items are kept for a while: with some there, the stash isn't empty, just all done.
+                    let isAllDone = !isPreview && !store.list.items.isEmpty
                     WidgetMessage(
-                        title: "Nothing stashed", detail: configuration.configuration.stash.captureHint,
-                        systemImage: "tray", layout: layout,
+                        title: isAllDone ? "All done" : "Nothing stashed",
+                        detail: configuration.configuration.stash.captureHint,
+                        systemImage: isAllDone ? "checkmark.circle" : "tray", layout: layout,
                         action: .init(title: "Change Shortcuts…", isDisabled: isPreview) { navigator.showShortcuts() })
                 }
                 footer(more: 0, isCompact: isCompact, isEmpty: true)
