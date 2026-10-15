@@ -101,6 +101,11 @@ final class StashCapture {
 
     /// Stashes the text on the clipboard, read once, now.
     func addClipboard() {
+        // A selection capture may be borrowing the clipboard: what's on it now would be the selection.
+        guard !isCapturing else {
+            Log.stash.info("Not stashing the clipboard while capturing the selection")
+            return show(notStashed: "Sidelight was still reading the selection. Try again.", systemImage: "hourglass")
+        }
         let pasteboard = NSPasteboard.general
         let types = pasteboard.types ?? []
         guard !types.contains(Self.concealedType) else {

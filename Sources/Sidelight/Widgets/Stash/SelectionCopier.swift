@@ -27,6 +27,8 @@ enum SelectionCopier {
     private static let pollInterval = Duration.milliseconds(15)
 
     private static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+    /// The bundle identifier of the app that copied, for apps that say.
+    private static let sourceType = NSPasteboard.PasteboardType("org.nspasteboard.source")
 
     /// Copies the selection in `app`, which must stay frontmost throughout.
     static func copySelection(in app: NSRunningApplication) async -> Outcome {
@@ -43,7 +45,7 @@ enum SelectionCopier {
                 hint: "Sidelight can't copy it without changing what's on the clipboard.")
         }
 
-        let shortcutReleased = await wait(upTo: modifierReleaseTimeout) {
+        let shortcutReleased = await wait(until: .now + modifierReleaseTimeout) {
             CGEventSource.flagsState(.combinedSessionState).isDisjoint(with: heldModifiers)
         }
         guard shortcutReleased else {
@@ -55,15 +57,29 @@ enum SelectionCopier {
         }
 
         let before = pasteboard.changeCount
+        let deadline = ContinuousClock.now + copyTimeout
         pressCopy()
-        let copied = await wait(upTo: copyTimeout) { pasteboard.changeCount != before }
+        let copied = await wait(until: deadline) { pasteboard.changeCount != before }
         guard copied else { return .nothingCopied("⌘C copied nothing within \(copyTimeout)") }
-        // The count changes as the app clears the clipboard, a moment before it writes.
-        try? await Task.sleep(for: pollInterval)
+        // The count changes as the app clears the clipboard, which may be a while before it writes: wait for the text
+        // (or the private marker), up to the same deadline. An app that copies no text runs it out.
+        _ = await wait(until: deadline) {
+            let types = pasteboard.types ?? []
+            return types.contains(.string) || types.contains(concealedType)
+        }
 
         let types = pasteboard.types ?? []
         let text = types.contains(concealedType) ? nil : pasteboard.string(forType: .string)
+        let copiedBy = pasteboard.string(forType: sourceType)
         snapshot.restore(to: pasteboard)
+        // Switched away while it copied: the copy may be another app's, maybe an excluded one.
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
+            return .notTried("another app came to the front", hint: "Stay in the app until it's stashed.")
+        }
+        // Another app wrote the clipboard meanwhile, and said so.
+        if let copiedBy, copiedBy != app.bundleIdentifier {
+            return .nothingCopied("\(copiedBy) wrote the clipboard instead")
+        }
         if types.contains(concealedType) { return .concealed }
         guard let text else { return .nothingCopied("⌘C copied no text") }
         return .text(text)
@@ -72,12 +88,10 @@ enum SelectionCopier {
     /// The modifier keys a shortcut can hold. Caps Lock and Fn don't change ⌘C.
     private static let heldModifiers: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift]
 
-    /// Waits until `condition` holds, checking it every ``pollInterval``; whether it did before `timeout`.
-    private static func wait(upTo timeout: Duration, until condition: () -> Bool) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now + timeout
+    /// Waits until `condition` holds, checking it every ``pollInterval``; whether it did before `deadline`.
+    private static func wait(until deadline: ContinuousClock.Instant, _ condition: () -> Bool) async -> Bool {
         while !condition() {
-            guard clock.now < deadline else { return false }
+            guard ContinuousClock.now < deadline else { return false }
             try? await Task.sleep(for: pollInterval)
         }
         return true
