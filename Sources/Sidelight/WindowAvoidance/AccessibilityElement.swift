@@ -80,11 +80,36 @@ struct AccessibilityElement {
         }
     }
 
+    /// The app's element that has keyboard focus (a text field, a text view, a web area), or why it can't be read.
+    var focusedElement: Result<AccessibilityElement, AccessibilityReadError> {
+        (read(kAXFocusedUIElementAttribute) as Result<AXUIElement, AccessibilityReadError>)
+            .map(AccessibilityElement.init)
+    }
+
+    var role: String? { attribute(kAXRoleAttribute) }
+    var subrole: String? { attribute(kAXSubroleAttribute) }
+
+    /// A password field, whose text must never be read.
+    var isSecureTextField: Bool { subrole == kAXSecureTextFieldSubrole }
+
+    /// The text selected in it, or why it can't be read: many apps don't expose their selection.
+    var selectedText: Result<String, AccessibilityReadError> { read(kAXSelectedTextAttribute) }
+
     func isSameElement(as other: AccessibilityElement) -> Bool {
         CFEqual(element, other.element)
     }
 
+    /// Asks an app (this element is its application element) to build its accessibility tree, which Electron apps
+    /// leave out until a screen reader seems to need it, and keep it until it quits; a cost in that app, so ask only
+    /// for an app that needs it. `AXManualAccessibility` is Electron's switch for exactly this; the broader
+    /// `AXEnhancedUserInterface` is left alone, as it makes apps animate window changes (see ``setFrame(_:)``).
+    /// Electron answers `attributeUnsupported` even when it takes the request, so there's no telling whether it did.
+    func requestAccessibilityTree() {
+        setAttribute(Self.manualAccessibilityAttribute, to: true)
+    }
+
     private static let enhancedUserInterfaceAttribute = "AXEnhancedUserInterface"
+    private static let manualAccessibilityAttribute = "AXManualAccessibility"
 
     private func setPosition(_ point: CGPoint) {
         var point = point
@@ -105,8 +130,29 @@ struct AccessibilityElement {
     }
 
     private func attribute<Value>(_ name: String) -> Value? {
+        try? read(name).get()
+    }
+
+    private func read<Value>(_ name: String) -> Result<Value, AccessibilityReadError> {
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
-        return value as? Value
+        let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+        guard error == .success else { return .failure(.failed(error)) }
+        guard let value = value as? Value else { return .failure(.unexpectedType) }
+        return .success(value)
+    }
+}
+
+/// Why an attribute couldn't be read, for the log.
+enum AccessibilityReadError: Error, CustomStringConvertible {
+    /// What Accessibility said: `noValue` for nothing there, `attributeUnsupported` for an app that doesn't offer it,
+    /// `cannotComplete` for one that didn't answer in time, `apiDisabled` without access.
+    case failed(AXError)
+    case unexpectedType
+
+    var description: String {
+        switch self {
+        case .failed(let error): "AXError \(error.rawValue)"
+        case .unexpectedType: "an unexpected type"
+        }
     }
 }

@@ -138,25 +138,15 @@ final class ConfigurationStore {
     /// Keeps a file about to be replaced next to the configuration, named for why and when, so an earlier backup is
     /// never replaced. Returns whether it was kept.
     private func backUp(_ data: Data, as reason: String) -> Bool {
-        let stamp = Date.now.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false))
-            .replacing(":", with: "-")
-        for attempt in 1...20 {
-            let name = attempt == 1 ? "\(reason)-\(stamp)" : "\(reason)-\(stamp)-\(attempt)"
-            let backup = fileURL.deletingPathExtension().appendingPathExtension("\(name).json")
-            do {
-                try data.write(to: backup, options: .withoutOverwriting)
-                Log.configuration.notice(
-                    "Kept the \(reason, privacy: .public) configuration as \(backup.lastPathComponent, privacy: .public)"
-                )
-                return true
-            } catch CocoaError.fileWriteFileExists {
-                continue
-            } catch {
-                Log.configuration.fault("Can't back up the \(reason, privacy: .public) configuration: \(error)")
-                return false
-            }
+        do {
+            let backup = try FileBackup.keep(data, besides: fileURL, as: reason)
+            Log.configuration.notice(
+                "Kept the \(reason, privacy: .public) configuration as \(backup.lastPathComponent, privacy: .public)")
+            return true
+        } catch {
+            Log.configuration.fault("Can't back up the \(reason, privacy: .public) configuration: \(error)")
+            return false
         }
-        return false
     }
 
     /// Whether saving `configuration`, read from `contents`, keeps every value the file has. Options it leaves out

@@ -35,7 +35,7 @@ extension WidgetKind {
         case .clock: ClockStyle.allCases.map(\.widgetStyle)
         case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system,
             .noodleComputer,
-            .railway, .agentSessions, .openRouter:
+            .railway, .agentSessions, .openRouter, .stash:
             []
         }
     }
@@ -50,7 +50,7 @@ extension WidgetSettings {
             case .clock(let settings): settings.style.rawValue
             case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .codexSessions,
                 .system,
-                .noodleComputer, .railway, .agentSessions, .openRouter:
+                .noodleComputer, .railway, .agentSessions, .openRouter, .stash:
                 nil
             }
         }
@@ -62,7 +62,7 @@ extension WidgetSettings {
                 self = .clock(settings)
             case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .codexSessions,
                 .system,
-                .noodleComputer, .railway, .agentSessions, .openRouter:
+                .noodleComputer, .railway, .agentSessions, .openRouter, .stash:
                 break
             }
         }

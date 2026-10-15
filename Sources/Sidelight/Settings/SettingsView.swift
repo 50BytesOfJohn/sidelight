@@ -30,6 +30,7 @@ struct SettingsView: View {
                 case .appearance: AppearanceSettingsPane()
                 case .windows: WindowsSettingsPane()
                 case .accounts: AccountsSettingsPane()
+                case .shortcuts: ShortcutsSettingsPane()
                 case .general: GeneralSettingsPane()
                 }
             }
@@ -38,15 +39,21 @@ struct SettingsView: View {
         }
         .onAppear {
             loginItem.refresh()
-            if navigator.request != nil { pane = .accounts }
+            follow(navigator.request)
         }
-        // Asked for from a widget or its settings: the pane takes the rest of the request.
-        .onChange(of: navigator.request) { if navigator.request != nil { pane = .accounts } }
+        .onChange(of: navigator.request) { follow(navigator.request) }
+    }
+
+    /// Asked for from a widget or its settings: shows the pane, which takes the rest of the request if there's more.
+    private func follow(_ request: SettingsNavigator.Request?) {
+        guard let request else { return }
+        pane = request.pane
+        if !request.hasMoreThanPane { navigator.request = nil }
     }
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case panel, appearance, windows, accounts, general
+    case panel, appearance, windows, accounts, shortcuts, general
 
     var id: Self { self }
 
@@ -56,6 +63,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .appearance: "Appearance"
         case .windows: "Window Avoidance"
         case .accounts: "Accounts"
+        case .shortcuts: "Keyboard Shortcuts"
         case .general: "General"
         }
     }
@@ -64,6 +72,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .panel: "Panel"
         case .windows: "Windows"
+        case .shortcuts: "Shortcuts"
         case .appearance, .accounts, .general: title
         }
     }
@@ -74,6 +83,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .appearance: "paintbrush.fill"
         case .windows: "macwindow.on.rectangle"
         case .accounts: "person.crop.circle.fill"
+        case .shortcuts: "keyboard.fill"
         case .general: "gearshape.fill"
         }
     }
@@ -84,6 +94,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .appearance: .pink
         case .windows: .orange
         case .accounts: .indigo
+        case .shortcuts: .teal
         case .general: .gray
         }
     }

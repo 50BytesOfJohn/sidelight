@@ -23,5 +23,7 @@ public enum Log {
     public static let railway = Logger(subsystem: subsystem, category: "railway")
     public static let openRouter = Logger(subsystem: subsystem, category: "openrouter")
     public static let details = Logger(subsystem: subsystem, category: "details")
+    /// Never logs what was stashed: only that something was, and why something wasn't.
+    public static let stash = Logger(subsystem: subsystem, category: "stash")
     public static let process = Logger(subsystem: subsystem, category: "process")
 }

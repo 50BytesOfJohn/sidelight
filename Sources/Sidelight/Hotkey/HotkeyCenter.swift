@@ -10,11 +10,26 @@ enum HotkeyAction: UInt32, CaseIterable {
     case togglePanels = 1
     /// Closes the details panel. Registered only while one is open, so it takes nothing from other apps otherwise.
     case closeDetails = 2
+    /// Stashes the frontmost app's selected text. Registered only while a Stash widget is in the configuration.
+    case stashSelection = 3
+    /// Stashes the clipboard's text. Registered only while a Stash widget is in the configuration.
+    case stashClipboard = 4
+
+    /// What the log calls it.
+    var logName: String {
+        switch self {
+        case .togglePanels: "show or hide"
+        case .closeDetails: "close details"
+        case .stashSelection: "stash selection"
+        case .stashClipboard: "stash clipboard"
+        }
+    }
 }
 
 /// Why a shortcut isn't working.
 enum HotkeyProblem: Equatable {
-    /// macOS refused it, usually because another app uses it (the status from `RegisterEventHotKey`).
+    /// macOS refused it (the status from `RegisterEventHotKey`); `eventHotKeyExistsErr` when another app has taken
+    /// it exclusively.
     case unavailable(OSStatus)
     /// Another of Sidelight's shortcuts is the same, and goes first.
     case sameAs(HotkeyAction)
@@ -34,7 +49,8 @@ final class HotkeyCenter {
 
     /// The shortcut each action should have, whether or not that worked.
     @ObservationIgnored private var requested: [HotkeyAction: Hotkey] = [:]
-    @ObservationIgnored private var registered: [HotkeyAction: (hotkey: Hotkey, reference: EventHotKeyRef)] = [:]
+    /// Observed, so settings showing ``workingHotkey(for:)`` follow a shortcut being taken or given back.
+    private var registered: [HotkeyAction: (hotkey: Hotkey, reference: EventHotKeyRef)] = [:]
     /// The shortcut that last registered for each action, kept while recording frees them all and while a new one is
     /// refused: it's what the action falls back to. Forgotten only when the action's shortcut is taken away.
     @ObservationIgnored private var lastWorking: [HotkeyAction: Hotkey] = [:]
@@ -45,9 +61,10 @@ final class HotkeyCenter {
     /// 'Sdlt'
     private nonisolated static let signature: OSType = 0x5364_6C74
 
-    /// Gives `action` the shortcut `hotkey`, replacing the one it had. Asking again for one that didn't work tries
-    /// again.
+    /// Gives `action` the shortcut `hotkey`, replacing the one it had; one that's turned off takes it away. Asking
+    /// again for one that didn't work tries again.
     func register(_ hotkey: Hotkey, for action: HotkeyAction) {
+        guard hotkey.isEnabled else { return unregister(action) }
         guard requested[action] != hotkey || problems[action] != nil else { return }
         requested[action] = hotkey
         reconcile()
@@ -113,7 +130,12 @@ final class HotkeyCenter {
                 continue
             }
             if problems[action] != .unavailable(status) {
-                Log.app.error("Can't register hotkey \(hotkey.displayString, privacy: .public): status \(status)")
+                let why = status == eventHotKeyExistsErr ? "another app has taken it exclusively" : "status \(status)"
+                Log.app.error(
+                    """
+                    Can't register hotkey \(hotkey.displayString, privacy: .public) for \
+                    \(action.logName, privacy: .public): \(why, privacy: .public)
+                    """)
             }
             setProblem(.unavailable(status), for: action)
             // Back to the shortcut that worked, unless it's the one refused or another action wants or has it.
@@ -127,26 +149,39 @@ final class HotkeyCenter {
     }
 
     /// Registers `hotkey` for `action`; returns Carbon's status.
+    ///
+    /// Shared registrations (no options) let several apps have the same shortcut, each told when it's pressed. But
+    /// one app can take a shortcut exclusively, and then every shared registration still succeeds yet is never told:
+    /// the shortcut would look fine and do nothing. So it's first asked for exclusively, which fails only against an
+    /// exclusive owner (`eventHotKeyExistsErr`), then given back and registered shared, so Sidelight never takes a
+    /// shortcut from the apps sharing it. An app that takes it exclusively later can't be noticed.
     private func acquire(_ hotkey: Hotkey, for action: HotkeyAction) -> OSStatus {
-        var reference: EventHotKeyRef?
         let identifier = EventHotKeyID(signature: Self.signature, id: action.rawValue)
-        let status = RegisterEventHotKey(
-            hotkey.keyCode,
-            hotkey.modifiers.rawValue,
-            identifier,
-            GetApplicationEventTarget(),
-            0,
-            &reference
-        )
+        func register(options: UInt32) -> (status: OSStatus, reference: EventHotKeyRef?) {
+            var reference: EventHotKeyRef?
+            let status = RegisterEventHotKey(
+                hotkey.keyCode, hotkey.modifiers.rawValue, identifier, GetApplicationEventTarget(), options, &reference)
+            return (status, reference)
+        }
+        let probe = register(options: UInt32(kEventHotKeyExclusive))
+        if probe.status == eventHotKeyExistsErr { return probe.status }
+        if let reference = probe.reference { UnregisterEventHotKey(reference) }
+
+        let (status, reference) = register(options: 0)
         guard status == noErr, let reference else { return status == noErr ? OSStatus(eventInternalErr) : status }
         registered[action] = (hotkey, reference)
         lastWorking[action] = hotkey
+        Log.app.debug(
+            "Registered hotkey \(hotkey.displayString, privacy: .public) for \(action.logName, privacy: .public)")
         return noErr
     }
 
     private func release(_ action: HotkeyAction) {
         guard let registration = registered.removeValue(forKey: action) else { return }
         UnregisterEventHotKey(registration.reference)
+        Log.app.debug(
+            "Released hotkey \(registration.hotkey.displayString, privacy: .public) for \(action.logName, privacy: .public)"
+        )
     }
 
     private func setProblem(_ problem: HotkeyProblem?, for action: HotkeyAction) {
@@ -155,7 +190,12 @@ final class HotkeyCenter {
 
     private func pressed(_ identifier: UInt32) {
         guard let action = HotkeyAction(rawValue: identifier) else { return }
-        handlers[action]?()
+        // So `log stream` shows the key arrived, whatever the action then does.
+        Log.app.info("Hotkey pressed for \(action.logName, privacy: .public)")
+        guard let handler = handlers[action] else {
+            return Log.app.error("No handler for the \(action.logName, privacy: .public) hotkey")
+        }
+        handler()
     }
 
     private func installEventHandlerIfNeeded() {

@@ -25,6 +25,10 @@ struct AppEnvironment {
     let noodleComputer: NoodleComputerService
     let railway: RailwayService
     let openRouter: OpenRouterService
+    /// Every stashed item, shared by every Stash widget and the details panel.
+    let stash: StashStore
+    /// Stashes the selection or the clipboard, on a shortcut or a button.
+    let stashCapture: StashCapture
     /// How widgets open the details panel in place of their panel.
     let details: DetailsPresenter
     let hotkeys: HotkeyCenter
@@ -82,6 +86,8 @@ extension View {
             .environment(app.noodleComputer)
             .environment(app.railway)
             .environment(app.openRouter)
+            .environment(app.stash)
+            .environment(app.stashCapture)
             .environment(app.details)
             .environment(app.hotkeys)
             .environment(app.windowAvoider)

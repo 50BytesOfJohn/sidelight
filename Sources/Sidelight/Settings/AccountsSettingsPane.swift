@@ -38,11 +38,11 @@ struct AccountsSettingsPane: View {
 
     /// Shows what someone asked for elsewhere: a provider's accounts, or adding one there.
     private func follow(_ request: SettingsNavigator.Request?, with proxy: ScrollViewProxy) {
-        guard let request else { return }
+        guard case .accounts(let provider, let isAdding) = request else { return }
         navigator.request = nil
-        guard let provider = request.provider else { return }
+        guard let provider else { return }
         withAnimation(Motion.snappy) { proxy.scrollTo(provider, anchor: .top) }
-        if request.adding { adding = provider }
+        if isAdding { adding = provider }
     }
 }
 

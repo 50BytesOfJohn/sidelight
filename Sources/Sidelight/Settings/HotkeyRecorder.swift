@@ -10,6 +10,7 @@ struct HotkeyRecorder: View {
     /// Sidelight's other shortcuts, and what each does.
     var others: [(hotkey: Hotkey, use: String)] = []
     @Environment(HotkeyCenter.self) private var hotkeys
+    @Environment(\.isEnabled) private var isEnabled
     @State private var isRecording = false
     @State private var monitor: Any?
     /// Why the last shortcut pressed wasn't taken.
@@ -35,6 +36,8 @@ struct HotkeyRecorder: View {
             }
         }
         .onDisappear { stopRecording() }
+        // Turned off mid-recording: a key pressed now mustn't turn it back on.
+        .onChange(of: isEnabled) { if !isEnabled { stopRecording() } }
     }
 
     private func startRecording() {

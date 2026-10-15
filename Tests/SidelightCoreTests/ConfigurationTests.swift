@@ -195,4 +195,24 @@ struct HotkeyTests {
         #expect(!Hotkey(keyCode: 1, modifiers: [.shift], key: "S").isValid)
         #expect(Hotkey.defaultToggle.isValid)
     }
+
+    @Test func `a shortcut saved before shortcuts could be turned off is on`() throws {
+        let json = #"{"keyCode": 1, "modifiers": 2304, "key": "S"}"#
+        let hotkey = try JSONDecoder().decode(Hotkey.self, from: Data(json.utf8))
+        #expect(hotkey == .defaultToggle && hotkey.isEnabled && hotkey.ifEnabled == hotkey)
+    }
+
+    @Test func `a shortcut whose switch can't be read is on`() throws {
+        let json = #"{"keyCode": 1, "modifiers": 2304, "key": "S", "isEnabled": "no"}"#
+        let hotkey = try JSONDecoder().decode(Hotkey.self, from: Data(json.utf8))
+        #expect(hotkey == .defaultToggle && hotkey.isEnabled)
+    }
+
+    @Test func `a shortcut turned off keeps its keys`() throws {
+        var hotkey = Hotkey.defaultStashCapture
+        hotkey.isEnabled = false
+        let read = try JSONDecoder().decode(Hotkey.self, from: JSONEncoder().encode(hotkey))
+        #expect(read == hotkey && read.ifEnabled == nil)
+        #expect(read.isSameShortcut(as: .defaultStashCapture) && read.displayString == "⌃⌥⌘C")
+    }
 }
