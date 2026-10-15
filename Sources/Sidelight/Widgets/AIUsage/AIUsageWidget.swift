@@ -619,7 +619,7 @@ struct AIUsageView: View {
         }
     }
 
-    /// The number alone, `–` once reset.
+    /// The number alone, `–` once reset, in the warning color when the limit is forecast to run out early.
     private func glancePercent(_ limit: AIUsageLimit, summary: AIUsageSummary, size: CGFloat) -> some View {
         let hasReset = limit.hasReset(at: now)
         return Text(hasReset ? "–" : "\(Int(limit.percent(reading).rounded()))%")
@@ -630,7 +630,9 @@ struct AIUsageView: View {
                 hasReset
                     ? AnyShapeStyle(.secondary)
                     : limit.isUsedUp || isBlocked(summary)
-                        ? AnyShapeStyle(Color.usageCritical) : AnyShapeStyle(.primary)
+                        ? AnyShapeStyle(Color.usageCritical)
+                        : summary.warning(for: limit, at: now) != nil
+                            ? AnyShapeStyle(Color.usageWarning) : AnyShapeStyle(.primary)
             )
             .opacity(summary.freshness == .stale ? 0.6 : 1)
     }
