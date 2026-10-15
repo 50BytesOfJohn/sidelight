@@ -70,7 +70,7 @@ struct ReleasedConfigurationFixture {
             .init(block: personalClaude, isShown: true), .init(block: .cursor, isShown: false),
         ])
         aiUsage.setOptions(AIUsageBlockOptions(label: "Work", account: claude.id), for: workClaude)
-        aiUsage.setOptions(AIUsageBlockOptions(label: "Personal"), for: personalClaude)
+        aiUsage.setOptions(AIUsageBlockOptions(label: "Personal", variant: .eachLimit), for: personalClaude)
         var cliRailway = RailwaySettings(account: .railwayCLI)
         cliRailway.blocks.setShown(.incidents, false)
 

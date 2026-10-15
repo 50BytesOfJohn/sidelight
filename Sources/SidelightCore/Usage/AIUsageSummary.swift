@@ -136,6 +136,16 @@ public struct AIUsageSummary: Equatable, Sendable {
         return limits.filter { $0.id != lead?.id }
     }
 
+    /// The limits a block in `variant` draws: the lead alone, or every limit in order (shortest window first), so
+    /// each keeps its place as usage moves. None without limits to draw.
+    public func shownLimits(_ variant: AIUsageBlockVariant, at now: Date) -> [AIUsageLimit] {
+        guard status == .limits else { return [] }
+        return switch variant {
+        case .closestLimit: lead(at: now).map { [$0] } ?? []
+        case .eachLimit: limits
+        }
+    }
+
     /// How far ahead of its reset, as a share of the window, a limit has to run out to be worth a warning: running
     /// out just before is within the noise of a forecast.
     public static let forecastMargin = 0.05

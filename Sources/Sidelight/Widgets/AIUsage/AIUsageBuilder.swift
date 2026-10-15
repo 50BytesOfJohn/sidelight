@@ -57,6 +57,53 @@ extension AIUsageSettings: BlockBuiltWidget {
     func title(of block: AIUsageBlock) -> String {
         options(block).label ?? block.title
     }
+
+    func variants(of block: AIUsageBlock) -> [BlockVariant] {
+        AIUsageBlockVariant.allCases.map { variant in
+            BlockVariant(id: variant.rawValue, title: variant.title, summary: variant.summary(for: block.provider))
+        }
+    }
+
+    func variantID(of block: AIUsageBlock) -> String? {
+        options(block).variant.rawValue
+    }
+
+    mutating func setVariant(_ id: String, of block: AIUsageBlock) {
+        guard let variant = AIUsageBlockVariant(rawValue: id) else { return }
+        var options = options(block)
+        options.variant = variant
+        setOptions(options, for: block)
+    }
+
+    /// Whether any block, shown or hidden, shows the limit closest to running out, the only look with other limits
+    /// to show beside it.
+    var hasClosestLimitBlock: Bool {
+        blocks.entries.contains { options($0.block).variant == .closestLimit }
+    }
+}
+
+extension AIUsageBlockVariant {
+    var title: String {
+        switch self {
+        case .closestLimit: "Closest limit"
+        case .eachLimit: "Each limit"
+        }
+    }
+
+    /// What a block in this look shows of `provider`'s limits.
+    func summary(for provider: AIUsageProvider) -> String {
+        switch (self, provider) {
+        case (.closestLimit, _):
+            "Leads with whichever limit is closest to running out, with a forecast when it runs out early. The "
+                + "others can show small beside it."
+        case (.eachLimit, .claudeCode):
+            "A meter for the 5-hour session and one for the week, always in that order."
+        case (.eachLimit, .codex):
+            "A meter for each limit Codex reports, shortest window first, always in that order."
+        case (.eachLimit, .cursor):
+            "A meter for each of your plan's usage pools, always in the same order."
+        }
+    }
 }
 
 /// The Widgets window's settings for an AI Usage widget: a ready-made layout, and the options for the whole widget.
@@ -87,10 +134,13 @@ private struct AIUsageWidgetOptions: View {
                     : "Like Codex's /status. Meters drain as you use each agent, and the tick drains with the "
                         + "window's time. A meter below its tick runs out before the reset.")
         }
-        Toggle(isOn: $settings.showsOtherLimits) {
-            InfoLabel(
-                "Show other limits",
-                info: "Each agent's other windows or pools next to its main one, in regular and compact cards.")
+        if settings.hasClosestLimitBlock {
+            Toggle(isOn: $settings.showsOtherLimits) {
+                InfoLabel(
+                    "Show other limits",
+                    info: "Each agent's other windows or pools next to its closest limit, in regular and compact "
+                        + "cards. Blocks showing each limit already show them all.")
+            }
         }
         if has(.claudeCode) {
             AnthropicRefreshPicker(

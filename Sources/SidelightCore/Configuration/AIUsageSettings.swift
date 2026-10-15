@@ -59,28 +59,41 @@ public struct AIUsageBlock: WidgetBlockKind, Identifiable {
     public static let cursor = AIUsageBlock(.cursor, uuid: UUID(uuidString: "6F1C2D3E-7A8B-4C9D-8E0F-A1B2C3D40003")!)
 }
 
+/// How one block lays out its agent's limits.
+public enum AIUsageBlockVariant: String, Codable, CaseIterable, Sendable {
+    /// The limit closest to running out leads, with a forecast, and the others small beside it.
+    case closestLimit
+    /// A meter for every limit, always in the same order, so each one stays in its place.
+    case eachLimit
+}
+
 /// What one block shows besides its agent.
 public struct AIUsageBlockOptions: Codable, Hashable, Sendable {
     /// Shown in place of the agent's name, to tell blocks apart; `nil` for the agent's name.
     public var label: String?
     /// The account it shows, for an agent with accounts (``AIUsageProvider/hasAccounts``); `nil` for the default.
     public var account: AccountID?
+    public var variant: AIUsageBlockVariant
 
-    public init(label: String? = nil, account: AccountID? = nil) {
+    public init(label: String? = nil, account: AccountID? = nil, variant: AIUsageBlockVariant = .closestLimit) {
         self.label = label
         self.account = account
+        self.variant = variant
     }
 
-    /// An empty or unreadable label is no label, and an account reference that can't be read is the default account.
+    /// An empty or unreadable label is no label, an account reference that can't be read is the default account,
+    /// and an unknown variant is the closest limit.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         label = container.decodeLeniently(.label, or: String?.none).flatMap { $0.isEmpty ? nil : $0 }
         account = container.decodeLeniently(.account, or: nil)
+        variant = container.decodeLeniently(.variant, or: .closestLimit)
     }
 
     private enum CodingKeys: String, CodingKey {
         case label
         case account = "accountID"
+        case variant
     }
 }
 
@@ -111,7 +124,8 @@ public struct AIUsageSettings: Codable, Hashable, Sendable {
     public private(set) var blockOptions: [String: AIUsageBlockOptions] = [:]
     /// Defaults to what's used, like Claude Code and Cursor; Codex's own widget defaults to what's left.
     public var reading = UsageReading.used
-    /// Each agent's other limits next to the one closest to running out, in the regular and compact layouts.
+    /// Each agent's other limits next to the one closest to running out, in the regular and compact layouts of the
+    /// blocks showing the closest limit (``AIUsageBlockVariant/closestLimit``).
     public var showsOtherLimits = true
     /// Ask Anthropic for every shown Claude account's usage every ``claudeRefreshMinutes``; see
     /// ``ClaudeCodeSettings/refreshesFromAnthropic``.

@@ -8,9 +8,10 @@ extension WidgetMetadata {
         systemImage: "gauge.with.dots.needle.67percent",
         tint: .indigo,
         summary: "Codex, Claude and Cursor limits together",
-        details: "Each agent's limit closest to running out, as that agent reports it, and when it resets. Agents "
-            + "measure different things over different windows, so Sidelight doesn't add them up. Built from blocks: "
-            + "one per agent, or one per account to watch several Claude accounts."
+        details: "Each agent's limit closest to running out, or a meter for each of its limits, as that agent "
+            + "reports them, and when they reset. Agents measure different things over different windows, so "
+            + "Sidelight doesn't add them up. Built from blocks: one per agent, or one per account to watch several "
+            + "Claude accounts, each with its own look."
     )
 }
 
@@ -62,6 +63,7 @@ struct AIUsageRow: Identifiable {
     let summary: AIUsageSummary
     /// The block's own label, if it has one.
     let label: String?
+    let variant: AIUsageBlockVariant
 
     var id: AIUsageBlock { block }
     var provider: AIUsageProvider { block.provider }
@@ -95,7 +97,8 @@ struct AIUsageWidgetView: View {
         settings.blocks.shownBlocks.map { block in
             let options = settings.options(block)
             return AIUsageRow(
-                block: block, summary: summary(of: block, options: options, at: now), label: options.label)
+                block: block, summary: summary(of: block, options: options, at: now), label: options.label,
+                variant: options.variant)
         }
     }
 
@@ -128,7 +131,8 @@ struct AIUsageWidgetView: View {
 
 /// One row per block, each led by its agent's limit closest to running out: its name and window, a meter with the
 /// window's time tick, and when it resets, with the agent's other limits small beside it. Minimal and bar layouts
-/// keep a mark, a number and a reset per block. Percentages are never added up or compared across agents: each
+/// keep a mark, a number and a reset per block. A block showing each limit draws a meter per limit instead, always
+/// in the same order. Percentages are never added up or compared across agents: each
 /// row reads in its own windows, all of them as used or all as left.
 struct AIUsageView: View {
     let rows: [AIUsageRow]
@@ -161,7 +165,7 @@ struct AIUsageView: View {
                 if index > 0 {
                     HairlineDivider().padding(.vertical, 9)
                 }
-                regularRow(row)
+                if showsEachLimit(row) { eachLimitRegularRow(row) } else { regularRow(row) }
             }
         }
         .animation(Motion.layout, value: rows.map(\.id))
@@ -204,7 +208,7 @@ struct AIUsageView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .row(row, spokenValue: spokenValue(summary), help: help(row))
+        .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
     }
 
     /// `Codex  5-hour  ⏲ 2h ago`
@@ -235,7 +239,7 @@ struct AIUsageView: View {
     private var compact: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(rows) { row in
-                compactRow(row)
+                if showsEachLimit(row) { eachLimitCompactRow(row) } else { compactRow(row) }
             }
         }
         .animation(Motion.layout, value: rows.map(\.id))
@@ -270,7 +274,7 @@ struct AIUsageView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .row(row, spokenValue: spokenValue(summary), help: help(row))
+        .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
     }
 
     private func compactHeader(
@@ -319,7 +323,7 @@ struct AIUsageView: View {
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             ForEach(rows) { row in
-                minimalRow(row)
+                if showsEachLimit(row) { eachLimitMinimalRow(row) } else { minimalRow(row) }
             }
         }
     }
@@ -346,7 +350,7 @@ struct AIUsageView: View {
             }
         }
         .lineLimit(1)
-        .row(row, spokenValue: spokenValue(summary), help: help(row))
+        .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
     }
 
     private var bar: some View {
@@ -355,7 +359,7 @@ struct AIUsageView: View {
                 if index > 0 {
                     Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 0.5, height: 18)
                 }
-                barItem(row)
+                if showsEachLimit(row) { eachLimitBarItem(row) } else { barItem(row) }
             }
         }
     }
@@ -390,7 +394,7 @@ struct AIUsageView: View {
         }
         .lineLimit(1)
         .fixedSize()
-        .row(row, spokenValue: spokenValue(summary), help: help(row))
+        .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
     }
 
     /// A block's label in the smallest sizes, kept short.
@@ -401,6 +405,179 @@ struct AIUsageView: View {
             .truncationMode(.tail)
             .frame(maxWidth: 64)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: Each limit
+
+    /// Whether `row` draws a meter per limit. Without limits to draw, it says why the same way in either look.
+    private func showsEachLimit(_ row: AIUsageRow) -> Bool {
+        row.variant == .eachLimit && row.summary.status == .limits
+    }
+
+    /// The agent's name over a meter per limit, each in its place: `5h [meter] 34%  in 2h 14m`.
+    private func eachLimitRegularRow(_ row: AIUsageRow) -> some View {
+        let summary = row.summary
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 6) {
+                ProviderLogo(provider: row.provider.agent, size: 16)
+                ViewThatFits(in: .horizontal) {
+                    eachLimitTitle(row, showsAge: true)
+                    eachLimitTitle(row, showsAge: false)
+                }
+                Spacer(minLength: 0)
+            }
+            ViewThatFits(in: .horizontal) {
+                limitGrid(summary, meterHeight: 5, countdown: .short, size: 10)
+                limitGrid(summary, meterHeight: 5, countdown: .tiny, size: 10)
+            }
+            noticeLine(summary).font(.system(size: 10))
+        }
+        .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
+    }
+
+    private func eachLimitTitle(_ row: AIUsageRow, showsAge: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(row.title).font(.system(size: 12, weight: .semibold))
+            freshnessBadge(row.summary, showsAged: true, showsAge: showsAge).font(.system(size: 9.5))
+        }
+        .lineLimit(1)
+    }
+
+    private func eachLimitCompactRow(_ row: AIUsageRow) -> some View {
+        let summary = row.summary
+        return VStack(alignment: .leading, spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                eachLimitCompactHeader(summary, title: row.title)
+                eachLimitCompactHeader(summary, title: row.shortTitle)
+                eachLimitCompactHeader(summary, title: nil)
+            }
+            // The countdowns give way first: the numbers are what a compact card is for.
+            ViewThatFits(in: .horizontal) {
+                limitGrid(summary, meterHeight: 4, countdown: .tiny, size: 9.5)
+                limitGrid(summary, meterHeight: 4, countdown: nil, size: 9.5)
+            }
+            noticeLine(summary).font(.system(size: 9.5))
+        }
+        .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
+    }
+
+    private func eachLimitCompactHeader(_ summary: AIUsageSummary, title: String?) -> some View {
+        HStack(spacing: 5) {
+            ProviderLogo(provider: summary.provider.agent, size: 14)
+            if let title {
+                Text(title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1)
+            }
+            freshnessBadge(summary, showsAged: false, showsAge: false).font(.system(size: 9))
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// A row per limit: its short name, its meter, the number, and, with `countdown`, when it resets, in the warning
+    /// color when it runs out early or is used up.
+    private func limitGrid(
+        _ summary: AIUsageSummary, meterHeight: CGFloat, countdown: DetailLength?, size: CGFloat
+    ) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: meterHeight + 3) {
+            ForEach(summary.shownLimits(.eachLimit, at: now)) { limit in
+                GridRow(alignment: .center) {
+                    Text(limit.shortTitle)
+                        .font(.system(size: size, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    meter(limit, summary: summary, height: meterHeight)
+                        .frame(minWidth: 28, maxWidth: .infinity)
+                    glancePercent(limit, summary: summary, size: size + 1)
+                        .gridColumnAlignment(.trailing)
+                    if let countdown {
+                        limitCountdown(limit, summary: summary, length: countdown)
+                            .font(.system(size: size))
+                    }
+                }
+            }
+        }
+        .lineLimit(1)
+    }
+
+    /// `in 2h 14m`, `Tue 06:00`, `awaiting update`; `in 2h`, `Tue`, `new` when `tiny`.
+    private func limitCountdown(_ limit: AIUsageLimit, summary: AIUsageSummary, length: DetailLength) -> some View {
+        let text = length == .tiny ? shortCountdown(limit) ?? "" : resetText(limit, short: true)
+        let color: Color? =
+            switch summary.warning(for: limit, at: now) {
+            case .usedUp?: .usageCritical
+            case .runsOut?: .usageWarning
+            case nil: nil
+            }
+        return Text(text)
+            .monospacedDigit()
+            .foregroundStyle(color.map(AnyShapeStyle.init) ?? AnyShapeStyle(.secondary))
+            .fixedSize()
+    }
+
+    /// What the meters alone don't say: Codex stopped, Cursor's on-demand usage, numbers that are out of date.
+    @ViewBuilder
+    private func noticeLine(_ summary: AIUsageSummary) -> some View {
+        if let notice = summary.notice {
+            let (symbol, color): (String, Color) =
+                switch notice.severity {
+                case .critical: ("hourglass", .usageCritical)
+                case .warning: ("exclamationmark.triangle.fill", .usageWarning)
+                case .info: ("info.circle", .secondary)
+                }
+            Label(notice.text, systemImage: symbol)
+                .labelStyle(TightLabelStyle())
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+
+    /// The mark, and the block's label when it has one, over each limit's name, number and tiny meter.
+    private func eachLimitMinimalRow(_ row: AIUsageRow) -> some View {
+        let summary = row.summary
+        return VStack(spacing: 3) {
+            if let label = row.label {
+                glanceLabel(label, size: 8)
+            }
+            ProviderLogo(provider: row.provider.agent, size: 13)
+            ForEach(summary.shownLimits(.eachLimit, at: now)) { limit in
+                VStack(spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text(limit.shortTitle)
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        glancePercent(limit, summary: summary, size: 10.5)
+                    }
+                    tinyMeter(limit, summary: summary).frame(width: 40)
+                }
+            }
+        }
+        .lineLimit(1)
+        .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
+    }
+
+    /// The mark, the label when there is one, and `5h 34%` over `wk 61%`; a single limit is one line.
+    private func eachLimitBarItem(_ row: AIUsageRow) -> some View {
+        let summary = row.summary
+        let limits = summary.shownLimits(.eachLimit, at: now)
+        let size: CGFloat = limits.count > 1 ? 10 : 12.5
+        return HStack(spacing: 5) {
+            ProviderLogo(provider: row.provider.agent, size: 16)
+            if let label = row.label {
+                glanceLabel(label, size: 9)
+            }
+            VStack(alignment: .leading, spacing: -1) {
+                ForEach(limits) { limit in
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text(limit.shortTitle)
+                            .font(.system(size: size - 2, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        glancePercent(limit, summary: summary, size: size)
+                    }
+                }
+            }
+        }
+        .lineLimit(1)
+        .fixedSize()
+        .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
     }
 
     // MARK: Numbers and meters
@@ -653,11 +830,16 @@ struct AIUsageView: View {
     // MARK: Accessibility and tooltips
 
     /// `5-hour limit, 34 percent used, resets in 2 hours, 14 minutes. Weekly limit, 61 percent used. As of 2h ago.`
-    private func spokenValue(_ summary: AIUsageSummary) -> String {
+    /// Limits are read in the order the block draws them: the lead first, or each in its place.
+    private func spokenValue(_ summary: AIUsageSummary, variant: AIUsageBlockVariant) -> String {
         guard summary.status == .limits else {
             return [statusTitle(summary), statusDetail(summary)].compactMap(\.self).joined(separator: ". ")
         }
-        let ordered = [summary.lead(at: now)].compactMap(\.self) + summary.others(at: now)
+        let ordered =
+            switch variant {
+            case .closestLimit: summary.shownLimits(.closestLimit, at: now) + summary.others(at: now)
+            case .eachLimit: summary.shownLimits(.eachLimit, at: now)
+            }
         var parts = ordered.map { limit in
             var part = "\(limit.title) limit, "
             if limit.hasReset(at: now) {
