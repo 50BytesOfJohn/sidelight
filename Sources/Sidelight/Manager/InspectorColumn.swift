@@ -352,12 +352,8 @@ private struct WidgetInspector: View {
     @ViewBuilder
     private var builderRow: some View {
         if widget.settings.hasBuilder {
-            LabeledContent {
-                Button("Open Builder", systemImage: "square.stack.3d.up") {
-                    windows.showBuilder(for: widget.id, title: "\(widget.kind.metadata.title) Builder")
-                }
-            } label: {
-                InfoLabel("Blocks", info: "Arrange the blocks this widget is built from, and set each one's options.")
+            LabeledContent("Blocks") {
+                Button("Open Builder", systemImage: "square.stack.3d.up") { windows.showBuilder(for: widget) }
             }
         }
     }
@@ -375,48 +371,5 @@ private struct WidgetInspectorPreview: View {
             .frame(height: layout.inspectorStageHeight)
             .background(PreviewStage())
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-}
-
-/// What the inspector shows, above its first section: an icon, a name and a line about it.
-private struct InspectorTitle<Icon: View, Accessories: View>: View {
-    let title: String
-    let subtitle: String
-    @ViewBuilder let icon: Icon
-    @ViewBuilder let accessories: Accessories
-
-    var body: some View {
-        HStack(spacing: 10) {
-            icon
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary)
-                    accessories
-                }
-                Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
-            }
-        }
-        .textCase(nil)
-        .padding(.bottom, 6)
-    }
-}
-
-struct InspectorSection<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(title)
-            VStack(alignment: .leading, spacing: 8) { content }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.04)))
-        }
     }
 }

@@ -20,18 +20,16 @@ extension OpenRouterBlock: DescribedBlock {
 
     var blurb: String {
         switch self {
-        case .summary: "How many models there are, when they were synced, and a refresh button."
-        case .list: "Models in the order and filter you choose, with a way to see them all."
-        case .balance: "An account's balance, and what it spent each day. Needs an account with a management key."
+        case .summary: "How many models there are, when they last synced, and a refresh button."
+        case .list: "Models in the order and filter you choose. Clicking it shows them all."
+        case .balance: "An account's balance and daily spending. Needs an account with a management key."
         }
     }
 }
 
 extension OpenRouterSettings: BlockBuiltWidget {
     static let presets = OpenRouterPreset.allCases.map { preset in
-        BlockPreset<OpenRouterBlock>(
-            id: preset.rawValue, title: preset.title, systemImage: preset.systemImage, summary: preset.summary,
-            blocks: preset.blocks)
+        BlockPreset<OpenRouterBlock>(id: preset.rawValue, title: preset.title, blocks: preset.blocks)
     }
 
     static func options(for block: OpenRouterBlock, settings: Binding<OpenRouterSettings>) -> some View {
@@ -43,12 +41,8 @@ extension OpenRouterSettings: BlockBuiltWidget {
     }
 
     static let addableBlocks = [
-        AddableBlock(
-            id: "list", title: "Model list", systemImage: "list.bullet",
-            blurb: "Models in an order and filter of your choice. Add one for each list."),
-        AddableBlock(
-            id: "balance", title: "Balance", systemImage: "creditcard",
-            blurb: "An account's balance and spending. Add one for each account you want to see."),
+        AddableBlock(id: "list", title: "Model list", systemImage: "list.bullet"),
+        AddableBlock(id: "balance", title: "Balance", systemImage: "creditcard"),
     ]
 
     mutating func addBlock(_ id: AddableBlock.ID) -> OpenRouterBlock? {
@@ -92,8 +86,8 @@ private struct OpenRouterWidgetOptions: View {
         } label: {
             InfoLabel(
                 "Sync models",
-                info: "One public catalogue for every OpenRouter widget, synced only while one shows models. No key "
-                    + "needed.")
+                info: "Every OpenRouter widget shares one public catalogue, synced only while one of them shows "
+                    + "models. No key needed.")
         }
         Picker(selection: $settings.refresh) {
             Text("Manually").tag(RefreshCadence.manual)
@@ -108,17 +102,19 @@ private struct OpenRouterWidgetOptions: View {
                     : "Only while a balance is on screen. Spending changes once a day, so Sidelight fetches it after "
                         + "midnight UTC.")
         }
-        Picker(selection: $settings.glance) {
-            ForEach(OpenRouterGlance.allCases) { Text($0.title).tag($0) }
-        } label: {
-            InfoLabel("Minimal and bar show", info: glanceCaption)
+        ExpandableRow(title: "Advanced") {
+            Picker(selection: $settings.glance) {
+                ForEach(OpenRouterGlance.allCases) { Text($0.title).tag($0) }
+            } label: {
+                InfoLabel("Minimal and bar show", info: glanceInfo)
+            }
         }
     }
 
-    private var glanceCaption: String {
+    private var glanceInfo: String {
         switch settings.glance {
         case .automatic: "The balance if the first block is a Balance block, otherwise the newest model."
-        case .newest, .count: "Of the first list's models. Clicking it shows every model in place of the panel."
+        case .newest, .count: "From the first list. Clicking it shows every model in place of the panel."
         case .balance: "The first Balance block's."
         }
     }
@@ -133,7 +129,7 @@ private struct OpenRouterWidgetOptions: View {
     }
 }
 
-/// One block's options.
+/// One block's options, as sections of the inspector's form.
 private struct OpenRouterBlockOptionsEditor: View {
     let block: OpenRouterBlock
     @Binding var settings: OpenRouterSettings
@@ -141,8 +137,9 @@ private struct OpenRouterBlockOptionsEditor: View {
     var body: some View {
         switch block {
         case .summary:
-            SettingsCaption("Which models it counts.")
-            OpenRouterFilterEditor(filter: $settings.summary.filter)
+            Section("Counts") {
+                OpenRouterFilterEditor(filter: $settings.summary.filter)
+            }
         case .list(let id):
             OpenRouterModelListEditor(id: id, settings: $settings)
         case .balance(let id):
@@ -168,19 +165,26 @@ private struct OpenRouterFilterEditor: View {
                 Label($0.title, systemImage: $0.systemImage).tag(Optional($0))
             }
         }
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Reads")
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), alignment: .leading)], alignment: .leading) {
-                ForEach(choices(OpenRouterModality.knownInputs, service.catalogue.value?.inputs, chosen: filter.inputs))
-                { input in
-                    Toggle(input.title, isOn: reads(input))
-                        .toggleStyle(.checkbox)
+        let inputs = choices(OpenRouterModality.knownInputs, service.catalogue.value?.inputs, chosen: filter.inputs)
+        // One menu to tick any number of inputs in, so the row stays one line however many OpenRouter lists.
+        LabeledContent("Reads") {
+            Menu(readsTitle(inputs)) {
+                ForEach(inputs) { input in
+                    Toggle(isOn: reads(input)) { Label(input.title, systemImage: input.systemImage) }
                 }
             }
+            .fixedSize()
         }
-        Toggle("Nothing else", isOn: $filter.isExact)
-            .disabled(filter.isAll)
-        SettingsCaption(filter.explanation)
+        Toggle(isOn: $filter.isExact) {
+            InfoLabel("Nothing else", info: "Leaves out models that also produce or read anything not chosen here.")
+        }
+        .disabled(filter.isAll)
+    }
+
+    /// "Anything", or the ticked inputs in the menu's order: "Text, Image".
+    private func readsTitle(_ inputs: [OpenRouterModality]) -> String {
+        let ticked = inputs.filter(filter.inputs.contains).map(\.title)
+        return ticked.isEmpty ? "Anything" : ticked.joined(separator: ", ")
     }
 
     /// The kinds OpenRouter lists, any it added since, and one chosen before that it no longer lists.
@@ -199,48 +203,55 @@ private struct OpenRouterFilterEditor: View {
     }
 }
 
-/// A Model list's title, order, filter and rows.
+/// A Model list's title, order and rows, then its filter.
 private struct OpenRouterModelListEditor: View {
     let id: UUID
     @Binding var settings: OpenRouterSettings
 
     var body: some View {
         let options = settings.listOptions(id)
-        TextField(
-            "Title",
-            text: Binding {
-                options.title ?? ""
-            } set: { title in
-                update { $0.title = title.isEmpty ? nil : title }
-            },
-            prompt: Text("None")
-        )
-        .textFieldStyle(.roundedBorder)
-        Picker("Order", selection: option(\.sort)) {
-            ForEach(OpenRouterModelSort.allCases) { Text($0.title).tag($0) }
+        Section {
+            TextField(
+                "Title",
+                text: Binding {
+                    options.title ?? ""
+                } set: { title in
+                    update { $0.title = title.isEmpty ? nil : title }
+                },
+                prompt: Text("None")
+            )
+            Picker(selection: option(\.sort)) {
+                ForEach(OpenRouterModelSort.allCases) { Text($0.title).tag($0) }
+            } label: {
+                InfoLabel("Order", info: "Latest added is when OpenRouter added a model, not when it was released.")
+            }
+            Picker(selection: option(\.density)) {
+                ForEach(OpenRouterRowDensity.allCases) { Text($0.title).tag($0) }
+            } label: {
+                InfoLabel("Rows", info: densityInfo(options.density))
+            }
+            Stepper(value: option(\.maximumRows), in: OpenRouterModelListOptions.rowCountRange) {
+                Text("Up to \(options.maximumRows) models")
+            }
+            if options.density == .detail {
+                Toggle(isOn: option(\.showsRetiring)) {
+                    InfoLabel("Mark models being retired", info: "Once OpenRouter announces a date.")
+                }
+            }
         }
-        SettingsCaption("Latest added is when OpenRouter added a model, not when it was released.")
-        Divider()
-        OpenRouterFilterEditor(filter: option(\.filter))
-        Divider()
-        Picker("Rows", selection: option(\.density)) {
-            ForEach(OpenRouterRowDensity.allCases) { Text($0.title).tag($0) }
+        Section("Filter") {
+            OpenRouterFilterEditor(filter: option(\.filter))
         }
-        .pickerStyle(.segmented)
-        SettingsCaption(densityCaption(options.density))
-        Stepper(value: option(\.maximumRows), in: OpenRouterModelListOptions.rowCountRange) {
-            Text("Up to \(options.maximumRows) models")
-        }
-        Toggle("Mark models being retired", isOn: option(\.showsRetiring))
-        SettingsCaption("In detail rows, when OpenRouter has announced a date. Compact sizes show lean rows.")
     }
 
-    private func densityCaption(_ density: OpenRouterRowDensity) -> String {
-        switch density {
-        case .lean: "The name and when it was added."
-        case .standard: "Also its ID and prices per million input and output tokens."
-        case .detail: "Also its context window, what it reads and writes, and badges."
-        }
+    private func densityInfo(_ density: OpenRouterRowDensity) -> String {
+        let rows =
+            switch density {
+            case .lean: "The name and when it was added."
+            case .standard: "Also the ID and prices per million input and output tokens."
+            case .detail: "Also the context window, what it reads and writes, and badges."
+            }
+        return rows + " Compact sizes always show lean rows."
     }
 
     private func update(_ change: (inout OpenRouterModelListOptions) -> Void) {
@@ -258,7 +269,7 @@ private struct OpenRouterModelListEditor: View {
     }
 }
 
-/// A Balance block's title, which account it reads, and its chart.
+/// A Balance block's title and account, then its chart.
 private struct OpenRouterBalanceEditor: View {
     let id: UUID
     @Binding var settings: OpenRouterSettings
@@ -267,40 +278,41 @@ private struct OpenRouterBalanceEditor: View {
 
     var body: some View {
         let options = settings.balanceOptions(id)
-        TextField(
-            "Title",
-            text: Binding {
-                options.title ?? ""
-            } set: { title in
-                update { $0.title = title.isEmpty ? nil : title }
-            },
-            prompt: Text("Account balance")
-        )
-        .textFieldStyle(.roundedBorder)
-        SettingsCaption("Tells accounts apart when the widget shows more than one.")
-
-        Divider()
-        AccountPicker(provider: .openRouter, selection: option(\.account))
-
-        Divider()
-        Toggle("Show spending by day", isOn: option(\.chart.isShown))
-        if options.chart.isShown {
-            Picker("Days", selection: option(\.chart.days)) {
-                ForEach(dayChoices(options.chart.days), id: \.self) { Text("\($0) days").tag($0) }
+        Section {
+            TextField(
+                text: Binding {
+                    options.title ?? ""
+                } set: { title in
+                    update { $0.title = title.isEmpty ? nil : title }
+                },
+                prompt: Text("Account balance")
+            ) {
+                InfoLabel("Title", info: "Tells accounts apart when the widget shows more than one.")
             }
-            .pickerStyle(.segmented)
-            Picker("Spending of", selection: option(\.chart.scope)) {
-                Text("The account").tag(OpenRouterChartScope.account)
-                Text("One key").tag(OpenRouterChartScope.key)
+            AccountPicker(provider: .openRouter, selection: option(\.account))
+        }
+        Section {
+            Toggle(isOn: option(\.chart.isShown)) {
+                InfoLabel(
+                    "Spending by day",
+                    info: "Completed days in UTC. Spending other providers bill through your own keys (BYOK) is listed "
+                        + "apart, never added. The balance is always the account's.")
             }
-            if options.chart.scope == .key, let account {
-                OpenRouterKeyPicker(account: account, chart: option(\.chart))
-                    // Another account lists other keys.
-                    .id(account.id)
+            if options.chart.isShown {
+                Picker("Days", selection: option(\.chart.days)) {
+                    ForEach(dayChoices(options.chart.days), id: \.self) { Text("\($0) days").tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Picker("Spending of", selection: option(\.chart.scope)) {
+                    Text("The account").tag(OpenRouterChartScope.account)
+                    Text("One key").tag(OpenRouterChartScope.key)
+                }
+                if options.chart.scope == .key, let account {
+                    OpenRouterKeyPicker(account: account, chart: option(\.chart))
+                        // Another account lists other keys.
+                        .id(account.id)
+                }
             }
-            SettingsCaption(
-                "Completed days in UTC: today isn't over yet. What other providers bill through your own keys "
-                    + "(BYOK) is listed apart, never added. The balance is always the account's.")
         }
     }
 

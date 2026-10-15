@@ -9,7 +9,7 @@ struct OpenRouterKeyPicker: View {
 
     var body: some View {
         let list = account.keyList
-        Picker("Key", selection: selection) {
+        Picker(selection: selection) {
             Text("Choose…").tag(String?.none)
             ForEach(list.keys) { key in
                 Text(title(key)).tag(Optional(key.hash))
@@ -17,31 +17,40 @@ struct OpenRouterKeyPicker: View {
             if let hash = chart.keyHash, !list.keys.contains(where: { $0.hash == hash }) {
                 Text("\(chart.keyName ?? "Chosen key") (not listed)").tag(Optional(hash))
             }
+        } label: {
+            InfoLabel(
+                "Key",
+                info: list.reachedLimit
+                    ? "The first \(list.keys.count) keys in the account's default workspace, including disabled and "
+                        + "expired ones. Later keys can't be chosen here."
+                    : "Keys in the account's default workspace, including disabled and expired ones.")
         }
         .disabled(!account.canUseKey)
         // Keys load while a picker is on screen, and stop loading once none is.
         .onAppear { account.keyPickerAppeared() }
         .onDisappear { account.keyPickerDisappeared() }
-        HStack(spacing: 8) {
-            if list.isLoading {
-                ProgressView().controlSize(.small)
-            } else if list.problem != nil, !(list.problem?.needsKey ?? false) {
-                Button("Try Again") { account.retryKeys() }.controlSize(.small)
-            } else if list.hasMore {
-                Button("Load More Keys") { account.loadMoreKeys() }.controlSize(.small)
-            } else if list.fetchedAt == nil, list.problem == nil, account.canUseKey {
-                // Nothing loaded yet, and nothing loading.
-                Button("Load Keys") { account.retryKeys() }.controlSize(.small)
-            }
-            if let problem = list.problem {
-                Text(problem.title).font(.caption).foregroundStyle(.orange)
+        let action = action(list)
+        if list.isLoading || action != nil || list.problem != nil {
+            HStack(spacing: 8) {
+                if list.isLoading {
+                    ProgressView().controlSize(.small)
+                } else if let action {
+                    Button(action.title, action: action.run).controlSize(.small)
+                }
+                if let problem = list.problem {
+                    Text(problem.title).font(.caption).foregroundStyle(.orange)
+                }
             }
         }
-        SettingsCaption(
-            list.reachedLimit
-                ? "The first \(list.keys.count) keys in the account's default workspace, disabled and expired ones "
-                    + "included. A key past those can't be chosen here."
-                : "Keys in the account's default workspace, disabled and expired ones included.")
+    }
+
+    /// What can be done about the list, while it isn't loading.
+    private func action(_ list: OpenRouterKeyList) -> (title: String, run: () -> Void)? {
+        if list.problem != nil, !(list.problem?.needsKey ?? false) { return ("Try Again", account.retryKeys) }
+        if list.hasMore { return ("Load More Keys", account.loadMoreKeys) }
+        // Nothing loaded yet, and nothing loading.
+        if list.fetchedAt == nil, list.problem == nil, account.canUseKey { return ("Load Keys", account.retryKeys) }
+        return nil
     }
 
     private var selection: Binding<String?> {

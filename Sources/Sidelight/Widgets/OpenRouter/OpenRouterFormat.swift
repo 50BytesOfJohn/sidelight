@@ -186,26 +186,6 @@ extension OpenRouterPreset {
         case .richList: "Rich list"
         }
     }
-
-    var systemImage: String {
-        switch self {
-        case .latest: "sparkles"
-        case .overview: "rectangle.stack"
-        case .credits: "creditcard"
-        case .textOnly: "text.alignleft"
-        case .richList: "list.bullet.rectangle"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .latest: "The count, then the newest text models. No key needed"
-        case .overview: "The balance, then the newest text models"
-        case .credits: "The balance and what it spent each day"
-        case .textOnly: "Text-in, text-out models by name"
-        case .richList: "The count, then the newest with every detail"
-        }
-    }
 }
 
 /// How OpenRouter's numbers read in Sidelight.

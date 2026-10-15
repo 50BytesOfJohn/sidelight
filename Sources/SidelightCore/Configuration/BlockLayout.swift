@@ -93,22 +93,19 @@ public struct BlockLayout<Block: WidgetBlockKind>: Hashable, Sendable {
         entries[index].isShown = isShown
     }
 
-    /// Swaps `block` with the shown block `offset` places away: -1 for up, 1 for down. Hidden blocks in between
-    /// are skipped, since they aren't drawn.
-    public mutating func moveAmongShown(_ block: Block, by offset: Int) {
-        var order = shownBlocks
-        guard let position = order.firstIndex(of: block), order.indices.contains(position + offset) else { return }
-        order.swapAt(position, position + offset)
-        reorderShown(order)
+    /// Moves the entries at `offsets` to before the entry at `destination`, as a list's drag and drop reports it.
+    public mutating func move(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        let moving = offsets.filter(entries.indices.contains).map { entries[$0] }
+        let before = offsets.count { $0 < destination }
+        entries = entries.indices.filter { !offsets.contains($0) }.map { entries[$0] }
+        entries.insert(contentsOf: moving, at: min(max(destination - before, 0), entries.count))
     }
 
-    /// Reorders the shown blocks as `order` lists them; hidden blocks keep their places among the rest.
-    public mutating func reorderShown(_ order: [Block]) {
-        let shownSlots = entries.indices.filter { entries[$0].isShown }
-        let current = shownSlots.map { entries[$0] }
-        var queue = order.compactMap { block in current.first { $0.block == block } }
-        queue += current.filter { entry in !queue.contains { $0.block == entry.block } }
-        for (slot, entry) in zip(shownSlots, queue) { entries[slot] = entry }
+    /// Swaps `block` with the one `offset` places away: -1 for up, 1 for down.
+    public mutating func move(_ block: Block, by offset: Int) {
+        guard let index = entries.firstIndex(where: { $0.block == block }), entries.indices.contains(index + offset)
+        else { return }
+        entries.swapAt(index, index + offset)
     }
 }
 

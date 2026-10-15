@@ -144,33 +144,15 @@ private struct SectionHeaderRow: View {
     }
 }
 
-/// Adds a section after the others: a section row with a dashed tile, like a section still to come.
+/// Adds a section after the others.
 private struct NewSectionRow: View {
     let action: () -> Void
-    @State private var isHovered = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: "plus")
-                    .font(.system(size: 9, weight: .bold))
-                    .frame(width: 18, height: 18)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18 * 0.27, style: .continuous)
-                            .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [2.5, 2]))
-                    )
-                Text("New Section")
-                    .font(.system(size: 12, weight: .medium))
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(isHovered ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-            .padding(.vertical, 2)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in withAnimation(Motion.hover) { isHovered = hovering } }
-        .help("Add a section below the others, with its own size and alignment")
-        .padding(.top, 4)
+        Button(action: action) { AddRowLabel(title: "New Section") }
+            .buttonStyle(.plain)
+            .help("Add a section below the others, with its own size and alignment")
+            .padding(.top, 4)
     }
 }
 

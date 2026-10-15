@@ -24,6 +24,10 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     /// The widget the builder window edits, while it's open. It previews only that widget, so only that widget's
     /// data services run for it.
     private(set) var builderWidgetID: WidgetInstance.ID?
+    /// Whether the builder can be seen right now. Its preview stops redrawing with the clock while it can't.
+    private(set) var isBuilderVisible = false
+    /// A widget for the Widgets window to select once it shows, opened from somewhere else.
+    private(set) var managerSelectionRequest: WidgetInstance.ID?
 
     @ObservationIgnored private let environment: AppEnvironment
     @ObservationIgnored private var windows: [Kind: NSWindow] = [:]
@@ -44,15 +48,34 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         bringToFront(window)
     }
 
-    /// Opens the builder for the widget with `id`, in place of the one it was editing.
-    func showBuilder(for id: WidgetInstance.ID, title: String) {
-        builderWidgetID = id
+    /// Opens where the widget with `id` is set up: its builder, for a widget built from blocks, otherwise the Widgets
+    /// window with the widget selected.
+    func showSettings(forWidget id: WidgetInstance.ID) {
+        guard let widget = environment.configurationStore.configuration.widget(id) else { return }
+        if widget.settings.hasBuilder {
+            showBuilder(for: widget)
+        } else {
+            managerSelectionRequest = id
+            show(.manager)
+        }
+    }
+
+    /// Hands the Widgets window the widget it was asked to select, once.
+    func takeManagerSelectionRequest() -> WidgetInstance.ID? {
+        defer { managerSelectionRequest = nil }
+        return managerSelectionRequest
+    }
+
+    /// Opens the builder for `widget`, in place of the one it was editing.
+    func showBuilder(for widget: WidgetInstance) {
+        let title = "\(widget.kind.metadata.title) Builder"
+        builderWidgetID = widget.id
         let window =
             builderWindow
             ?? makeWindow(
                 title: title,
-                size: NSSize(width: 1240, height: 780),
-                minimumSize: NSSize(width: 1080, height: 600),
+                size: NSSize(width: 1080, height: 720),
+                minimumSize: NSSize(width: 880, height: 540),
                 autosaveName: "BuilderWindow",
                 rootView: WidgetBuilderWindow()
             )
@@ -94,6 +117,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func updatePreviews() {
+        let isBuilderVisible = builderWindow?.occlusionState.contains(.visible) ?? false
+        if isBuilderVisible != self.isBuilderVisible { self.isBuilderVisible = isBuilderVisible }
         let manager = windows[.manager]
         let isVisible = manager?.occlusionState.contains(.visible) ?? false
         if isVisible != isManagerVisible { isManagerVisible = isVisible }
@@ -111,7 +136,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     func windowDidChangeOcclusionState(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow, window === windows[.manager] else { return }
+        guard let window = notification.object as? NSWindow, window === windows[.manager] || window === builderWindow
+        else { return }
         updatePreviews()
     }
 
