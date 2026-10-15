@@ -17,6 +17,15 @@ struct BlockEditor<Widget: BlockBuiltWidget> {
         }
     }
 
+    /// The block's look, by ``BlockVariant/id``; empty for a block without a choice.
+    func variant(of block: Widget.Block) -> Binding<String> {
+        Binding {
+            settings.variantID(of: block) ?? ""
+        } set: { id in
+            withAnimation(Motion.layout) { settings.setVariant(id, of: block) }
+        }
+    }
+
     func add(_ addable: AddableBlock) {
         var updated = settings
         guard let block = updated.addBlock(addable.id) else { return }

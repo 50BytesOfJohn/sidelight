@@ -38,6 +38,16 @@ struct BuilderInspector<Widget: BlockBuiltWidget>: View {
     private func blockOptions(_ block: Widget.Block) -> some View {
         Section {
             Toggle("Show in widget", isOn: editor.isShown(block))
+            let variants = editor.settings.variants(of: block)
+            if variants.count >= 2 {
+                let selection = editor.variant(of: block)
+                let current = variants.first { $0.id == selection.wrappedValue } ?? variants[0]
+                Picker(selection: selection) {
+                    ForEach(variants) { Text($0.title).tag($0.id) }
+                } label: {
+                    InfoLabel("Look", info: current.summary)
+                }
+            }
             if !block.isFixed {
                 Button("Remove Block…", role: .destructive) { editor.requestRemoval(block) }
                     .buttonStyle(.borderless)

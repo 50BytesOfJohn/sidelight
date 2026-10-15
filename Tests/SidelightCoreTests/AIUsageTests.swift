@@ -120,6 +120,44 @@ struct AIUsageSettingsTests {
         #expect(settings.blockOptions.isEmpty)
     }
 
+    @Test func `blocks saved before variants show the closest limit`() throws {
+        let url = try #require(
+            Bundle.module.url(forResource: "v0.7.1", withExtension: "json", subdirectory: "ReleasedConfigurations"))
+        let loaded = try AppConfiguration(json: Data(contentsOf: url))
+        let settings = loaded.widgets.compactMap { widget -> AIUsageSettings? in
+            if case .aiUsage(let settings) = widget.settings { settings } else { nil }
+        }
+        let blocks = try #require(settings.first).blocks.entries.map(\.block)
+        #expect(!blocks.isEmpty)
+        #expect(blocks.allSatisfy { settings[0].options($0).variant == .closestLimit })
+        #expect(AIUsageBlockOptions().variant == .closestLimit)
+    }
+
+    @Test func `a block's variant round-trips, and an unknown one keeps its label and account`() throws {
+        let options = AIUsageBlockOptions(label: "Work", account: work, variant: .eachLimit)
+        let json = try JSONEncoder().encode(options)
+        #expect(String(decoding: json, as: UTF8.self).contains(#""variant":"eachLimit""#))
+        #expect(try JSONDecoder().decode(AIUsageBlockOptions.self, from: json) == options)
+
+        let unknown = #"{"label":"Work","accountID":"\#(work.rawValue)","variant":"sideways"}"#
+        #expect(
+            try JSONDecoder().decode(AIUsageBlockOptions.self, from: Data(unknown.utf8))
+                == AIUsageBlockOptions(label: "Work", account: work))
+    }
+
+    @Test func `removing a block forgets its variant, and a preset keeps it`() {
+        var settings = AIUsageSettings(
+            blocks: [.claudeCode], options: [.claudeCode: AIUsageBlockOptions(variant: .eachLimit)])
+        settings.apply(.everyAgent)
+        settings.apply(.codexAndClaude)
+        #expect(settings.options(.claudeCode).variant == .eachLimit)
+
+        let added = settings.addBlock(.cursor, options: AIUsageBlockOptions(variant: .eachLimit))
+        settings.removeBlock(added)
+        #expect(settings.blockOptions[added.rawValue] == nil)
+        #expect(settings.options(added).variant == .closestLimit)
+    }
+
     @Test func `a preset brings its blocks back as they were left`() {
         var settings = AIUsageSettings(
             blocks: [.claudeCode], options: [.claudeCode: AIUsageBlockOptions(label: "Personal")])
@@ -609,6 +647,47 @@ struct AIUsageSummaryTests {
         let usage = CursorUsage(membershipType: "enterprise", isUnlimited: true, fetchedAt: now)
         let summary = AIUsageSummary.cursor(isConnected: true, usage: usage, problem: nil, isStale: false, now: now)
         #expect(summary.status == .noLimits(title: "Unlimited plan", detail: nil))
+    }
+
+    // MARK: Variants
+
+    @Test func `each limit keeps Claude's session before the week, whichever is closer`() {
+        let usage = claudeUsage(
+            session: window(20, resetsIn: 1, minutes: 300), weekly: window(64, resetsIn: 72, minutes: 10_080))
+        let summary = AIUsageSummary.claudeCode(
+            usage: usage, plan: nil, hasLoaded: true, anthropicProblem: nil, now: now)
+        #expect(summary.shownLimits(.eachLimit, at: now).map(\.shortTitle) == ["5h", "wk"])
+        #expect(summary.shownLimits(.closestLimit, at: now).map(\.shortTitle) == ["wk"])
+    }
+
+    @Test func `a reset session keeps its place among each limit`() {
+        let usage = claudeUsage(
+            session: window(90, resetsIn: -1, minutes: 300), weekly: window(30, resetsIn: 40, minutes: 10_080))
+        let summary = AIUsageSummary.claudeCode(
+            usage: usage, plan: nil, hasLoaded: true, anthropicProblem: nil, now: now)
+        let shown = summary.shownLimits(.eachLimit, at: now)
+        #expect(shown.map(\.shortTitle) == ["5h", "wk"])
+        #expect(shown.first?.hasReset(at: now) == true)
+        #expect(summary.shownLimits(.closestLimit, at: now).map(\.shortTitle) == ["wk"])
+    }
+
+    @Test func `each limit shows only the limits Codex reports`() {
+        let weeklyOnly = AIUsageSummary.codex(
+            codexState(primary: nil, secondary: window(40, resetsIn: 30, minutes: 10_080)), plan: nil, now: now)
+        #expect(weeklyOnly.shownLimits(.eachLimit, at: now).map(\.shortTitle) == ["wk"])
+
+        // Without durations, Codex's primary window comes first.
+        let unnamed = AIUsageSummary.codex(
+            codexState(
+                primary: RateLimitWindow(usedPercent: 10), secondary: RateLimitWindow(usedPercent: 80)),
+            plan: nil, now: now)
+        #expect(unnamed.shownLimits(.eachLimit, at: now).map(\.id) == ["codex.primary", "codex.secondary"])
+    }
+
+    @Test func `a block without limits to draw shows none in either variant`() {
+        let summary = AIUsageSummary.codex(CodexState(), plan: nil, now: now)
+        #expect(summary.shownLimits(.eachLimit, at: now).isEmpty)
+        #expect(summary.shownLimits(.closestLimit, at: now).isEmpty)
     }
 
     // MARK: Reading

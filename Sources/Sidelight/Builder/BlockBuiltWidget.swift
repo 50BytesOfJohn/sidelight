@@ -47,6 +47,15 @@ protocol BlockBuiltWidget: Hashable {
 
     /// What the builder calls `block`: an added block names what it shows.
     func title(of block: Block) -> String
+
+    /// The looks `block` can take, the first being the default. The builder offers a choice from two.
+    func variants(of block: Block) -> [BlockVariant]
+
+    /// The look `block` has, by ``BlockVariant/id``; `nil` for a block without a choice.
+    func variantID(of block: Block) -> String?
+
+    /// Gives `block` the look `id`.
+    mutating func setVariant(_ id: String, of block: Block)
 }
 
 extension BlockBuiltWidget {
@@ -57,6 +66,21 @@ extension BlockBuiltWidget {
     mutating func removeBlock(_ block: Block) { blocks.remove(block) }
 
     func title(of block: Block) -> String { block.title }
+
+    func variants(of block: Block) -> [BlockVariant] { [] }
+
+    func variantID(of block: Block) -> String? { nil }
+
+    mutating func setVariant(_ id: String, of block: Block) {}
+}
+
+/// One way a block can lay out what it shows, which the builder calls its look. Not a ``WidgetStyle``, which is the
+/// whole widget's.
+struct BlockVariant: Identifiable, Hashable {
+    let id: String
+    let title: String
+    /// What it shows, behind the ⓘ next to the choice.
+    let summary: String
 }
 
 /// A kind of block the builder offers to add, as many times as wanted.

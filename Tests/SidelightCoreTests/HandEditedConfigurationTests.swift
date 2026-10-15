@@ -49,6 +49,20 @@ struct HandEditedConfigurationTests {
         #expect(loaded.widgets.first?.settings == .defaults(for: kind))
     }
 
+    @Test func `an AI Usage block with an unreadable variant keeps its label and shows the closest limit`() throws {
+        let block = AIUsageBlock.claudeCode.rawValue
+        let settings = #"""
+            {"blocks": [{"block": "\#(block)", "shown": true}],
+             "blockOptions": {"\#(block)": {"label": "Work", "variant": 42}}}
+            """#
+        let loaded = try configuration(widget: widget(kind: "aiUsage", settings: settings))
+        guard case .aiUsage(let usage) = loaded.widgets.first?.settings else {
+            Issue.record("Expected AI Usage settings")
+            return
+        }
+        #expect(usage.options(.claudeCode) == AIUsageBlockOptions(label: "Work"))
+    }
+
     @Test(arguments: ["-2", "0"])
     func `a share that isn't positive leaves the section at its natural length`(share: String) throws {
         let loaded = try configuration(widget: widget(kind: "clock"), share: share)
