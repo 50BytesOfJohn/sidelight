@@ -420,11 +420,12 @@ struct AIUsageView: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 6) {
                 ProviderLogo(provider: row.provider.agent, size: 16)
+                // Drops the reading first, as `compactHeader` does, then the age.
                 ViewThatFits(in: .horizontal) {
-                    eachLimitTitle(row, showsAge: true)
-                    eachLimitTitle(row, showsAge: false)
+                    eachLimitTitle(row, showsAge: true, suffix: true)
+                    eachLimitTitle(row, showsAge: true, suffix: false)
+                    eachLimitTitle(row, showsAge: false, suffix: false)
                 }
-                Spacer(minLength: 0)
             }
             ViewThatFits(in: .horizontal) {
                 limitGrid(summary, meterHeight: 5, countdown: .short, size: 10)
@@ -435,10 +436,15 @@ struct AIUsageView: View {
         .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
     }
 
-    private func eachLimitTitle(_ row: AIUsageRow, showsAge: Bool) -> some View {
+    /// The agent's name and how fresh the numbers are, with `used` or `left` at the end once for every limit.
+    private func eachLimitTitle(_ row: AIUsageRow, showsAge: Bool, suffix: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(row.title).font(.system(size: 12, weight: .semibold))
             freshnessBadge(row.summary, showsAged: true, showsAge: showsAge).font(.system(size: 9.5))
+            Spacer(minLength: 3)
+            if suffix {
+                Text(reading.suffix).font(.system(size: 9)).foregroundStyle(.secondary)
+            }
         }
         .lineLimit(1)
     }
@@ -447,9 +453,10 @@ struct AIUsageView: View {
         let summary = row.summary
         return VStack(alignment: .leading, spacing: 4) {
             ViewThatFits(in: .horizontal) {
-                eachLimitCompactHeader(summary, title: row.title)
-                eachLimitCompactHeader(summary, title: row.shortTitle)
-                eachLimitCompactHeader(summary, title: nil)
+                eachLimitCompactHeader(summary, title: row.title, suffix: true)
+                eachLimitCompactHeader(summary, title: row.title, suffix: false)
+                eachLimitCompactHeader(summary, title: row.shortTitle, suffix: false)
+                eachLimitCompactHeader(summary, title: nil, suffix: false)
             }
             // The countdowns give way first: the numbers are what a compact card is for.
             ViewThatFits(in: .horizontal) {
@@ -461,14 +468,17 @@ struct AIUsageView: View {
         .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
     }
 
-    private func eachLimitCompactHeader(_ summary: AIUsageSummary, title: String?) -> some View {
+    private func eachLimitCompactHeader(_ summary: AIUsageSummary, title: String?, suffix: Bool) -> some View {
         HStack(spacing: 5) {
             ProviderLogo(provider: summary.provider.agent, size: 14)
             if let title {
                 Text(title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1)
             }
             freshnessBadge(summary, showsAged: false, showsAge: false).font(.system(size: 9))
-            Spacer(minLength: 0)
+            Spacer(minLength: 3)
+            if suffix {
+                Text(reading.suffix).font(.system(size: 9)).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -571,6 +581,10 @@ struct AIUsageView: View {
                             .font(.system(size: size - 2, weight: .semibold))
                             .foregroundStyle(.secondary)
                         glancePercent(limit, summary: summary, size: size)
+                        // Once for the block: every limit reads the same way.
+                        if limit.id == limits.first?.id {
+                            Text(reading.suffix).font(.system(size: max(9, size * 0.6))).foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
