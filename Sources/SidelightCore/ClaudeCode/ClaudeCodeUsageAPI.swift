@@ -32,7 +32,7 @@ public enum ClaudeCodeUsageAPI {
 public enum ClaudeCodeFetchProblem: Error, Equatable, Sendable {
     /// No Claude Code sign-in in the keychain or `~/.claude/.credentials.json`.
     case notSignedIn
-    /// Claude Code's access token has expired; Claude Code renews it the next time it's used.
+    /// Claude Code's access token has expired, and Claude Code couldn't renew it: signing in again does.
     case signInExpired
     /// Anthropic turned the request down with this HTTP status.
     case rejected(status: Int)
@@ -45,7 +45,7 @@ extension ClaudeCodeFetchProblem {
     public var message: String {
         switch self {
         case .notSignedIn: "No Claude Code sign-in found. Run claude and sign in."
-        case .signInExpired: "Claude Code's sign-in has expired. It renews the next time you use Claude Code."
+        case .signInExpired: "Claude Code's sign-in has expired and couldn't be renewed. Sign in again."
         case .rejected(let status) where status == 401 || status == 403:
             "Anthropic didn't accept the sign-in (HTTP \(status)). Using Claude Code renews it."
         case .rejected(status: 429): "Anthropic asked to slow down. Trying less often."

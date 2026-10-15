@@ -197,13 +197,19 @@ final class ClaudeCodeAccount: DataService {
     }
 
     /// Reads Claude Code's sign-in afresh each time, since Claude Code renews it every few hours, and holds it only
-    /// for this one request. It's never stored or logged.
+    /// for this one request. It's never stored or logged. Once it has expired, Claude Code is asked to renew it
+    /// first, so an account nobody uses in a terminal keeps working.
     @concurrent
     static func fetchUsage(
         profile: ClaudeCodeProfile, userAgent: String
     ) async -> Result<ClaudeCodeUsage, ClaudeCodeFetchProblem> {
-        guard let credentials = await readCredentials(of: profile) else { return .failure(.notSignedIn) }
-        guard !credentials.isExpired(at: .now) else { return .failure(.signInExpired) }
+        guard var credentials = await readCredentials(of: profile) else { return .failure(.notSignedIn) }
+        if credentials.isExpired(at: .now) {
+            guard await ClaudeCodeCLI.renewSignIn(of: profile),
+                let renewed = await readCredentials(of: profile), !renewed.isExpired(at: .now)
+            else { return .failure(.signInExpired) }
+            credentials = renewed
+        }
         let request = ClaudeCodeUsageAPI.request(accessToken: credentials.accessToken, userAgent: userAgent)
         do {
             let response = try await HTTP.send(request)
