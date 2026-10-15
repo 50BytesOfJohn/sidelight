@@ -7,6 +7,10 @@ import Testing
 @testable import SidelightCore
 
 struct OpenRouterSurfaceTests {
+    /// A stash the sessions need but never use: its file is never written, as nothing changes it.
+    static let stash = StashStore(
+        fileURL: FileManager.default.temporaryDirectory.appending(path: "sidelight-unused-stash-\(UUID()).json"),
+        deleteDoneAfter: nil)
     @Test func `details retain public demand independently of an unseen covered main surface`() {
         let widget = WidgetInstance(settings: .openRouter(.init(sync: .manual)))
         var config = AppConfiguration()
@@ -15,7 +19,7 @@ struct OpenRouterSurfaceTests {
         ]
         let session = DetailsSession(
             displayID: "fixture-display", widgetID: widget.id,
-            request: .openRouterModels(filter: .all, sort: .latestAdded))
+            request: .openRouterModels(filter: .all, sort: .latestAdded), stash: Self.stash)
         // The main panel contributes no demand; the independent details session still needs public models.
         var demand = config.openRouterDemand(panels: [])
         demand.merge(session.openRouterDemand(in: config))
@@ -27,7 +31,7 @@ struct OpenRouterSurfaceTests {
     @Test func `session replacement resets browsing state and leaves the previous browser intact`() {
         let session = DetailsSession(
             displayID: "fixture-display", widgetID: UUID(),
-            request: .openRouterModels(filter: .textOutput, sort: .latestAdded))
+            request: .openRouterModels(filter: .textOutput, sort: .latestAdded), stash: Self.stash)
         guard case .openRouterModels(let browser) = session.content else { return }
         browser.search = "fixture"
         browser.expandedID = "fixture/one"

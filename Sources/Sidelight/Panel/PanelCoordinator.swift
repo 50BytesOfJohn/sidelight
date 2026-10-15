@@ -157,7 +157,9 @@ final class PanelCoordinator: DetailsPresenting {
         else { return }
 
         if let session = details, session.displayID == display.id, let detailsPanel {
-            if session.widgetID != placement.widgetID || session.request != request {
+            if !session.adopt(request, from: placement.widgetID),
+                session.widgetID != placement.widgetID || session.request != request
+            {
                 session.replace(widgetID: placement.widgetID, request: request)
                 detailsPanel.window.setAccessibilityTitle(session.content.title)
             }
@@ -171,7 +173,8 @@ final class PanelCoordinator: DetailsPresenting {
             endDetails()
             panels[previous.displayID]?.show()
         }
-        let session = DetailsSession(displayID: display.id, widgetID: placement.widgetID, request: request)
+        let session = DetailsSession(
+            displayID: display.id, widgetID: placement.widgetID, request: request, stash: environment.stash)
         let controller = DetailsPanelController(
             session: session, placement: DetailsPlacement(display: display, replacing: panel.position),
             environment: environment,

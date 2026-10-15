@@ -27,6 +27,7 @@ extension WidgetInstance: Codable {
             case .railway: .railway(try container.decode(.settings, or: .init()))
             case .agentSessions: .agentSessions(try container.decode(.settings, or: .init()))
             case .openRouter: .openRouter(try container.decode(.settings, or: .init()))
+            case .stash: .stash(try container.decode(.settings, or: .init()))
             }
         self.init(
             id: id,
@@ -56,6 +57,7 @@ extension WidgetInstance: Codable {
         case .railway(let settings): try container.encode(settings, forKey: .settings)
         case .agentSessions(let settings): try container.encode(settings, forKey: .settings)
         case .openRouter(let settings): try container.encode(settings, forKey: .settings)
+        case .stash(let settings): try container.encode(settings, forKey: .settings)
         case .nowPlaying: break
         }
     }

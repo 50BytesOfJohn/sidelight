@@ -192,10 +192,19 @@ struct AccountStoreTests {
         var shown = 0
         navigator.showSettings = { shown += 1 }
         navigator.showAccounts(.railway, adding: true)
-        #expect(navigator.request == .init(provider: .railway, adding: true) && shown == 1)
+        #expect(navigator.request == .accounts(provider: .railway, adding: true) && shown == 1)
         // Nothing to add at a provider whose app owns its sign-in.
         navigator.showAccounts(.codex, adding: true)
-        #expect(navigator.request == .init(provider: .codex, adding: false))
+        #expect(navigator.request == .accounts(provider: .codex, adding: false))
+    }
+
+    @Test func `asking for the shortcuts opens Settings at their pane`() {
+        let navigator = SettingsNavigator()
+        var shown = 0
+        navigator.showSettings = { shown += 1 }
+        navigator.showShortcuts()
+        #expect(navigator.request == .shortcuts && navigator.request?.pane == .shortcuts && shown == 1)
+        #expect(navigator.request?.hasMoreThanPane == false)
     }
 
     @Test func `a read the keychain can't answer isn't taken for a missing key, and is asked again`() async throws {

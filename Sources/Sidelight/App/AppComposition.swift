@@ -18,6 +18,12 @@ struct AppComposition {
 
     static let standard = AppComposition()
 
+    /// Where the stash is kept: in a `stash` folder beside the configuration, so debug builds and a configuration
+    /// tried out in isolation keep their own, and anything else the stash needs later has a place.
+    var stashFile: URL {
+        configurationFile.deletingLastPathComponent().appending(path: "stash/items.json", directoryHint: .notDirectory)
+    }
+
     /// What this launch runs on: ``standard``, except in a debug build launched with any of these arguments, for
     /// trying the app out in isolation.
     ///

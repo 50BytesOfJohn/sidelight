@@ -26,6 +26,9 @@ final class AppController {
         let keyring = AccountKeyring(secrets: composition.accountSecrets)
         let accounts = AccountStore(configuration: configurationStore, keyring: keyring)
         let accountAccess = AccountAccess(keyring: keyring, accounts: accounts)
+        let stash = StashStore(
+            fileURL: composition.stashFile, deleteDoneAfter: configurationStore.configuration.stash.deleteDonePeriod)
+        stash.order = configurationStore.configuration.stash.order
         let environment = AppEnvironment(
             configurationStore: configurationStore,
             accounts: accounts,
@@ -47,6 +50,8 @@ final class AppController {
             noodleComputer: NoodleComputerService(),
             railway: RailwayService(accounts: accountAccess),
             openRouter: OpenRouterService(transport: composition.openRouterTransport, accounts: accountAccess),
+            stash: stash,
+            stashCapture: StashCapture(store: stash, configuration: configurationStore),
             details: DetailsPresenter(),
             hotkeys: HotkeyCenter(),
             windowAvoider: WindowAvoider(includes: composition.movesWindows),
@@ -78,8 +83,11 @@ final class AppController {
         environment.hotkeys.handlers = [
             .togglePanels: { [weak panels] in panels?.toggle() },
             .closeDetails: { [weak panels] in panels?.closeDetails() },
+            .stashSelection: { [capture = environment.stashCapture] in capture.captureSelection() },
+            .stashClipboard: { [capture = environment.stashCapture] in capture.addClipboard() },
         ]
         environment.hotkeys.register(configuration.hotkey, for: .togglePanels)
+        registerStashHotkeys(for: configuration)
 
         environment.updater.onSettingsChange = { [store] in store.configuration.updates = $0 }
         environment.updater.start(with: configuration.updates)
@@ -99,6 +107,7 @@ final class AppController {
         environment.windowAvoider.stop()
         panels.stop()
         store.flush()
+        environment.stash.flush()
         for service in environment.dataServices { service.stop() }
     }
 
@@ -121,7 +130,23 @@ final class AppController {
         panels.apply(configuration, displays: displays)
         environment.windowAvoider.mode = configuration.windowAvoidance
         environment.hotkeys.register(configuration.hotkey, for: .togglePanels)
+        registerStashHotkeys(for: configuration)
         environment.updater.apply(configuration.updates)
+        environment.stash.deleteDoneAfter = configuration.stash.deleteDonePeriod
+        if environment.stash.order != configuration.stash.order { environment.stash.order = configuration.stash.order }
+    }
+
+    /// The stash's shortcuts are taken only while a Stash widget is in the configuration, shown or not, so they take
+    /// nothing from other apps for someone who doesn't use it.
+    private func registerStashHotkeys(for configuration: AppConfiguration) {
+        let hotkeys = environment.hotkeys
+        if configuration.widgets.contains(where: { $0.kind == .stash }) {
+            hotkeys.register(configuration.stash.captureHotkey, for: .stashSelection)
+            hotkeys.register(configuration.stash.clipboardHotkey, for: .stashClipboard)
+        } else {
+            hotkeys.unregister(.stashSelection)
+            hotkeys.unregister(.stashClipboard)
+        }
     }
 
     /// What the data services have to do, from everything on screen.
@@ -228,6 +253,8 @@ final class AppController {
                 environment.railway.setRunning(isNeeded && demand.railway.isShown)
             // Theirs goes by the OpenRouter demand, which also counts the details panel.
             case .openRouter: break
+            // The stash is read once and changes only when someone changes it: nothing to run.
+            case .stash: break
             }
         }
     }

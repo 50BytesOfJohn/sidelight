@@ -9,6 +9,11 @@ import SwiftUI
 final class DetailsWindow: NSPanel {
     /// Escape, ⌘W and the close button all close it.
     var onClose: () -> Void = {}
+    /// Sees every key press first, for content driven from the keyboard; returns whether it handled it. Never asked
+    /// while an input method is composing text.
+    var keyHandler: (NSEvent) -> Bool = { _ in false }
+
+    private var isComposingText: Bool { (firstResponder as? NSTextView)?.hasMarkedText() ?? false }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -16,9 +21,9 @@ final class DetailsWindow: NSPanel {
     /// Escape closes, unless it's ending text input that's still being composed (an input method's candidates).
     /// Handled here, before any view: a text field would take it to offer completions.
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, !isComposingText, keyHandler(event) { return }
         if event.type == .keyDown, Int(event.keyCode) == kVK_Escape,
-            event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
-            !((firstResponder as? NSTextView)?.hasMarkedText() ?? false)
+            event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty, !isComposingText
         {
             onClose()
             return
@@ -29,6 +34,7 @@ final class DetailsWindow: NSPanel {
     /// While another app is active, Sidelight's Edit menu doesn't see ⌘C and the like, so the standard editing
     /// shortcuts go to the focused field directly.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if !isComposingText, keyHandler(event) { return true }
         if super.performKeyEquivalent(with: event) { return true }
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         guard flags.contains(.command), !flags.contains(.option), !flags.contains(.control),
@@ -148,6 +154,7 @@ final class DetailsPanelController {
         window.isMovable = false
         window.isReleasedWhenClosed = false
         window.onClose = close
+        window.keyHandler = { [weak session] in session?.content.handlesKey($0) ?? false }
         window.setAccessibilityRole(.window)
         window.setAccessibilitySubrole(.dialog)
         window.setAccessibilityTitle(session.content.title)

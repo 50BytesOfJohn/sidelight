@@ -24,6 +24,8 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     /// OpenRouter: the newest models or any list of them, and the balance and spending of one or more accounts. Built
     /// from blocks.
     case openRouter
+    /// Things stashed to use next: prompts, snippets, notes, captured from any app with a shortcut.
+    case stash
 
     public var id: Self { self }
 
@@ -403,6 +405,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case railway(RailwaySettings)
     case agentSessions(AgentSessionsSettings)
     case openRouter(OpenRouterSettings)
+    case stash(StashSettings)
 
     public var kind: WidgetKind {
         switch self {
@@ -420,6 +423,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .railway: .railway
         case .agentSessions: .agentSessions
         case .openRouter: .openRouter
+        case .stash: .stash
         }
     }
 
@@ -439,6 +443,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .railway: .railway(RailwaySettings())
         case .agentSessions: .agentSessions(AgentSessionsSettings())
         case .openRouter: .openRouter(OpenRouterSettings())
+        case .stash: .stash(StashSettings())
         }
     }
 }

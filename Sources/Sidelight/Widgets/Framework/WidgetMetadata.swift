@@ -80,6 +80,7 @@ extension WidgetKind {
         case .railway: .railway
         case .agentSessions: .agentSessions
         case .openRouter: .openRouter
+        case .stash: .stash
         }
     }
 }
@@ -89,7 +90,7 @@ extension WidgetKind {
         switch self {
         case .codex, .claudeCode, .cursor, .aiUsage, .claudeSessions, .codexSessions, .agentSessions: .agents
         case .railway, .openRouter, .noodleComputer: .cloud
-        case .clock, .calendar, .nowPlaying, .system: .essentials
+        case .clock, .calendar, .nowPlaying, .system, .stash: .essentials
         }
     }
 }
@@ -111,6 +112,7 @@ extension WidgetSettings {
         case .railway(let settings): settings.summary
         case .agentSessions(let settings): settings.summary
         case .openRouter(let settings): settings.layoutSummary
+        case .stash(let settings): settings.summary
         case .nowPlaying: kind.metadata.summary
         }
     }

@@ -107,6 +107,12 @@ struct ReleasedConfigurationFixture {
         credits.setBalanceOptions(.init(title: "Personal", account: personal.id), for: Self.id(503))
         c.details = DetailsPanelSettings(usesCustomStyle: true, customBackground: c.appearance.background)
         c.details.closeHotkey = Hotkey(keyCode: 49, modifiers: [.control, .command], key: "Space")
+        c.stash.captureHotkey = Hotkey(keyCode: 1, modifiers: [.control, .shift], key: "S")
+        c.stash.clipboardHotkey = Hotkey(keyCode: 11, modifiers: [.option, .command], key: "B", isEnabled: false)
+        c.stash.deleteDoneAfterDays = 30
+        c.stash.excludedApps = ["com.1password.1password", "com.example.Vault"]
+        c.stash.copiesSelectionWithCommandC = false
+        c.stash.order = .newestFirst
         c.sections = [
             PanelSection(
                 id: Self.id(901), name: "Work",
@@ -157,6 +163,9 @@ struct ReleasedConfigurationFixture {
                                 includesCodexExec: true))),
                     Self.widget(19, .openRouter(credits), bar: false),
                     Self.widget(20, .openRouter(models), side: false),
+                    Self.widget(
+                        21, .stash(StashSettings(itemCount: 7, showsTwoLines: false, showsSourceIcons: false)),
+                        bar: false),
                 ], share: 0.5, alignment: .start),
         ]
         let data = try c.json()

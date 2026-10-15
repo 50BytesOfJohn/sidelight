@@ -92,6 +92,7 @@ private struct DetailsContentView: View {
     var body: some View {
         switch content {
         case .openRouterModels(let browser): OpenRouterCatalogueView(browser: browser)
+        case .stash(let browser): StashDetailsView(browser: browser)
         }
     }
 }

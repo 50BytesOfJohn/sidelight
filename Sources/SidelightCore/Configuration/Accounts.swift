@@ -282,7 +282,7 @@ extension WidgetSettings {
         case .claudeCode(let settings): [(.claudeCode, settings.account)]
         case .aiUsage(let settings): settings.accountReferences(shownOnly: false)
         case .clock, .codex, .cursor, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system,
-            .noodleComputer, .agentSessions:
+            .noodleComputer, .agentSessions, .stash:
             []
         }
     }

@@ -22,6 +22,7 @@ struct WidgetContent: View {
         case .railway(let settings): RailwayWidgetView(settings: settings, layout: layout)
         case .agentSessions(let settings): AgentSessionsWidgetView(settings: settings, layout: layout)
         case .openRouter(let settings): OpenRouterWidgetView(settings: settings, layout: layout)
+        case .stash(let settings): StashWidgetView(settings: settings, layout: layout)
         }
     }
 }
@@ -51,6 +52,7 @@ struct WidgetSettingsEditor: View {
             AgentSessionsSettingsEditor(settings: binding(settings, WidgetSettings.agentSessions))
         case .openRouter(let settings):
             OpenRouterSettingsEditor(settings: binding(settings, WidgetSettings.openRouter))
+        case .stash(let settings): StashSettingsEditor(settings: binding(settings, WidgetSettings.stash))
         case .nowPlaying: Text("Nothing to set").foregroundStyle(.secondary)
         }
     }
