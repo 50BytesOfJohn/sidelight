@@ -23,6 +23,7 @@ struct WidgetContent: View {
         case .agentSessions(let settings): AgentSessionsWidgetView(settings: settings, layout: layout)
         case .openRouter(let settings): OpenRouterWidgetView(settings: settings, layout: layout)
         case .stash(let settings): StashWidgetView(settings: settings, layout: layout)
+        case .awake: AwakeWidgetView(layout: layout)
         }
     }
 }
@@ -53,6 +54,7 @@ struct WidgetSettingsEditor: View {
         case .openRouter(let settings):
             OpenRouterSettingsEditor(settings: binding(settings, WidgetSettings.openRouter))
         case .stash(let settings): StashSettingsEditor(settings: binding(settings, WidgetSettings.stash))
+        case .awake: AwakeSettingsEditor()
         case .nowPlaying: Text("Nothing to set").foregroundStyle(.secondary)
         }
     }

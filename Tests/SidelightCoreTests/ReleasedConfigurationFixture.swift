@@ -113,6 +113,7 @@ struct ReleasedConfigurationFixture {
         c.stash.excludedApps = ["com.1password.1password", "com.example.Vault"]
         c.stash.copiesSelectionWithCommandC = false
         c.stash.order = .newestFirst
+        c.awake.keepsDisplayOn = true
         c.sections = [
             PanelSection(
                 id: Self.id(901), name: "Work",
@@ -166,6 +167,7 @@ struct ReleasedConfigurationFixture {
                     Self.widget(
                         21, .stash(StashSettings(itemCount: 7, showsTwoLines: false, showsSourceIcons: false)),
                         bar: false),
+                    Self.widget(22, .awake, side: false),
                 ], share: 0.5, alignment: .start),
         ]
         let data = try c.json()

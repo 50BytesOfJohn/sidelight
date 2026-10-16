@@ -25,5 +25,6 @@ public enum Log {
     public static let details = Logger(subsystem: subsystem, category: "details")
     /// Never logs what was stashed: only that something was, and why something wasn't.
     public static let stash = Logger(subsystem: subsystem, category: "stash")
+    public static let awake = Logger(subsystem: subsystem, category: "awake")
     public static let process = Logger(subsystem: subsystem, category: "process")
 }

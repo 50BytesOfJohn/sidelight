@@ -16,7 +16,7 @@ struct WidgetBuilderWindow: View {
                 case .openRouter(let settings): builder(id, current: settings, embed: WidgetSettings.openRouter)
                 case .aiUsage(let settings): builder(id, current: settings, embed: WidgetSettings.aiUsage)
                 case .clock, .codex, .claudeCode, .cursor, .calendar, .nowPlaying, .claudeSessions, .system,
-                    .noodleComputer, .agentSessions, .stash:
+                    .noodleComputer, .agentSessions, .stash, .awake:
                     removed
                 }
             } else {
