@@ -11,7 +11,7 @@ public struct DockerSnapshot: Hashable, Sendable {
     }
 
     /// Exit codes of a clean exit, Ctrl-C (SIGINT), `docker kill` (SIGKILL) and `docker stop` (SIGTERM): never a
-    /// crash.
+    /// crash, unless the kernel killed it for running out of memory.
     static let deliberateExitCodes: Set<Int> = [0, 130, 137, 143]
 
     /// What `container`'s state means. An exit is a crash only when it's an error, its project still has a running
@@ -19,7 +19,7 @@ public struct DockerSnapshot: Hashable, Sendable {
     /// a stop stays a plain exit, and so does everything when Docker itself quits (nothing is left running).
     public func condition(of container: DockerContainer) -> DockerCondition {
         let condition = DockerCondition(container)
-        guard case .exited(let code) = condition, !Self.deliberateExitCodes.contains(code),
+        guard case .exited(let code) = condition, container.oomKilled || !Self.deliberateExitCodes.contains(code),
             let project = container.project, let finishedAt = container.finishedAt
         else { return condition }
         let siblingsStarted = containers.filter {
@@ -88,7 +88,7 @@ public struct DockerGroup: Identifiable, Hashable, Sendable {
     public var worst: DockerCondition
     /// Each container's condition, by ID.
     public var conditions: [DockerContainer.ID: DockerCondition]
-    /// Its running containers' published ports, by host port.
+    /// Its running containers' published ports: one per host port and transport, by host port then transport.
     public var ports: [DockerPort]
 
     init(project: String?, containers: [DockerContainer], condition: (DockerContainer) -> DockerCondition) {
@@ -101,11 +101,12 @@ public struct DockerGroup: Identifiable, Hashable, Sendable {
             containers.map { conditions[$0.id]! }.max { $0.severity < $1.severity } ?? .other("")
         var ports: [DockerPort] = []
         for container in containers where conditions[container.id]!.isRunning {
-            for port in container.ports where !ports.contains(where: { $0.hostPort == port.hostPort }) {
+            for port in container.ports
+            where !ports.contains(where: { $0.hostPort == port.hostPort && $0.transport == port.transport }) {
                 ports.append(port)
             }
         }
-        self.ports = ports.sorted { $0.hostPort < $1.hostPort }
+        self.ports = ports.sorted { ($0.hostPort, $0.transport) < ($1.hostPort, $1.transport) }
     }
 
     public var id: String { project.map { "project:\($0)" } ?? "standalone" }

@@ -149,7 +149,8 @@ struct DockerDetailsView: View {
             .accessibilityAddTraits(.isHeader)
             ForEach(group.containers) { container in
                 DockerContainerRow(
-                    container: container, condition: group.condition(of: container), stats: stats[container.id],
+                    container: container, context: browser.context, condition: group.condition(of: container),
+                    stats: stats[container.id],
                     isExpanded: browser.expandedID == container.id, now: now
                 ) {
                     withAnimation(Motion.snappy) {

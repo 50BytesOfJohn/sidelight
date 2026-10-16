@@ -132,6 +132,13 @@ struct DockerSnapshotTests {
         #expect(snapshot.condition(of: worker) == .exited(code: code))
     }
 
+    @Test func `running out of memory is a crash, even as exit 137`() {
+        var worker = Self.exited("worker", code: 137, finishedMinutesAgo: 10)
+        worker.oomKilled = true
+        let snapshot = DockerSnapshot(containers: [Self.running("web"), worker], fetchedAt: Self.now)
+        #expect(snapshot.condition(of: worker) == .crashed(code: 137))
+    }
+
     @Test func `a leftover from before its siblings started isn't a crash`() {
         let worker = Self.exited("worker", code: 1, finishedMinutesAgo: 90)
         let snapshot = DockerSnapshot(
@@ -180,16 +187,24 @@ struct DockerSnapshotTests {
         #expect(snapshot.groups(scope: .active)[0].worst == .starting)
     }
 
-    @Test func `a group's ports are its running containers', by host port`() {
+    @Test func `a group's ports are its running containers', by host port and transport`() {
         let snapshot = DockerSnapshot(
             containers: [
                 Self.running("web", ports: [DockerPort(hostPort: 3000, containerPort: 3000)]),
                 Self.running("db", ports: [DockerPort(hostPort: 5432, containerPort: 5432)]),
+                Self.running(
+                    "dns",
+                    ports: [
+                        DockerPort(hostPort: 53, containerPort: 53, transport: "udp"),
+                        DockerPort(hostPort: 53, containerPort: 53),
+                    ]),
                 DockerContainer(
                     id: "stopped", name: "stopped", state: .exited, project: "shop",
                     ports: [DockerPort(hostPort: 1234, containerPort: 1234)]),
             ], fetchedAt: Self.now)
-        #expect(snapshot.groups(scope: .all)[0].ports.map(\.hostPort) == [3000, 5432])
+        let ports = snapshot.groups(scope: .all)[0].ports
+        #expect(ports.map(\.hostPort) == [53, 53, 3000, 5432])
+        #expect(ports.map(\.transport) == ["tcp", "udp", "tcp", "tcp"])
     }
 
     @Test func `search matches name, service, project, image and port`() {

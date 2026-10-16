@@ -169,7 +169,7 @@ final class DockerService: DataService {
         // A widget following the current context follows `docker context use`.
         if let previousCurrent, previousCurrent != current, let connection = connections[.current] {
             Log.docker.notice("The current Docker context changed; reconnecting")
-            connection.restart()
+            connection.contextChanged()
         }
     }
 
@@ -320,6 +320,13 @@ final class DockerConnection {
         guard isRunning else { return }
         consecutiveFailures = 0
         if case .problem = status { status = .connecting }
+        restart()
+    }
+
+    /// Forgets the old context's containers and usage, so none of them shows as the new one's, and connects again.
+    func contextChanged() {
+        snapshot = nil
+        if !stats.isEmpty { stats = [:] }
         restart()
     }
 

@@ -162,13 +162,19 @@ struct DockerPortChips: View {
 /// What can be done with a container: copy its name, ID or a command to follow its logs, open its ports.
 struct DockerContainerMenu: View {
     let container: DockerContainer
+    let context: DockerContextChoice
     var opensPorts = true
+
+    /// `docker logs -f NAME`, with `--context` for a named context so it follows the right one.
+    private var logsCommand: String {
+        (["docker"] + DockerCLI.arguments(["logs", "-f", container.name], context: context)).joined(separator: " ")
+    }
 
     var body: some View {
         Button("Copy Name", systemImage: "doc.on.doc") { DockerFormat.copy(container.name) }
         Button("Copy ID", systemImage: "number") { DockerFormat.copy(container.id) }
-        Button("Copy “docker logs -f \(container.name)”", systemImage: "terminal") {
-            DockerFormat.copy("docker logs -f \(container.name)")
+        Button("Copy “\(logsCommand)”", systemImage: "terminal") {
+            DockerFormat.copy(logsCommand)
         }
         let urls = container.ports.compactMap { port in port.browserURL.map { (port.hostPort, $0) } }
         if opensPorts, !urls.isEmpty {
@@ -244,6 +250,7 @@ struct DockerGroupRow: View {
 /// once expanded.
 struct DockerContainerRow: View {
     let container: DockerContainer
+    let context: DockerContextChoice
     let condition: DockerCondition
     let stats: DockerStats?
     let isExpanded: Bool
@@ -278,7 +285,7 @@ struct DockerContainerRow: View {
         }
         .padding(.vertical, 4)
         .hoverHighlight(vertical: 1)
-        .contextMenu { DockerContainerMenu(container: container) }
+        .contextMenu { DockerContainerMenu(container: container, context: context) }
     }
 
     private var summary: some View {
