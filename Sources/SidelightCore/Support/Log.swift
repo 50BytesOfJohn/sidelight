@@ -26,5 +26,7 @@ public enum Log {
     /// Never logs what was stashed: only that something was, and why something wasn't.
     public static let stash = Logger(subsystem: subsystem, category: "stash")
     public static let awake = Logger(subsystem: subsystem, category: "awake")
+    /// Container names and ports only at the debug level: they can be private project names.
+    public static let docker = Logger(subsystem: subsystem, category: "docker")
     public static let process = Logger(subsystem: subsystem, category: "process")
 }

@@ -50,6 +50,7 @@ final class AppController {
             noodleComputer: NoodleComputerService(),
             railway: RailwayService(accounts: accountAccess),
             openRouter: OpenRouterService(transport: composition.openRouterTransport, accounts: accountAccess),
+            docker: DockerService(transport: composition.dockerTransport),
             stash: stash,
             stashCapture: StashCapture(store: stash, configuration: configurationStore),
             awake: AwakeSession(),
@@ -198,12 +199,13 @@ final class AppController {
                     }
                     var openRouter = configuration.openRouterDemand(
                         panels: shown, previewsEveryWidget: previews, previewing: previewed)
-                    if !coordinator.isHidden, !coordinator.isDetailsUnseen, let details = coordinator.details {
-                        openRouter.merge(details.openRouterDemand(in: configuration))
-                    }
-                    let services = configuration.serviceDemand(
+                    var services = configuration.serviceDemand(
                         at: panels.map(\.panel.position), previewsEveryWidget: previews, previewing: previewed,
                         signedIn: accounts.signedInAppSignIns)
+                    if !coordinator.isHidden, !coordinator.isDetailsUnseen, let details = coordinator.details {
+                        openRouter.merge(details.openRouterDemand(in: configuration))
+                        services.docker.merge(details.dockerDemand())
+                    }
                     guard let kinds else { return Demand(services: services, openRouter: openRouter) }
                     return Demand(services: services.limited(to: kinds), openRouter: openRouter.limited(to: kinds))
                 }
@@ -263,6 +265,10 @@ final class AppController {
             case .stash: break
             // Keeping the Mac awake goes on while its widget is hidden or unseen: that's when it matters.
             case .awake: break
+            // Only placed widgets and the details panel count, so the gallery's preview never runs `docker`.
+            case .docker:
+                environment.docker.demand = demand.docker
+                environment.docker.setRunning(!demand.docker.isEmpty)
             }
         }
     }
