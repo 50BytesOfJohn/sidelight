@@ -29,6 +29,8 @@ struct AppEnvironment {
     let stash: StashStore
     /// Stashes the selection or the clipboard, on a shortcut or a button.
     let stashCapture: StashCapture
+    /// Keeps the Mac awake, for every Awake widget. Not a data service: it runs whether or not a widget shows.
+    let awake: AwakeSession
     /// How widgets open the details panel in place of their panel.
     let details: DetailsPresenter
     let hotkeys: HotkeyCenter
@@ -88,6 +90,7 @@ extension View {
             .environment(app.openRouter)
             .environment(app.stash)
             .environment(app.stashCapture)
+            .environment(app.awake)
             .environment(app.details)
             .environment(app.hotkeys)
             .environment(app.windowAvoider)

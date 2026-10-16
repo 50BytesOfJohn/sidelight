@@ -26,6 +26,8 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case openRouter
     /// Things stashed to use next: prompts, snippets, notes, captured from any app with a shortcut.
     case stash
+    /// Keeps the Mac from sleeping on its own, for a while or until stopped.
+    case awake
 
     public var id: Self { self }
 
@@ -406,6 +408,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case agentSessions(AgentSessionsSettings)
     case openRouter(OpenRouterSettings)
     case stash(StashSettings)
+    case awake
 
     public var kind: WidgetKind {
         switch self {
@@ -424,6 +427,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .agentSessions: .agentSessions
         case .openRouter: .openRouter
         case .stash: .stash
+        case .awake: .awake
         }
     }
 
@@ -444,6 +448,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .agentSessions: .agentSessions(AgentSessionsSettings())
         case .openRouter: .openRouter(OpenRouterSettings())
         case .stash: .stash(StashSettings())
+        case .awake: .awake
         }
     }
 }

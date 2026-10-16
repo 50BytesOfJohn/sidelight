@@ -21,6 +21,8 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public var details = DetailsPanelSettings()
     /// What every Stash widget shares: capture shortcuts, deleting done items, excluded apps.
     public var stash = StashOptions()
+    /// What every Awake widget shares: whether the display stays on too.
+    public var awake = AwakeOptions()
     /// The panel's sections along its edge, each with its own widgets. Every panel shows at least one.
     public var sections: [PanelSection] = [PanelSection(widgets: AppConfiguration.defaultWidgets)]
     /// Per-display overrides of ``panel``.
@@ -150,7 +152,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
 extension AppConfiguration {
     private enum CodingKeys: String, CodingKey {
         case panel, appearance, windowAvoidance, hotkey, updates, details, stash, sections, displays, accounts
-        case defaultAccounts
+        case defaultAccounts, awake
     }
 
     /// Every setting released versions saved is required, as it always was. Settings added since take their
@@ -164,6 +166,7 @@ extension AppConfiguration {
         updates = try container.decode(UpdateSettings.self, forKey: .updates)
         details = try container.decode(.details, or: DetailsPanelSettings())
         stash = container.decodeLeniently(.stash, or: StashOptions())
+        awake = container.decodeLeniently(.awake, or: AwakeOptions())
         sections = try container.decode([PanelSection].self, forKey: .sections)
         displays = try container.decode([DisplayProfile].self, forKey: .displays)
         // An account or provider only a newer version knows is left out, rather than failing the whole file.
@@ -266,7 +269,7 @@ public struct ServiceDemand: Equatable, Sendable {
             case .codexSessions: providers.insert(.codex)
             case .agentSessions(let settings): providers.formUnion(settings.providers)
             case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .system, .noodleComputer,
-                .railway, .openRouter, .stash:
+                .railway, .openRouter, .stash, .awake:
                 break
             }
         }
@@ -309,7 +312,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 providers.formUnion(settings.shownProviders)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
             case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway,
-                .agentSessions, .openRouter, .stash:
+                .agentSessions, .openRouter, .stash, .awake:
                 break
             }
         }

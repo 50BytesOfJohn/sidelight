@@ -52,6 +52,7 @@ final class AppController {
             openRouter: OpenRouterService(transport: composition.openRouterTransport, accounts: accountAccess),
             stash: stash,
             stashCapture: StashCapture(store: stash, configuration: configurationStore),
+            awake: AwakeSession(),
             details: DetailsPresenter(),
             hotkeys: HotkeyCenter(),
             windowAvoider: WindowAvoider(includes: composition.movesWindows),
@@ -59,6 +60,7 @@ final class AppController {
             rectangle: RectangleIntegration(),
             updater: Updater()
         )
+        environment.awake.keepsDisplayOn = configurationStore.configuration.awake.keepsDisplayOn
         self.environment = environment
         serviceKinds = composition.serviceKinds
         windows = WindowCoordinator(environment: environment)
@@ -108,6 +110,7 @@ final class AppController {
         panels.stop()
         store.flush()
         environment.stash.flush()
+        environment.awake.stop()
         for service in environment.dataServices { service.stop() }
     }
 
@@ -134,6 +137,9 @@ final class AppController {
         environment.updater.apply(configuration.updates)
         environment.stash.deleteDoneAfter = configuration.stash.deleteDonePeriod
         if environment.stash.order != configuration.stash.order { environment.stash.order = configuration.stash.order }
+        environment.awake.keepsDisplayOn = configuration.awake.keepsDisplayOn
+        // Removing the last Awake widget leaves nothing to stop it with, so it stops too.
+        if !configuration.widgets.contains(where: { $0.kind == .awake }) { environment.awake.stop() }
     }
 
     /// The stash's shortcuts are taken only while a Stash widget is in the configuration, shown or not, so they take
@@ -255,6 +261,8 @@ final class AppController {
             case .openRouter: break
             // The stash is read once and changes only when someone changes it: nothing to run.
             case .stash: break
+            // Keeping the Mac awake goes on while its widget is hidden or unseen: that's when it matters.
+            case .awake: break
             }
         }
     }
