@@ -79,7 +79,9 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
             return ServiceDemand(
                 kinds: Set(WidgetKind.allCases), placedKinds: placed, usage: usage,
                 railway: railwayDemand(of: widgets, signedIn: signedIn), claudeCode: claudeCode,
-                sessions: Set(AgentProvider.allCases))
+                sessions: Set(AgentProvider.allCases),
+                // As for Railway, only placed widgets count: the gallery alone never runs the CLI or wakes Docker.
+                docker: dockerDemand(of: widgets))
         }
         let shown = Set(visibleWidgets(at: positions).map(\.id)).union(previewing)
         let visible = widgets.filter { shown.contains($0.id) }
@@ -87,7 +89,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
             kinds: Set(visible.map(\.kind)), placedKinds: placed, usage: UsageServiceDemand(widgets: visible),
             railway: railwayDemand(of: visible, signedIn: signedIn),
             claudeCode: claudeCodeDemand(of: visible, signedIn: signedIn),
-            sessions: ServiceDemand.sessionProviders(of: visible))
+            sessions: ServiceDemand.sessionProviders(of: visible), docker: dockerDemand(of: visible))
     }
 
     /// What the widgets among `widgets` that show Claude usage need, merged for each Claude account they use: where
@@ -216,11 +218,14 @@ public struct ServiceDemand: Equatable, Sendable {
     /// The agents whose sessions are listed: each session service runs once for its own widget and every Agent
     /// sessions widget showing that agent.
     public var sessions: Set<AgentProvider>
+    /// The Docker contexts widgets show. Only widgets in the configuration count, even while the Widgets window
+    /// previews every kind: the gallery's preview alone never runs `docker`.
+    public var docker: DockerDemand
 
     public init(
         kinds: Set<WidgetKind>, placedKinds: Set<WidgetKind>? = nil, usage: UsageServiceDemand,
         railway: RailwayDemand = RailwayDemand(), claudeCode: [AccountID: ClaudeCodeNeeds] = [:],
-        sessions: Set<AgentProvider>? = nil
+        sessions: Set<AgentProvider>? = nil, docker: DockerDemand = DockerDemand()
     ) {
         self.kinds = kinds
         self.placedKinds = placedKinds ?? kinds
@@ -228,6 +233,7 @@ public struct ServiceDemand: Equatable, Sendable {
         self.railway = railway
         self.claudeCode = claudeCode
         self.sessions = sessions ?? Self.sessionProviders(of: kinds)
+        self.docker = docker
     }
 
     /// Only what widgets of `kinds` need: services that only other kinds of widget use don't run, previews
@@ -256,6 +262,7 @@ public struct ServiceDemand: Equatable, Sendable {
             return kinds.contains(.agentSessions) || (kind.map { kinds.contains($0) } ?? false)
         }
         if !kinds.contains(.railway) { demand.railway = RailwayDemand() }
+        if !kinds.contains(.docker) { demand.docker = DockerDemand() }
         if !demand.usage.providers.contains(.claudeCode) { demand.claudeCode = [:] }
         return demand
     }
@@ -269,7 +276,7 @@ public struct ServiceDemand: Equatable, Sendable {
             case .codexSessions: providers.insert(.codex)
             case .agentSessions(let settings): providers.formUnion(settings.providers)
             case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .system, .noodleComputer,
-                .railway, .openRouter, .stash, .awake:
+                .railway, .openRouter, .stash, .awake, .docker:
                 break
             }
         }
@@ -312,7 +319,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 providers.formUnion(settings.shownProviders)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
             case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway,
-                .agentSessions, .openRouter, .stash, .awake:
+                .agentSessions, .openRouter, .stash, .awake, .docker:
                 break
             }
         }

@@ -10,6 +10,8 @@ enum DetailsRequest: Hashable {
     case openRouterModels(filter: OpenRouterModelFilter, sort: OpenRouterModelSort)
     /// The whole stash; `composing` opens a new item's editor, and Esc there goes back to the app you were in.
     case stash(composing: Bool)
+    /// Every container in one Docker context.
+    case docker(context: DockerContextChoice)
 }
 
 /// What the details panel shows, with the state it keeps while open: search text, choices, what's expanded. Nothing
@@ -17,6 +19,7 @@ enum DetailsRequest: Hashable {
 enum DetailsContent {
     case openRouterModels(OpenRouterCatalogueBrowser)
     case stash(StashBrowser)
+    case docker(DockerBrowser)
 
     init(_ request: DetailsRequest, stash: StashStore) {
         switch request {
@@ -24,6 +27,8 @@ enum DetailsContent {
             self = .openRouterModels(OpenRouterCatalogueBrowser(filter: filter, sort: sort))
         case .stash(let composing):
             self = .stash(StashBrowser(store: stash, composing: composing))
+        case .docker(let context):
+            self = .docker(DockerBrowser(context: context))
         }
     }
 
@@ -32,6 +37,7 @@ enum DetailsContent {
         switch self {
         case .openRouterModels: "OpenRouter Models"
         case .stash: "Stash"
+        case .docker: "Docker"
         }
     }
 
@@ -40,6 +46,7 @@ enum DetailsContent {
         switch self {
         case .openRouterModels: .openRouter
         case .stash: .stash
+        case .docker: .docker
         }
     }
 
@@ -50,7 +57,10 @@ enum DetailsContent {
         case (.stash(let browser), .stash(let composing)):
             if composing { browser.compose(closingAfter: true) }
             return true
-        case (.openRouterModels, _), (.stash, _):
+        // The same context again keeps the search.
+        case (.docker(let browser), .docker(let context)):
+            return browser.context == context
+        case (.openRouterModels, _), (.stash, _), (.docker, _):
             return false
         }
     }
@@ -61,6 +71,7 @@ enum DetailsContent {
         switch self {
         case .openRouterModels: false
         case .stash(let browser): browser.handlesKey(event)
+        case .docker: false
         }
     }
 }
@@ -110,9 +121,15 @@ final class DetailsSession {
                 return OpenRouterDemand()
             }
             return OpenRouterDemand(catalogue: settings.sync)
-        case .stash:
+        case .stash, .docker:
             return OpenRouterDemand()
         }
+    }
+
+    /// The Docker context the content shows, with its containers' CPU and memory, while it's on screen.
+    func dockerDemand() -> DockerDemand {
+        guard case .docker(let browser) = content else { return DockerDemand() }
+        return DockerDemand(contexts: [browser.context], stats: browser.context)
     }
 }
 

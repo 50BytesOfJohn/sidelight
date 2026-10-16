@@ -82,6 +82,7 @@ extension WidgetKind {
         case .openRouter: .openRouter
         case .stash: .stash
         case .awake: .awake
+        case .docker: .docker
         }
     }
 }
@@ -90,7 +91,7 @@ extension WidgetKind {
     var category: WidgetCategory {
         switch self {
         case .codex, .claudeCode, .cursor, .aiUsage, .claudeSessions, .codexSessions, .agentSessions: .agents
-        case .railway, .openRouter, .noodleComputer: .cloud
+        case .railway, .openRouter, .noodleComputer, .docker: .cloud
         case .clock, .calendar, .nowPlaying, .system, .stash, .awake: .essentials
         }
     }
@@ -114,6 +115,7 @@ extension WidgetSettings {
         case .agentSessions(let settings): settings.summary
         case .openRouter(let settings): settings.layoutSummary
         case .stash(let settings): settings.summary
+        case .docker(let settings): settings.summary
         case .nowPlaying, .awake: kind.metadata.summary
         }
     }

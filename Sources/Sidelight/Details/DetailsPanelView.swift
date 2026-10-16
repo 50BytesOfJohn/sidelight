@@ -93,6 +93,7 @@ private struct DetailsContentView: View {
         switch content {
         case .openRouterModels(let browser): OpenRouterCatalogueView(browser: browser)
         case .stash(let browser): StashDetailsView(browser: browser)
+        case .docker(let browser): DockerDetailsView(browser: browser)
         }
     }
 }

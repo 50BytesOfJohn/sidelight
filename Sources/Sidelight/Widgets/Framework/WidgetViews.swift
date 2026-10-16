@@ -24,6 +24,7 @@ struct WidgetContent: View {
         case .openRouter(let settings): OpenRouterWidgetView(settings: settings, layout: layout)
         case .stash(let settings): StashWidgetView(settings: settings, layout: layout)
         case .awake: AwakeWidgetView(layout: layout)
+        case .docker(let settings): DockerWidgetView(settings: settings, layout: layout)
         }
     }
 }
@@ -55,6 +56,7 @@ struct WidgetSettingsEditor: View {
             OpenRouterSettingsEditor(settings: binding(settings, WidgetSettings.openRouter))
         case .stash(let settings): StashSettingsEditor(settings: binding(settings, WidgetSettings.stash))
         case .awake: AwakeSettingsEditor()
+        case .docker(let settings): DockerSettingsEditor(settings: binding(settings, WidgetSettings.docker))
         case .nowPlaying: Text("Nothing to set").foregroundStyle(.secondary)
         }
     }

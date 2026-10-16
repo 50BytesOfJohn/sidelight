@@ -25,6 +25,8 @@ struct AppEnvironment {
     let noodleComputer: NoodleComputerService
     let railway: RailwayService
     let openRouter: OpenRouterService
+    /// Containers in each Docker context shown, for every Docker widget and the details panel.
+    let docker: DockerService
     /// Every stashed item, shared by every Stash widget and the details panel.
     let stash: StashStore
     /// Stashes the selection or the clipboard, on a shortcut or a button.
@@ -45,7 +47,7 @@ extension AppEnvironment {
     var dataServices: [any DataService] {
         [
             calendar, codex, claudeCode, cursor, nowPlaying, claudeSessions, codexSessions, cursorChats,
-            openCodeSessions, systemStats, noodleComputer, railway, openRouter,
+            openCodeSessions, systemStats, noodleComputer, railway, openRouter, docker,
         ]
     }
 
@@ -88,6 +90,7 @@ extension View {
             .environment(app.noodleComputer)
             .environment(app.railway)
             .environment(app.openRouter)
+            .environment(app.docker)
             .environment(app.stash)
             .environment(app.stashCapture)
             .environment(app.awake)

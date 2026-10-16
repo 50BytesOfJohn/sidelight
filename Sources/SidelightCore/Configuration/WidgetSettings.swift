@@ -28,6 +28,8 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case stash
     /// Keeps the Mac from sleeping on its own, for a while or until stopped.
     case awake
+    /// Docker containers, grouped by Compose project, and whether any is unwell.
+    case docker
 
     public var id: Self { self }
 
@@ -409,6 +411,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case openRouter(OpenRouterSettings)
     case stash(StashSettings)
     case awake
+    case docker(DockerSettings)
 
     public var kind: WidgetKind {
         switch self {
@@ -428,6 +431,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .openRouter: .openRouter
         case .stash: .stash
         case .awake: .awake
+        case .docker: .docker
         }
     }
 
@@ -449,6 +453,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .openRouter: .openRouter(OpenRouterSettings())
         case .stash: .stash(StashSettings())
         case .awake: .awake
+        case .docker: .docker(DockerSettings())
         }
     }
 }

@@ -8,6 +8,8 @@ import os
 struct AppComposition {
     var configurationFile = ConfigurationStore.defaultFileURL
     var openRouterTransport: OpenRouterService.Transport = { try await HTTP.send($0) }
+    /// How Docker widgets run `docker`; `nil` finds the CLI where it's installed.
+    var dockerTransport: DockerService.Transport?
     /// Where key accounts' secrets are kept.
     var accountSecrets = AccountSecrets.keychain
     /// Which apps' windows window avoidance may move, besides being regular or accessory apps other than Sidelight.
@@ -33,6 +35,7 @@ struct AppComposition {
     /// - `-SidelightOpenRouterURL <http://127.0.0.1:port/…>`: OpenRouter requests go to a server on this Mac instead.
     ///   Only `http` or `https` on a loopback address is accepted; anything else, or a request that can't be sent
     ///   there, fails rather than reach OpenRouter.
+    /// - `-SidelightDockerCLI <path>`: Docker widgets run this instead of `docker`, such as a script that fakes it.
     /// - `-SidelightServiceKinds <kind,kind,…>`: only these kinds of widget's data services run, such as
     ///   `openRouter,railway` (see ``WidgetKind``). Names it doesn't know run nothing.
     static var launch: AppComposition {
@@ -50,6 +53,10 @@ struct AppComposition {
         }
         if let text = arguments.string(forKey: "SidelightOpenRouterURL") {
             composition.openRouterTransport = loopbackTransport(text)
+        }
+        if let path = arguments.string(forKey: "SidelightDockerCLI") {
+            Log.app.notice("Docker widgets run \(path, privacy: .public)")
+            composition.dockerTransport = .cli(URL(filePath: path, directoryHint: .notDirectory))
         }
         if let text = arguments.string(forKey: "SidelightServiceKinds") {
             composition.serviceKinds = serviceKinds(text)
