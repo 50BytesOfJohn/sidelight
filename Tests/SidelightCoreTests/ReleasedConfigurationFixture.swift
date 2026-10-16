@@ -174,7 +174,7 @@ struct ReleasedConfigurationFixture {
         // What this version writes, it must read back unchanged.
         #expect(try AppConfiguration(json: data) == c)
         let directory = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "ReleasedConfigurations")
-        try data.write(to: directory.appending(path: "\(try #require(Self.release)).json"))
+        try data.write(to: directory.appending(path: "\(try #require(Self.release)).json"), options: .atomic)
     }
 
     private static func base() -> AppConfiguration {
