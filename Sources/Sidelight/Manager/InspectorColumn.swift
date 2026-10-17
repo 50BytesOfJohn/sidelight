@@ -360,15 +360,39 @@ private struct WidgetInspector: View {
 }
 
 /// The selected widget at one size, on the dark stage previews sit on.
+///
+/// The settings sit below, so a stage that followed the card's height would move them under the pointer with every
+/// change. It only grows, to the tallest the card has been at this size, and stops at ``maxHeight``, past which the
+/// card fades out.
 private struct WidgetInspectorPreview: View {
     let settings: WidgetSettings
     let layout: WidgetLayout
+    /// The tallest the card has been at each size, while this widget is selected.
+    @State private var tallest: [WidgetLayout: CGFloat] = [:]
+
+    private static let padding: CGFloat = 12
+    private static let maxHeight: CGFloat = 360
 
     var body: some View {
+        let natural = tallest[layout].map { $0 + 2 * Self.padding }
+        let height = layout.inspectorStageHeight ?? natural.map { min($0, Self.maxHeight) }
+        let isCut = layout.inspectorStageHeight == nil && (natural ?? 0) > Self.maxHeight
         WidgetPreview(settings: settings, layout: layout)
-            .padding(12)
+            .onGeometryChange(for: CGFloat.self) {
+                $0.size.height
+            } action: { cardHeight in
+                tallest[layout] = max(tallest[layout] ?? 0, cardHeight)
+            }
+            .padding(Self.padding)
             .frame(maxWidth: .infinity)
-            .frame(height: layout.inspectorStageHeight)
+            .frame(height: height, alignment: isCut ? .top : .center)
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0.85), .init(color: .black.opacity(isCut ? 0 : 1), location: 1),
+                    ],
+                    startPoint: .top, endPoint: .bottom)
+            }
             .background(PreviewStage())
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }

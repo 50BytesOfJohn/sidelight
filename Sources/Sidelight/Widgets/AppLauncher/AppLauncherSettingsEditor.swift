@@ -24,8 +24,8 @@ struct AppLauncherSettingsEditor: View {
             Text("Roomy").tag(LauncherSpacing.roomy)
         }
         .pickerStyle(.segmented)
-        countRow("Columns", value: $settings.columns, range: AppLauncherSettings.columnRange, zero: "Fit")
-        countRow("Rows", value: $settings.rows, range: AppLauncherSettings.rowRange, zero: "All")
+        countPicker("Columns", value: $settings.columns, range: AppLauncherSettings.columnRange, zero: "Fit")
+        countPicker("Rows", value: $settings.rows, range: AppLauncherSettings.rowRange, zero: "All")
         Stepper("In the bar: \(settings.barCount)", value: $settings.barCount, in: AppLauncherSettings.barCountRange)
         VStack(alignment: .leading, spacing: 2) {
             Toggle("Show names", isOn: $settings.showsNames)
@@ -105,11 +105,14 @@ struct AppLauncherSettingsEditor: View {
         settings.add(LauncherDropDelegate.apps(in: panel.urls))
     }
 
-    /// A stepper where 0 means "Fit" or "All".
-    private func countRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int>, zero: String) -> some View {
-        HStack {
-            Stepper(
-                "\(title): \(value.wrappedValue == 0 ? zero : "\(value.wrappedValue)")", value: value, in: range)
+    /// A menu where 0, "Fit" or "All", comes first: any count is one choice away, and the row never changes size.
+    private func countPicker(_ title: String, value: Binding<Int>, range: ClosedRange<Int>, zero: String) -> some View {
+        Picker(title, selection: value) {
+            Text(zero).tag(0)
+            Divider()
+            ForEach(range.filter { $0 > 0 }, id: \.self) { count in
+                Text("\(count)").tag(count)
+            }
         }
     }
 }

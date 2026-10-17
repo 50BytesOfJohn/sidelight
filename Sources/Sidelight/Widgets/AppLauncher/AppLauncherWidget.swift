@@ -55,8 +55,10 @@ struct AppLauncherWidgetView: View {
                 content(apps)
             }
         }
-        // The bar's chip keeps to its icons; the other layouts measure the column's width.
-        .frame(maxWidth: layout == .bar ? nil : .infinity)
+        // The bar's chip keeps to its icons; the other layouts measure the column's width. `minWidth: 0` makes the
+        // frame take the width it's offered, not its content's: a grid laid out for a guessed, wider width would
+        // otherwise measure itself and keep overflowing the card.
+        .frame(minWidth: layout == .bar ? nil : 0, maxWidth: layout == .bar ? nil : .infinity)
         .onGeometryChange(for: Double.self) {
             $0.size.width
         } action: {
