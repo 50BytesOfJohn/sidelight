@@ -10,6 +10,8 @@ struct AppComposition {
     var openRouterTransport: OpenRouterService.Transport = { try await HTTP.send($0) }
     /// How Docker widgets run `docker`; `nil` finds the CLI where it's installed.
     var dockerTransport: DockerService.Transport?
+    /// Where App Launcher widgets learn which apps run; `nil` asks `NSWorkspace`.
+    var appLauncherSource: AppLauncherService.Source?
     /// Where key accounts' secrets are kept.
     var accountSecrets = AccountSecrets.keychain
     /// Which apps' windows window avoidance may move, besides being regular or accessory apps other than Sidelight.

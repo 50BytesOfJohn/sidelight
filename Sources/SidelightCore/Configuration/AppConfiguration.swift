@@ -81,7 +81,13 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
                 railway: railwayDemand(of: widgets, signedIn: signedIn), claudeCode: claudeCode,
                 sessions: Set(AgentProvider.allCases),
                 // As for Railway, only placed widgets count: the gallery alone never runs the CLI or wakes Docker.
-                docker: dockerDemand(of: widgets))
+                docker: dockerDemand(of: widgets),
+                // Observing running apps reads nothing private, so the gallery's previews show real running dots.
+                appLauncher: {
+                    var demand = appLauncherDemand(of: widgets)
+                    demand.isShown = true
+                    return demand
+                }())
         }
         let shown = Set(visibleWidgets(at: positions).map(\.id)).union(previewing)
         let visible = widgets.filter { shown.contains($0.id) }
@@ -89,7 +95,8 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
             kinds: Set(visible.map(\.kind)), placedKinds: placed, usage: UsageServiceDemand(widgets: visible),
             railway: railwayDemand(of: visible, signedIn: signedIn),
             claudeCode: claudeCodeDemand(of: visible, signedIn: signedIn),
-            sessions: ServiceDemand.sessionProviders(of: visible), docker: dockerDemand(of: visible))
+            sessions: ServiceDemand.sessionProviders(of: visible), docker: dockerDemand(of: visible),
+            appLauncher: appLauncherDemand(of: visible))
     }
 
     /// What the widgets among `widgets` that show Claude usage need, merged for each Claude account they use: where
@@ -221,11 +228,14 @@ public struct ServiceDemand: Equatable, Sendable {
     /// The Docker contexts widgets show. Only widgets in the configuration count, even while the Widgets window
     /// previews every kind: the gallery's preview alone never runs `docker`.
     public var docker: DockerDemand
+    /// Whether a launcher is shown, and the apps they pin.
+    public var appLauncher: AppLauncherDemand
 
     public init(
         kinds: Set<WidgetKind>, placedKinds: Set<WidgetKind>? = nil, usage: UsageServiceDemand,
         railway: RailwayDemand = RailwayDemand(), claudeCode: [AccountID: ClaudeCodeNeeds] = [:],
-        sessions: Set<AgentProvider>? = nil, docker: DockerDemand = DockerDemand()
+        sessions: Set<AgentProvider>? = nil, docker: DockerDemand = DockerDemand(),
+        appLauncher: AppLauncherDemand = AppLauncherDemand()
     ) {
         self.kinds = kinds
         self.placedKinds = placedKinds ?? kinds
@@ -234,6 +244,7 @@ public struct ServiceDemand: Equatable, Sendable {
         self.claudeCode = claudeCode
         self.sessions = sessions ?? Self.sessionProviders(of: kinds)
         self.docker = docker
+        self.appLauncher = appLauncher
     }
 
     /// Only what widgets of `kinds` need: services that only other kinds of widget use don't run, previews
@@ -263,6 +274,7 @@ public struct ServiceDemand: Equatable, Sendable {
         }
         if !kinds.contains(.railway) { demand.railway = RailwayDemand() }
         if !kinds.contains(.docker) { demand.docker = DockerDemand() }
+        if !kinds.contains(.appLauncher) { demand.appLauncher = AppLauncherDemand() }
         if !demand.usage.providers.contains(.claudeCode) { demand.claudeCode = [:] }
         return demand
     }
@@ -276,7 +288,7 @@ public struct ServiceDemand: Equatable, Sendable {
             case .codexSessions: providers.insert(.codex)
             case .agentSessions(let settings): providers.formUnion(settings.providers)
             case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .system, .noodleComputer,
-                .railway, .openRouter, .stash, .awake, .docker:
+                .railway, .openRouter, .stash, .awake, .docker, .appLauncher:
                 break
             }
         }
@@ -319,7 +331,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 providers.formUnion(settings.shownProviders)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
             case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway,
-                .agentSessions, .openRouter, .stash, .awake, .docker:
+                .agentSessions, .openRouter, .stash, .awake, .docker, .appLauncher:
                 break
             }
         }

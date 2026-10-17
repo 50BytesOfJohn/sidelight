@@ -157,7 +157,7 @@ private struct StashExcludedApps: View {
         ForEach(bundleIDs, id: \.self) { bundleID in
             HStack(spacing: 8) {
                 StashAppIcon(bundleID: bundleID, size: 16)
-                Text(StashAppIcons.name(for: bundleID) ?? bundleID)
+                Text(AppIcons.name(for: bundleID) ?? bundleID)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 6)
@@ -168,7 +168,7 @@ private struct StashExcludedApps: View {
                 }
                 .buttonStyle(.plain)
                 .help("Stop excluding it")
-                .accessibilityLabel("Stop excluding \(StashAppIcons.name(for: bundleID) ?? bundleID)")
+                .accessibilityLabel("Stop excluding \(AppIcons.name(for: bundleID) ?? bundleID)")
             }
         }
     }
@@ -501,7 +501,7 @@ struct StashAppIcon: View {
 
     var body: some View {
         Group {
-            if let bundleID, let icon = StashAppIcons.icon(for: bundleID) {
+            if let bundleID, let icon = AppIcons.icon(for: bundleID) {
                 Image(nsImage: icon).resizable().interpolation(.high)
             } else {
                 // App icons leave a margin inside their square; the symbol keeps one too, so it weighs the same.
@@ -520,29 +520,7 @@ struct StashAppIcon: View {
 
     private var help: String {
         guard let bundleID else { return "" }
-        return "From \(StashAppIcons.name(for: bundleID) ?? bundleID)"
-    }
-}
-
-/// Apps' icons and names by bundle identifier, looked up once each: rows redraw as the stash changes.
-enum StashAppIcons {
-    private static var apps: [String: (icon: NSImage, name: String)?] = [:]
-
-    static func icon(for bundleID: String) -> NSImage? { app(bundleID)?.icon }
-
-    static func name(for bundleID: String) -> String? { app(bundleID)?.name }
-
-    private static func app(_ bundleID: String) -> (icon: NSImage, name: String)? {
-        if let cached = apps[bundleID] { return cached }
-        let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID).map { url in
-            (
-                icon: NSWorkspace.shared.icon(forFile: url.path(percentEncoded: false)),
-                name: FileManager.default.displayName(atPath: url.path(percentEncoded: false))
-                    .replacing(/\.app$/, with: "")
-            )
-        }
-        apps[bundleID] = app
-        return app
+        return "From \(AppIcons.name(for: bundleID) ?? bundleID)"
     }
 }
 

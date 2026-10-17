@@ -51,6 +51,7 @@ final class AppController {
             railway: RailwayService(accounts: accountAccess),
             openRouter: OpenRouterService(transport: composition.openRouterTransport, accounts: accountAccess),
             docker: DockerService(transport: composition.dockerTransport),
+            appLauncher: AppLauncherService(source: composition.appLauncherSource ?? .workspace),
             stash: stash,
             stashCapture: StashCapture(store: stash, configuration: configurationStore),
             awake: AwakeSession(),
@@ -205,6 +206,7 @@ final class AppController {
                     if !coordinator.isHidden, !coordinator.isDetailsUnseen, let details = coordinator.details {
                         openRouter.merge(details.openRouterDemand(in: configuration))
                         services.docker.merge(details.dockerDemand())
+                        services.appLauncher.merge(details.appLauncherDemand(in: configuration))
                     }
                     guard let kinds else { return Demand(services: services, openRouter: openRouter) }
                     return Demand(services: services.limited(to: kinds), openRouter: openRouter.limited(to: kinds))
@@ -269,6 +271,10 @@ final class AppController {
             case .docker:
                 environment.docker.demand = demand.docker
                 environment.docker.setRunning(!demand.docker.isEmpty)
+            // The details panel counts too: it keeps running dots live while it covers the panel.
+            case .appLauncher:
+                environment.appLauncher.demand = demand.appLauncher
+                environment.appLauncher.setRunning(!demand.appLauncher.isEmpty)
             }
         }
     }

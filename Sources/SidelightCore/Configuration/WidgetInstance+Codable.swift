@@ -30,6 +30,7 @@ extension WidgetInstance: Codable {
             case .stash: .stash(try container.decode(.settings, or: .init()))
             case .awake: .awake(try container.decode(.settings, or: .init()))
             case .docker: .docker(try container.decode(.settings, or: .init()))
+            case .appLauncher: .appLauncher(try container.decode(.settings, or: .init()))
             }
         self.init(
             id: id,
@@ -61,6 +62,7 @@ extension WidgetInstance: Codable {
         case .openRouter(let settings): try container.encode(settings, forKey: .settings)
         case .stash(let settings): try container.encode(settings, forKey: .settings)
         case .docker(let settings): try container.encode(settings, forKey: .settings)
+        case .appLauncher(let settings): try container.encode(settings, forKey: .settings)
         case .awake(let settings): try container.encode(settings, forKey: .settings)
         case .nowPlaying: break
         }

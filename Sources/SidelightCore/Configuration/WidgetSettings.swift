@@ -30,6 +30,8 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case awake
     /// Docker containers, grouped by Compose project, and whether any is unwell.
     case docker
+    /// Apps one click away, like the Dock, with which are running.
+    case appLauncher
 
     public var id: Self { self }
 
@@ -412,6 +414,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case stash(StashSettings)
     case awake(AwakeSettings)
     case docker(DockerSettings)
+    case appLauncher(AppLauncherSettings)
 
     public var kind: WidgetKind {
         switch self {
@@ -432,6 +435,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .stash: .stash
         case .awake: .awake
         case .docker: .docker
+        case .appLauncher: .appLauncher
         }
     }
 
@@ -454,6 +458,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .stash: .stash(StashSettings())
         case .awake: .awake(AwakeSettings())
         case .docker: .docker(DockerSettings())
+        case .appLauncher: .appLauncher(AppLauncherSettings())
         }
     }
 }

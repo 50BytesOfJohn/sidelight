@@ -170,6 +170,21 @@ struct ReleasedConfigurationFixture {
                     Self.widget(22, .awake(AwakeSettings()), side: false),
                     Self.widget(23, .docker(DockerSettings(context: "orbstack", showsStopped: true, rowCount: 8))),
                     Self.widget(24, .docker(DockerSettings()), bar: false),
+                    Self.widget(
+                        25,
+                        .appLauncher(
+                            AppLauncherSettings(
+                                apps: [
+                                    LauncherApp(
+                                        id: Self.id(701), path: "/Applications/Safari.app",
+                                        bundleID: "com.apple.Safari", name: "Safari"),
+                                    LauncherApp(
+                                        id: Self.id(702), path: "/Users/me/Applications/Tool.app", bundleID: nil,
+                                        name: "Tool"),
+                                ],
+                                iconSize: 40, spacing: .roomy, columns: 5, rows: 2, barCount: 6, showsNames: true,
+                                showsRunningIndicator: false, showsRunningApps: true, showsAllAppsTile: false))),
+                    Self.widget(26, .appLauncher(AppLauncherSettings()), bar: false),
                 ], share: 0.5, alignment: .start),
         ]
         let data = try c.json()

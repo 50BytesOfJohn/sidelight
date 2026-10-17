@@ -25,6 +25,7 @@ struct WidgetContent: View {
         case .stash(let settings): StashWidgetView(settings: settings, layout: layout)
         case .awake(let settings): AwakeWidgetView(settings: settings, layout: layout)
         case .docker(let settings): DockerWidgetView(settings: settings, layout: layout)
+        case .appLauncher(let settings): AppLauncherWidgetView(settings: settings, layout: layout)
         }
     }
 }
@@ -57,6 +58,8 @@ struct WidgetSettingsEditor: View {
         case .stash(let settings): StashSettingsEditor(settings: binding(settings, WidgetSettings.stash))
         case .awake: AwakeSettingsEditor()
         case .docker(let settings): DockerSettingsEditor(settings: binding(settings, WidgetSettings.docker))
+        case .appLauncher(let settings):
+            AppLauncherSettingsEditor(settings: binding(settings, WidgetSettings.appLauncher))
         case .nowPlaying: Text("Nothing to set").foregroundStyle(.secondary)
         }
     }
