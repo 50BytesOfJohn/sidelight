@@ -410,7 +410,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case agentSessions(AgentSessionsSettings)
     case openRouter(OpenRouterSettings)
     case stash(StashSettings)
-    case awake
+    case awake(AwakeSettings)
     case docker(DockerSettings)
 
     public var kind: WidgetKind {
@@ -452,7 +452,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .agentSessions: .agentSessions(AgentSessionsSettings())
         case .openRouter: .openRouter(OpenRouterSettings())
         case .stash: .stash(StashSettings())
-        case .awake: .awake
+        case .awake: .awake(AwakeSettings())
         case .docker: .docker(DockerSettings())
         }
     }

@@ -86,12 +86,31 @@ struct AwakeConfigurationTests {
         #expect(try AppConfiguration(json: configuration.json()) == configuration)
     }
 
-    @Test func `an Awake widget round-trips and saves no settings`() throws {
-        let widget = WidgetInstance(kind: .awake)
-        let data = try JSONEncoder().encode(widget)
-        let file = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(file["kind"] as? String == "awake")
-        #expect(file["settings"] == nil)
-        #expect(try JSONDecoder().decode(WidgetInstance.self, from: data) == widget)
+    @Test func `an Awake widget round-trips with its style`() throws {
+        for style in AwakeStyle.allCases {
+            let widget = WidgetInstance(settings: .awake(AwakeSettings(style: style)))
+            let data = try JSONEncoder().encode(widget)
+            let file = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(file["kind"] as? String == "awake")
+            #expect(try JSONDecoder().decode(WidgetInstance.self, from: data) == widget)
+        }
+    }
+
+    @Test func `an Awake widget saved without settings, as released versions did, is a tile`() throws {
+        var file = try #require(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(WidgetInstance(kind: .awake)))
+                as? [String: Any])
+        file["settings"] = nil
+        let widget = try JSONDecoder().decode(WidgetInstance.self, from: JSONSerialization.data(withJSONObject: file))
+        #expect(widget.settings == .awake(AwakeSettings(style: .tile)))
+    }
+
+    @Test func `an unknown Awake style falls back to the tile`() throws {
+        for json in ["{}", #"{"style": "hologram"}"#] {
+            let settings = try JSONDecoder().decode(AwakeSettings.self, from: Data(json.utf8))
+            #expect(settings == AwakeSettings())
+        }
+        let slim = try JSONDecoder().decode(AwakeSettings.self, from: Data(#"{"style": "slim"}"#.utf8))
+        #expect(slim.style == .slim)
     }
 }
