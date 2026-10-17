@@ -32,6 +32,10 @@ struct WidgetCard: View {
 
     var body: some View {
         switch layout {
+        case .regular where settings.isSlim:
+            slim(horizontal: 14, vertical: 10, cornerRadius: 16)
+        case .compact where settings.isSlim:
+            slim(horizontal: 10, vertical: 8, cornerRadius: 13)
         case .regular:
             VStack(alignment: .leading, spacing: 8) {
                 header(fontSize: 10)
@@ -66,6 +70,16 @@ struct WidgetCard: View {
         }
     }
 
+    /// A one-line widget names itself, so its card has no header and hugs the line instead of padding it out.
+    private func slim(horizontal: CGFloat, vertical: CGFloat, cornerRadius: CGFloat) -> some View {
+        WidgetContent(settings: settings, layout: layout)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, horizontal)
+            .padding(.vertical, vertical)
+            .cardChrome(appearance, cornerRadius: cornerRadius)
+            .named(metadata.title, tooltip: true)
+    }
+
     /// The icon and name above the content, unless titles are hidden. A hidden title takes no space at all,
     /// including the stack's spacing below it.
     @ViewBuilder
@@ -83,6 +97,14 @@ struct WidgetCard: View {
             // The card's accessibility label already names the widget.
             .accessibilityHidden(true)
         }
+    }
+}
+
+extension WidgetSettings {
+    /// Styles that are a single line naming their own widget, which regular and compact cards draw without a title.
+    var isSlim: Bool {
+        if case .awake(let settings) = self { return settings.style == .slim }
+        return false
     }
 }
 

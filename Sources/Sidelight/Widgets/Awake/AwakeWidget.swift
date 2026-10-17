@@ -13,8 +13,32 @@ extension WidgetMetadata {
     )
 }
 
-/// One button, like a Control Center tile: the cup, how long the Mac stays awake, and a menu of durations.
+extension AwakeStyle {
+    var title: String {
+        switch self {
+        case .tile: "Tile"
+        case .slim: "Slim"
+        }
+    }
+
+    var widgetStyle: WidgetStyle {
+        switch self {
+        case .tile:
+            WidgetStyle(
+                id: rawValue, title: title, summary: "The cup on a disc, ringed by the time left.", family: .modern,
+                keywords: ["disc", "ring", "control center", "large"])
+        case .slim:
+            WidgetStyle(
+                id: rawValue, title: title, summary: "One short line over a hairline of time left.", family: .modern,
+                keywords: ["minimal", "compact", "small", "line", "thin", "row"])
+        }
+    }
+}
+
+/// One button, like a Control Center tile or a single slim line: the cup, how long the Mac stays awake, and a menu
+/// of durations.
 struct AwakeWidgetView: View {
+    let settings: AwakeSettings
     let layout: WidgetLayout
     @Environment(AwakeSession.self) private var session
     @Environment(\.isWidgetPreview) private var isPreview
@@ -39,6 +63,14 @@ struct AwakeWidgetView: View {
 
     @ViewBuilder
     private func label(at now: Date) -> some View {
+        switch settings.style {
+        case .tile: tile(at: now)
+        case .slim: AwakeSlimLabel(state: session.state, keepsDisplayOn: session.displayHeld, layout: layout, now: now)
+        }
+    }
+
+    @ViewBuilder
+    private func tile(at now: Date) -> some View {
         let state = session.state
         switch layout {
         case .regular:
@@ -172,6 +204,141 @@ private struct AwakeDisc: View {
         }
         .animation(reducesMotion ? nil : Motion.gentle, value: state.progress(at: now))
         .animation(reducesMotion ? nil : Motion.snappy, value: state.isActive)
+    }
+}
+
+/// One line that always reads Awake, lit while the Mac is kept awake, with the time left at its end and a hairline
+/// under it that runs down over a timed session. It keeps its height whatever the state, so the panel never shifts.
+private struct AwakeSlimLabel: View {
+    let state: AwakeState
+    let keepsDisplayOn: Bool
+    let layout: WidgetLayout
+    let now: Date
+    @Environment(\.accessibilityReduceMotion) private var reducesMotion
+
+    var body: some View {
+        content
+            .animation(reducesMotion ? nil : Motion.gentle, value: state.progress(at: now))
+            .animation(reducesMotion ? nil : Motion.snappy, value: state.isActive)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch layout {
+        case .regular:
+            VStack(spacing: 7) {
+                row(detail, glyph: 12, title: 12.5, value: 11.5)
+                AwakeHairline(fill: fill)
+            }
+        case .compact:
+            VStack(spacing: 6) {
+                row(glance, glyph: 11, title: 11.5, value: 11)
+                AwakeHairline(fill: fill)
+            }
+        case .minimal:
+            VStack(spacing: 5) {
+                HStack(spacing: 4) {
+                    AwakeGlyph(isActive: state.isActive, size: 10.5)
+                    valueText(glance, size: 11, weight: .semibold).foregroundStyle(valueStyle)
+                }
+                AwakeHairline(fill: fill).padding(.horizontal, 6)
+            }
+            .frame(maxWidth: .infinity)
+        case .bar:
+            HStack(spacing: 5) {
+                AwakeGlyph(isActive: state.isActive, size: 11)
+                valueText(glance, size: 11.5, weight: .medium).foregroundStyle(valueStyle)
+            }
+        }
+    }
+
+    private func row(_ text: String, glyph: CGFloat, title: CGFloat, value: CGFloat) -> some View {
+        HStack(spacing: 6) {
+            AwakeGlyph(isActive: state.isActive, size: glyph)
+            Text("Awake")
+                .font(.system(size: title, weight: .semibold))
+                .foregroundStyle(state.isActive ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            if state.isActive && keepsDisplayOn {
+                Image(systemName: "sun.max.fill")
+                    .font(.system(size: glyph * 0.75, weight: .semibold))
+                    .foregroundStyle(.yellow)
+                    .transition(.scale.combined(with: .opacity))
+            }
+            Spacer(minLength: 6)
+            valueText(text, size: value, weight: .medium).foregroundStyle(.secondary)
+        }
+        .lineLimit(1)
+    }
+
+    private func valueText(_ text: String, size: CGFloat, weight: Font.Weight) -> some View {
+        Text(text)
+            .font(.system(size: size, weight: weight).monospacedDigit())
+            .lineLimit(1)
+            .contentTransition(.numericText(countsDown: true))
+    }
+
+    /// The glance alone names the state, so it dims while off, as the title does in wider cards.
+    private var valueStyle: HierarchicalShapeStyle { state.isActive ? .primary : .secondary }
+
+    /// How much of the hairline is lit: all of it until stopped, the share left of a timed session, none when off.
+    private var fill: Double {
+        switch state {
+        case .off: 0
+        case .indefinite: 1
+        case .timed: state.progress(at: now) ?? 0
+        }
+    }
+
+    /// `Off`, `∞`, `42m · 15:42`.
+    private var detail: String {
+        switch state {
+        case .off, .indefinite: glance
+        case .timed(_, let ends): "\(glance) · \(ends.formatted(date: .omitted, time: .shortened))"
+        }
+    }
+
+    /// `Off`, `∞`, `42m`.
+    private var glance: String {
+        switch state {
+        case .off: "Off"
+        case .indefinite: "∞"
+        case .timed: state.shortRemaining(at: now) ?? ""
+        }
+    }
+}
+
+/// The cup, glowing orange while the Mac is kept awake and a grey saucer while it sleeps as usual.
+private struct AwakeGlyph: View {
+    let isActive: Bool
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: isActive ? "cup.and.heat.waves.fill" : "cup.and.saucer")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(isActive ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
+            .shadow(color: isActive ? .orange.opacity(0.55) : .clear, radius: 3)
+            .contentTransition(.symbolEffect(.replace))
+            .frame(width: size * 1.3)
+    }
+}
+
+/// A 2-point track lit from the leading edge by `fill`, between 0 and 1.
+private struct AwakeHairline: View {
+    let fill: Double
+
+    var body: some View {
+        Capsule()
+            .fill(Color.primary.opacity(0.08))
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [.orange.opacity(0.55), .orange], startPoint: .leading, endPoint: .trailing)
+                    )
+                    .scaleEffect(x: fill, anchor: .leading)
+            }
+            .frame(height: 2)
+            .accessibilityHidden(true)
     }
 }
 

@@ -167,7 +167,7 @@ struct ReleasedConfigurationFixture {
                     Self.widget(
                         21, .stash(StashSettings(itemCount: 7, showsTwoLines: false, showsSourceIcons: false)),
                         bar: false),
-                    Self.widget(22, .awake, side: false),
+                    Self.widget(22, .awake(AwakeSettings()), side: false),
                     Self.widget(23, .docker(DockerSettings(context: "orbstack", showsStopped: true, rowCount: 8))),
                     Self.widget(24, .docker(DockerSettings()), bar: false),
                 ], share: 0.5, alignment: .start),
