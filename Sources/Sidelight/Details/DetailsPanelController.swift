@@ -12,6 +12,10 @@ final class DetailsWindow: NSPanel {
     /// Sees every key press first, for content driven from the keyboard; returns whether it handled it. Never asked
     /// while an input method is composing text.
     var keyHandler: (NSEvent) -> Bool = { _ in false }
+    /// Closed, and sliding out: it takes no more typing, and clicks go through it to the panel coming back.
+    var isClosing = false {
+        didSet { ignoresMouseEvents = isClosing }
+    }
 
     private var isComposingText: Bool { (firstResponder as? NSTextView)?.hasMarkedText() ?? false }
 
@@ -21,6 +25,7 @@ final class DetailsWindow: NSPanel {
     /// Escape closes, unless it's ending text input that's still being composed (an input method's candidates).
     /// Handled here, before any view: a text field would take it to offer completions.
     override func sendEvent(_ event: NSEvent) {
+        if isClosing { return }
         if event.type == .keyDown, !isComposingText, keyHandler(event) { return }
         if event.type == .keyDown, Int(event.keyCode) == kVK_Escape,
             event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty, !isComposingText
@@ -34,6 +39,7 @@ final class DetailsWindow: NSPanel {
     /// While another app is active, Sidelight's Edit menu doesn't see ⌘C and the like, so the standard editing
     /// shortcuts go to the focused field directly.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if isClosing { return false }
         if !isComposingText, keyHandler(event) { return true }
         if super.performKeyEquivalent(with: event) { return true }
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
@@ -162,6 +168,8 @@ final class DetailsPanelController {
         let rootView = DetailsPanelView(session: session, layout: layout, close: close)
         let hostingView = NSHostingView(rootView: rootView.environment(environment))
         hostingView.sizingOptions = []
+        // Its own layer, for the content to slide in and out on (see `EdgeSlide`).
+        hostingView.wantsLayer = true
         window.contentView = hostingView
 
         visibility = WindowVisibility(of: window) { [layout] isOccluded in
@@ -170,30 +178,23 @@ final class DetailsPanelController {
         }
     }
 
-    /// Shows the window: sliding in from its edge the first time, or fading in with Reduce Motion. `focusing`
-    /// makes it key, so typing goes to its search field, without activating Sidelight.
+    /// Shows the window: its content sliding in from its edge the first time, or fading in with Reduce Motion.
+    /// `focusing` makes it key, so typing goes to its search field, without activating Sidelight.
     func show(focusing: Bool, slidingIn: Bool) {
         layout.isShown = true
-        let frame = layout.placement.frame
-        if slidingIn && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            let offset = PanelMetrics.entranceOffset(for: layout.placement.edge)
-            settle(frame: frame.offsetBy(dx: offset.dx, dy: offset.dy), alpha: 0)
+        if slidingIn && EdgeSlide.isEnabled, let content = window.contentView {
+            settle(alpha: 1)
+            EdgeSlide.slideIn(content, from: layout.placement.edge)
             window.orderFrontRegardless()
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.3
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                window.animator().alphaValue = 1
-                window.animator().setFrame(frame, display: true)
-            }
         } else if slidingIn {
-            settle(frame: frame, alpha: 0)
+            settle(alpha: 0)
             window.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.2
                 window.animator().alphaValue = 1
             }
         } else {
-            settle(frame: frame, alpha: 1)
+            settle(alpha: 1)
             window.orderFrontRegardless()
         }
         if focusing { focus() }
@@ -212,30 +213,41 @@ final class DetailsPanelController {
     /// Hides it with the panels, keeping its content: search, choices and scroll position come back with it.
     func hide() {
         layout.isShown = false
-        settle(frame: layout.placement.frame, alpha: 1)
+        settle(alpha: 1)
         window.orderOut(nil)
     }
 
-    /// Follows its display's new geometry, or the panel's new edge, without animating from a stale frame. An
-    /// entrance still under way ends where the panel now goes.
+    /// Follows its display's new geometry, or the panel's new edge, at once. An entrance still under way carries on
+    /// where the panel now goes.
     func move(to placement: DetailsPlacement) {
         guard placement != layout.placement else { return }
         layout.placement = placement
-        settle(frame: placement.frame, alpha: window.isVisible ? 1 : window.alphaValue)
+        window.setFrame(placement.frame, display: true)
     }
 
-    /// Hides it for good and releases its content. If it had focus, and the app that had focus before it is still
-    /// the frontmost one, that app gets it back; after switching to another app, focus stays where it went.
-    func close() {
+    /// Hides it for good and releases its content; `animated` first slides it out past its edge, taking no more input
+    /// meanwhile. If it had focus, and the app that had focus before it is still the frontmost one, that app gets it
+    /// back at once; after switching to another app, focus stays where it went.
+    func close(animated: Bool) {
         let hadFocus = window.isKeyWindow
         layout.isShown = false
-        settle(frame: layout.placement.frame, alpha: 1)
-        window.orderOut(nil)
-        window.contentView = nil
+        window.isClosing = true
         visibility?.invalidate()
         visibility = nil
         if hadFocus { returnFocus() }
         focusOwner = nil
+        guard animated, EdgeSlide.isEnabled, window.isVisible, let content = window.contentView else {
+            release()
+            return
+        }
+        // Keeps the controller, and so its window, until the content has slid out.
+        EdgeSlide.slideOut(content, past: layout.placement.edge) { _ in self.release() }
+    }
+
+    private func release() {
+        settle(alpha: 1)
+        window.orderOut(nil)
+        window.contentView = nil
     }
 
     private func returnFocus() {
@@ -246,13 +258,12 @@ final class DetailsPanelController {
         _ = frontmost.activate(from: .current, options: [])
     }
 
-    /// Puts the window at `frame` and `alpha` at once, ending any animation still under way, so a hide, a move or a
-    /// close overtaking the entrance never leaves it heading somewhere stale.
-    private func settle(frame: CGRect, alpha: CGFloat) {
+    /// Puts the window at `alpha` at once, ending a Reduce Motion fade still under way, so a hide or a close
+    /// overtaking it never leaves it fading in.
+    private func settle(alpha: CGFloat) {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             window.animator().alphaValue = alpha
-            window.animator().setFrame(frame, display: true)
         }
     }
 }

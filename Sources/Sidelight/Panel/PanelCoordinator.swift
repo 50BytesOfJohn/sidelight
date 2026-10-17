@@ -128,7 +128,7 @@ final class PanelCoordinator: DetailsPresenting {
         pendingDetailsUnseen.cancel()
         for pending in pendingUnseen.values { pending.cancel() }
         pendingUnseen = [:]
-        detailsPanel?.close()
+        detailsPanel?.close(animated: false)
         detailsPanel = nil
     }
 
@@ -170,8 +170,8 @@ final class PanelCoordinator: DetailsPresenting {
         let before = occupiedRegions
         if let previous = details {
             // Another display's details panel gives way: its panel comes back, in the same step as this one opens.
-            endDetails()
-            panels[previous.displayID]?.show()
+            endDetails(animated: true)
+            panels[previous.displayID]?.show(animated: true)
         }
         let session = DetailsSession(
             displayID: display.id, widgetID: placement.widgetID, request: request, stash: environment.stash)
@@ -184,29 +184,31 @@ final class PanelCoordinator: DetailsPresenting {
         detailsPanel = controller
         environment.hotkeys.register(configuration.details.closeHotkey, for: .closeDetails)
 
-        // The panel's widgets stop drawing now, and stop needing data a little later.
-        panel.hide()
+        // The panel slides out under the details panel sliding in. Its widgets stop drawing now, and stop needing
+        // data a little later.
+        panel.hide(animated: true)
         controller.show(focusing: true, slidingIn: true)
         updateCover()
         Log.details.info("Opened details on \(display.name, privacy: .public)")
-        reservationsChanged(from: before)
+        reservationsChanged(from: before, settlingFor: EdgeSlide.settleDelay)
     }
 
-    /// Closes the details panel and gives its display its panel back. Search and choices are forgotten. With the
-    /// panels hidden, it just ends the session: nothing shows, and nothing moves.
+    /// Closes the details panel and gives its display its panel back, sliding in over it. Search and choices are
+    /// forgotten. With the panels hidden, it just ends the session: nothing shows, and nothing moves.
     func closeDetails() {
         guard let session = details else { return }
         let before = occupiedRegions
-        endDetails()
-        if !isHidden { panels[session.displayID]?.show() }
+        endDetails(animated: !isHidden)
+        if !isHidden { panels[session.displayID]?.show(animated: true) }
         Log.details.info("Closed details")
-        reservationsChanged(from: before)
+        reservationsChanged(from: before, settlingFor: EdgeSlide.settleDelay)
     }
 
-    /// Forgets the session and releases the details panel, leaving window avoidance to the caller.
-    private func endDetails() {
+    /// Forgets the session and releases the details panel, after sliding it out if `animated`, leaving window
+    /// avoidance to the caller.
+    private func endDetails(animated: Bool = false) {
         details = nil
-        detailsPanel?.close()
+        detailsPanel?.close(animated: animated)
         detailsPanel = nil
         environment.hotkeys.unregister(.closeDetails)
         pendingDetailsUnseen.cancel()
@@ -267,8 +269,9 @@ final class PanelCoordinator: DetailsPresenting {
         }
     }
 
-    /// Tells window avoidance the strips changed from `before`: now, for a handoff someone asked for, or once the
-    /// panels have settled.
+    /// Tells window avoidance the strips changed from `before`: now, as for hiding the panels, or once the panels
+    /// have settled. Moving other apps' windows asks each of them over Accessibility and blocks the main thread, so
+    /// it waits for a slide to finish rather than happen during it.
     private func reservationsChanged(from before: [PanelRegion], settlingFor delay: Duration? = nil) {
         environment.windowAvoider.reservationsChanged(from: before, settlingFor: delay)
         onReservationsChanged(delay)
