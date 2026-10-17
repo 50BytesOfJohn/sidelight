@@ -362,13 +362,15 @@ private struct WidgetInspector: View {
 /// The selected widget at one size, on the dark stage previews sit on.
 ///
 /// The settings sit below, so a stage that followed the card's height would move them under the pointer with every
-/// change. It only grows, to the tallest the card has been at this size, and stops at ``maxHeight``, past which the
-/// card fades out.
+/// change. It only grows, to the tallest the card has been at this size, and stops at ``maxHeight``. The card fades
+/// out only while it is taller than that right now, so one that shrinks back to fit shows whole again.
 private struct WidgetInspectorPreview: View {
     let settings: WidgetSettings
     let layout: WidgetLayout
     /// The tallest the card has been at each size, while this widget is selected.
     @State private var tallest: [WidgetLayout: CGFloat] = [:]
+    /// The card's height now at each size.
+    @State private var current: [WidgetLayout: CGFloat] = [:]
 
     private static let padding: CGFloat = 12
     private static let maxHeight: CGFloat = 360
@@ -376,11 +378,13 @@ private struct WidgetInspectorPreview: View {
     var body: some View {
         let natural = tallest[layout].map { $0 + 2 * Self.padding }
         let height = layout.inspectorStageHeight ?? natural.map { min($0, Self.maxHeight) }
-        let isCut = layout.inspectorStageHeight == nil && (natural ?? 0) > Self.maxHeight
+        let isCut =
+            layout.inspectorStageHeight == nil && (current[layout] ?? 0) + 2 * Self.padding > Self.maxHeight
         WidgetPreview(settings: settings, layout: layout)
             .onGeometryChange(for: CGFloat.self) {
                 $0.size.height
             } action: { cardHeight in
+                current[layout] = cardHeight
                 tallest[layout] = max(tallest[layout] ?? 0, cardHeight)
             }
             .padding(Self.padding)
