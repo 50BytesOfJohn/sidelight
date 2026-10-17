@@ -7,7 +7,8 @@ Sources for `Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets`:
 
 - **Codex:** `icon-codex-light.png` and `icon-codex-dark-color.png`, supplied in the official OpenAI desktop
   app (`ChatGPT.app/Contents/Resources`). These are the original app icons, including their transparent
-  margins. See [OpenAI's brand guidelines](https://openai.com/brand/).
+  margins, scaled down from 1024 to 128 px (`sips -Z 128`): the widgets draw them at 20 points at most, and the
+  originals would add 1.7 MB to the app. See [OpenAI's brand guidelines](https://openai.com/brand/).
 - **Claude:** the orange starburst path from the Claude wordmark on [claude.com](https://claude.com/),
   preserved unchanged in its own `125 × 125` SVG view box.
 - **Cursor:** `CUBE_2D_LIGHT.svg` and `CUBE_2D_DARK.svg`, unchanged from the archive linked by

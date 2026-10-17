@@ -91,7 +91,8 @@ STAGING=$(mktemp -d)
 trap 'rm -rf "$STAGING"' EXIT
 ditto "$APP" "$STAGING/Sidelight.app"
 ln -s /Applications "$STAGING/Applications"
-hdiutil create -quiet -volname Sidelight -srcfolder "$STAGING" -format ULFO "$DMG"
+# LZMA (ULMO) compresses about 15% smaller than LZFSE (ULFO); every macOS Sidelight supports mounts it.
+hdiutil create -quiet -volname Sidelight -srcfolder "$STAGING" -format ULMO "$DMG"
 codesign --sign "$IDENTITY" --timestamp "$DMG"
 notarize "$DMG"
 xcrun stapler staple "$DMG"
