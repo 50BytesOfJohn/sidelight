@@ -23,7 +23,7 @@ struct WidgetContent: View {
         case .agentSessions(let settings): AgentSessionsWidgetView(settings: settings, layout: layout)
         case .openRouter(let settings): OpenRouterWidgetView(settings: settings, layout: layout)
         case .stash(let settings): StashWidgetView(settings: settings, layout: layout)
-        case .awake: AwakeWidgetView(layout: layout)
+        case .awake(let settings): AwakeWidgetView(settings: settings, layout: layout)
         case .docker(let settings): DockerWidgetView(settings: settings, layout: layout)
         }
     }
