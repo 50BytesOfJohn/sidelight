@@ -36,6 +36,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Framewor
 cp "$BIN_PATH/Sidelight" "$APP/Contents/MacOS/Sidelight"
 # Xcode's build system may already ad-hoc sign the executable. We replace that signature after packaging.
 codesign --remove-signature "$APP/Contents/MacOS/Sidelight"
+# Release builds ship without the symbol table, two thirds of the executable. The debug symbols live on in
+# $BIN_PATH's unstripped binary and dSYM (same UUID), which scripts/release.sh keeps for symbolicating crash reports.
+if [[ "$CONFIGURATION" == release ]]; then
+    xcrun strip "$APP/Contents/MacOS/Sidelight"
+fi
 # SwiftPM links frameworks next to the binary (@loader_path); in the bundle they live in Contents/Frameworks.
 install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Sidelight"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
@@ -78,6 +83,10 @@ fi
 SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
 ditto "$BIN_PATH/Sparkle.framework" "$SPARKLE"
 for item in XPCServices Headers PrivateHeaders Modules; do rm -rf "${SPARKLE:?}/$item" "$SPARKLE/Versions/B/$item"; done
+# Sparkle ships universal binaries; Sidelight runs only on Apple Silicon, so the Intel slices are dead weight.
+find "$SPARKLE/Versions/B" -type f -perm -u+x | while read -r binary; do
+    if lipo "$binary" -verify_arch x86_64 2>/dev/null; then lipo "$binary" -thin arm64 -output "$binary"; fi
+done
 
 # Count main's history rather than commits merged from side branches. CI releases only tags on main.
 if BUILD_NUMBER=$(git rev-list --first-parent --count HEAD 2>/dev/null); then
