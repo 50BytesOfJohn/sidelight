@@ -44,9 +44,21 @@ struct DetailsPanelView: View {
         )
         // Stops minute redraws while it's hidden with the panels, or nobody can see it.
         .environment(\.isPanelShown, layout.isOnScreen)
+        .environment(\.closeDetails, CloseDetailsAction(run: close))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(content.title)
     }
+}
+
+/// Closes the details panel, for content that's done once something is chosen, like the launcher's.
+struct CloseDetailsAction {
+    let run: () -> Void
+
+    func callAsFunction() { run() }
+}
+
+extension EnvironmentValues {
+    @Entry var closeDetails: CloseDetailsAction?
 }
 
 /// The title and the close button, the same for every widget's details.
@@ -94,6 +106,7 @@ private struct DetailsContentView: View {
         case .openRouterModels(let browser): OpenRouterCatalogueView(browser: browser)
         case .stash(let browser): StashDetailsView(browser: browser)
         case .docker(let browser): DockerDetailsView(browser: browser)
+        case .appLauncher(let browser): AppLauncherDetailsView(browser: browser)
         }
     }
 }

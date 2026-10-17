@@ -12,6 +12,8 @@ enum DetailsRequest: Hashable {
     case stash(composing: Bool)
     /// Every container in one Docker context.
     case docker(context: DockerContextChoice)
+    /// Every app, for the launcher `widget`, starting with `scope`.
+    case appLauncher(widget: WidgetInstance.ID, scope: LauncherScope)
 }
 
 /// What the details panel shows, with the state it keeps while open: search text, choices, what's expanded. Nothing
@@ -20,6 +22,7 @@ enum DetailsContent {
     case openRouterModels(OpenRouterCatalogueBrowser)
     case stash(StashBrowser)
     case docker(DockerBrowser)
+    case appLauncher(AppLauncherBrowser)
 
     init(_ request: DetailsRequest, stash: StashStore) {
         switch request {
@@ -29,6 +32,8 @@ enum DetailsContent {
             self = .stash(StashBrowser(store: stash, composing: composing))
         case .docker(let context):
             self = .docker(DockerBrowser(context: context))
+        case .appLauncher(let widget, let scope):
+            self = .appLauncher(AppLauncherBrowser(widgetID: widget, scope: scope))
         }
     }
 
@@ -38,6 +43,7 @@ enum DetailsContent {
         case .openRouterModels: "OpenRouter Models"
         case .stash: "Stash"
         case .docker: "Docker"
+        case .appLauncher: "Apps"
         }
     }
 
@@ -47,6 +53,7 @@ enum DetailsContent {
         case .openRouterModels: .openRouter
         case .stash: .stash
         case .docker: .docker
+        case .appLauncher: .appLauncher
         }
     }
 
@@ -60,7 +67,12 @@ enum DetailsContent {
         // The same context again keeps the search.
         case (.docker(let browser), .docker(let context)):
             return browser.context == context
-        case (.openRouterModels, _), (.stash, _), (.docker, _):
+        // The same launcher again keeps the search, and shows what it asked for.
+        case (.appLauncher(let browser), .appLauncher(let widget, let scope)):
+            guard browser.widgetID == widget else { return false }
+            browser.scope = scope
+            return true
+        case (.openRouterModels, _), (.stash, _), (.docker, _), (.appLauncher, _):
             return false
         }
     }
@@ -72,6 +84,7 @@ enum DetailsContent {
         case .openRouterModels: false
         case .stash(let browser): browser.handlesKey(event)
         case .docker: false
+        case .appLauncher(let browser): browser.handlesKey(event)
         }
     }
 }
@@ -121,7 +134,7 @@ final class DetailsSession {
                 return OpenRouterDemand()
             }
             return OpenRouterDemand(catalogue: settings.sync)
-        case .stash, .docker:
+        case .stash, .docker, .appLauncher:
             return OpenRouterDemand()
         }
     }
@@ -130,6 +143,17 @@ final class DetailsSession {
     func dockerDemand() -> DockerDemand {
         guard case .docker(let browser) = content else { return DockerDemand() }
         return DockerDemand(contexts: [browser.context], stats: browser.context)
+    }
+
+    /// Running apps, and the launcher's pinned ones, while the content lists them. This keeps the launcher's dots
+    /// live behind it too, as the panel it covers stops counting.
+    func appLauncherDemand(in configuration: AppConfiguration) -> AppLauncherDemand {
+        guard case .appLauncher(let browser) = content else { return AppLauncherDemand() }
+        var demand = AppLauncherDemand(isShown: true, listsRunning: true)
+        if let widget = configuration.widget(browser.widgetID) {
+            demand.pinned = configuration.appLauncherDemand(of: [widget]).pinned
+        }
+        return demand
     }
 }
 

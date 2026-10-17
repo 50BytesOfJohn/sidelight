@@ -28,5 +28,7 @@ public enum Log {
     public static let awake = Logger(subsystem: subsystem, category: "awake")
     /// Container names and ports only at the debug level: they can be private project names.
     public static let docker = Logger(subsystem: subsystem, category: "docker")
+    /// App paths only at the debug level: they can name private projects.
+    public static let appLauncher = Logger(subsystem: subsystem, category: "app-launcher")
     public static let process = Logger(subsystem: subsystem, category: "process")
 }
