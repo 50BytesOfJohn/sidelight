@@ -38,7 +38,11 @@ struct AppEnvironment {
     /// How widgets open the details panel in place of their panel.
     let details: DetailsPresenter
     let hotkeys: HotkeyCenter
+    /// Whether Sidelight may move other apps' windows and read their selection.
+    let accessibility: AccessibilityPermission
     let windowAvoider: WindowAvoider
+    /// Moves and resizes the frontmost window on its shortcuts. Not a data service: nothing runs between presses.
+    let windowManager: WindowManager
     let loginItem: LoginItem
     let rectangle: RectangleIntegration
     let updater: Updater
@@ -99,7 +103,9 @@ extension View {
             .environment(app.awake)
             .environment(app.details)
             .environment(app.hotkeys)
+            .environment(app.accessibility)
             .environment(app.windowAvoider)
+            .environment(app.windowManager)
             .environment(app.loginItem)
             .environment(app.rectangle)
             .environment(app.updater)

@@ -5,15 +5,39 @@ import SidelightCore
 import os
 
 /// What a global shortcut does.
-enum HotkeyAction: UInt32, CaseIterable {
+enum HotkeyAction: Hashable, CaseIterable {
     /// Shows or hides the panels, and the details panel with them. Registered all the time.
-    case togglePanels = 1
+    case togglePanels
     /// Closes the details panel. Registered only while one is open, so it takes nothing from other apps otherwise.
-    case closeDetails = 2
+    case closeDetails
     /// Stashes the frontmost app's selected text. Registered only while a Stash widget is in the configuration.
-    case stashSelection = 3
+    case stashSelection
     /// Stashes the clipboard's text. Registered only while a Stash widget is in the configuration.
-    case stashClipboard = 4
+    case stashClipboard
+    /// Moves or resizes the frontmost window. Registered only while the window manager is on.
+    case window(WindowAction)
+
+    /// In the order shortcuts are registered: an earlier action wins a shortcut two share. The panel's and the
+    /// stash's come before the window manager's.
+    static let allCases: [HotkeyAction] =
+        [.togglePanels, .closeDetails, .stashSelection, .stashClipboard] + WindowAction.allCases.map(Self.window)
+
+    /// The identifier Carbon reports a press with: 1 to 4 for the panel's and the stash's, then 100 on for the window
+    /// manager's, in ``WindowAction`` order.
+    var carbonID: UInt32 {
+        switch self {
+        case .togglePanels: 1
+        case .closeDetails: 2
+        case .stashSelection: 3
+        case .stashClipboard: 4
+        case .window(let action): 100 + UInt32(WindowAction.allCases.firstIndex(of: action) ?? 0)
+        }
+    }
+
+    init?(carbonID: UInt32) {
+        guard let action = Self.allCases.first(where: { $0.carbonID == carbonID }) else { return nil }
+        self = action
+    }
 
     /// What the log calls it.
     var logName: String {
@@ -22,6 +46,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .closeDetails: "close details"
         case .stashSelection: "stash selection"
         case .stashClipboard: "stash clipboard"
+        case .window(let action): "window \(action.rawValue)"
         }
     }
 }
@@ -64,18 +89,41 @@ final class HotkeyCenter {
     /// Gives `action` the shortcut `hotkey`, replacing the one it had; one that's turned off takes it away. Asking
     /// again for one that didn't work tries again.
     func register(_ hotkey: Hotkey, for action: HotkeyAction) {
-        guard hotkey.isEnabled else { return unregister(action) }
-        guard requested[action] != hotkey || problems[action] != nil else { return }
-        requested[action] = hotkey
-        reconcile()
+        register([(action, hotkey)])
+    }
+
+    /// Gives each action its shortcut, as ``register(_:for:)`` does, then registers them all in one go.
+    func register(_ bindings: [(action: HotkeyAction, hotkey: Hotkey)]) {
+        var changed = false
+        for (action, hotkey) in bindings {
+            guard hotkey.isEnabled else {
+                changed = forget(action) || changed
+                continue
+            }
+            guard requested[action] != hotkey || problems[action] != nil else { continue }
+            requested[action] = hotkey
+            changed = true
+        }
+        if changed { reconcile() }
     }
 
     /// Takes `action`'s shortcut away, with what it would fall back to.
     func unregister(_ action: HotkeyAction) {
-        guard requested[action] != nil else { return }
+        unregister([action])
+    }
+
+    /// Takes each action's shortcut away, in one go.
+    func unregister(_ actions: [HotkeyAction]) {
+        let changed = actions.reduce(false) { forget($1) || $0 }
+        if changed { reconcile() }
+    }
+
+    /// Forgets `action`'s shortcut; whether it had one.
+    private func forget(_ action: HotkeyAction) -> Bool {
+        guard requested[action] != nil else { return false }
         requested[action] = nil
         lastWorking[action] = nil
-        reconcile()
+        return true
     }
 
     /// Frees every shortcut while a new one is recorded.
@@ -156,7 +204,7 @@ final class HotkeyCenter {
     /// exclusive owner (`eventHotKeyExistsErr`), then given back and registered shared, so Sidelight never takes a
     /// shortcut from the apps sharing it. An app that takes it exclusively later can't be noticed.
     private func acquire(_ hotkey: Hotkey, for action: HotkeyAction) -> OSStatus {
-        let identifier = EventHotKeyID(signature: Self.signature, id: action.rawValue)
+        let identifier = EventHotKeyID(signature: Self.signature, id: action.carbonID)
         func register(options: UInt32) -> (status: OSStatus, reference: EventHotKeyRef?) {
             var reference: EventHotKeyRef?
             let status = RegisterEventHotKey(
@@ -177,6 +225,7 @@ final class HotkeyCenter {
     }
 
     private func release(_ action: HotkeyAction) {
+        held.remove(action)
         guard let registration = registered.removeValue(forKey: action) else { return }
         UnregisterEventHotKey(registration.reference)
         Log.app.debug(
@@ -188,8 +237,14 @@ final class HotkeyCenter {
         if problems[action] != problem { problems[action] = problem }
     }
 
+    /// Window actions whose keys are down: a held shortcut acts once, whether or not Carbon repeats the press.
+    @ObservationIgnored private var held: Set<HotkeyAction> = []
+
     private func pressed(_ identifier: UInt32) {
-        guard let action = HotkeyAction(rawValue: identifier) else { return }
+        guard let action = HotkeyAction(carbonID: identifier) else { return }
+        if case .window = action {
+            guard held.insert(action).inserted else { return }
+        }
         // So `log stream` shows the key arrived, whatever the action then does.
         Log.app.info("Hotkey pressed for \(action.logName, privacy: .public)")
         guard let handler = handlers[action] else {
@@ -198,9 +253,17 @@ final class HotkeyCenter {
         handler()
     }
 
+    private func released(_ identifier: UInt32) {
+        guard let action = HotkeyAction(carbonID: identifier) else { return }
+        held.remove(action)
+    }
+
     private func installEventHandlerIfNeeded() {
         guard eventHandler == nil else { return }
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var eventTypes = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased)),
+        ]
         let handler: EventHandlerUPP = { _, event, context in
             guard let context, let event else { return OSStatus(eventNotHandledErr) }
             var identifier = EventHotKeyID()
@@ -212,15 +275,16 @@ final class HotkeyCenter {
             }
             let center = Unmanaged<HotkeyCenter>.fromOpaque(context).takeUnretainedValue()
             let id = identifier.id
+            let isPress = GetEventKind(event) == UInt32(kEventHotKeyPressed)
             // Let Carbon finish dispatching before reacting.
-            Task { @MainActor in center.pressed(id) }
+            Task { @MainActor in isPress ? center.pressed(id) : center.released(id) }
             return noErr
         }
         InstallEventHandler(
             GetApplicationEventTarget(),
             handler,
-            1,
-            &eventType,
+            eventTypes.count,
+            &eventTypes,
             Unmanaged.passUnretained(self).toOpaque(),
             &eventHandler
         )

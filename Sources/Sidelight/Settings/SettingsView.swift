@@ -29,6 +29,7 @@ struct SettingsView: View {
                 case .panel: PanelSettingsPane()
                 case .appearance: AppearanceSettingsPane()
                 case .windows: WindowsSettingsPane()
+                case .windowManager: WindowManagerSettingsPane()
                 case .accounts: AccountsSettingsPane()
                 case .shortcuts: ShortcutsSettingsPane()
                 case .general: GeneralSettingsPane()
@@ -53,7 +54,7 @@ struct SettingsView: View {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case panel, appearance, windows, accounts, shortcuts, general
+    case panel, appearance, windows, windowManager, accounts, shortcuts, general
 
     var id: Self { self }
 
@@ -62,6 +63,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .panel: "Panel & Displays"
         case .appearance: "Appearance"
         case .windows: "Window Avoidance"
+        case .windowManager: "Window Manager"
         case .accounts: "Accounts"
         case .shortcuts: "Keyboard Shortcuts"
         case .general: "General"
@@ -71,9 +73,9 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     var sidebarTitle: String {
         switch self {
         case .panel: "Panel"
-        case .windows: "Windows"
+        case .windows: "Avoidance"
         case .shortcuts: "Shortcuts"
-        case .appearance, .accounts, .general: title
+        case .appearance, .windowManager, .accounts, .general: title
         }
     }
 
@@ -82,6 +84,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .panel: "sidebar.left"
         case .appearance: "paintbrush.fill"
         case .windows: "macwindow.on.rectangle"
+        case .windowManager: "rectangle.split.2x1.fill"
         case .accounts: "person.crop.circle.fill"
         case .shortcuts: "keyboard.fill"
         case .general: "gearshape.fill"
@@ -93,6 +96,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .panel: .blue
         case .appearance: .pink
         case .windows: .orange
+        case .windowManager: .green
         case .accounts: .indigo
         case .shortcuts: .teal
         case .general: .gray

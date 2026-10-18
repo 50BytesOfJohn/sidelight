@@ -56,13 +56,32 @@ struct AccessibilityElement {
         return CGRect(origin: position, size: size)
     }
 
+    /// The app's window with keyboard focus (this element is its application element), falling back to its main
+    /// window, or why neither can be read. An app that didn't answer in time (`cannotComplete`) isn't asked again.
+    var focusedWindow: Result<AccessibilityElement, AccessibilityReadError> {
+        let focused = (read(kAXFocusedWindowAttribute) as Result<AXUIElement, AccessibilityReadError>)
+        if case .failure(.failed(.cannotComplete)) = focused { return focused.map(AccessibilityElement.init) }
+        guard case .failure = focused else { return focused.map(AccessibilityElement.init) }
+        return (read(kAXMainWindowAttribute) as Result<AXUIElement, AccessibilityReadError>)
+            .map(AccessibilityElement.init)
+    }
+
+    /// Whether the app lets its window be moved.
+    var isPositionSettable: Bool { isSettable(kAXPositionAttribute) }
+    /// Whether the app lets its window be resized: not for a window of a fixed size.
+    var isSizeSettable: Bool { isSettable(kAXSizeAttribute) }
+
     /// Resizes, moves, then fixes whatever didn't take. Shrinking first means a window never has to cross the
     /// screen's edge on its way; an app that clamped the size while the window still stood in its old place gets it
     /// again once it's moved, and one that clamped the origin while the old size still overflowed gets that again.
     ///
     /// While the app's enhanced user interface is on (VoiceOver, and some window tools, turn it on), apps animate
     /// frame changes and can drop part of one, so it's off for the move and back on after.
-    func setFrame(_ frame: CGRect) {
+    ///
+    /// Returns the frame the app accepted, which an app with a minimum or fixed size makes differ; `nil` once the
+    /// window can't be read.
+    @discardableResult
+    func setFrame(_ frame: CGRect) -> CGRect? {
         let application = processIdentifier.map(Self.application)
         let enhancedInterface = application?.attribute(Self.enhancedUserInterfaceAttribute) as Bool? ?? false
         if enhancedInterface { application?.setAttribute(Self.enhancedUserInterfaceAttribute, to: false) }
@@ -70,14 +89,16 @@ struct AccessibilityElement {
 
         setSize(frame.size)
         setPosition(frame.origin)
-        guard var actual = self.frame else { return }
+        guard var actual = self.frame else { return nil }
         if abs(actual.width - frame.width) > 1 || abs(actual.height - frame.height) > 1 {
             setSize(frame.size)
             actual = self.frame ?? actual
         }
         if abs(actual.minX - frame.minX) > 1 || abs(actual.minY - frame.minY) > 1 {
             setPosition(frame.origin)
+            actual = self.frame ?? actual
         }
+        return actual
     }
 
     /// The app's element that has keyboard focus (a text field, a text view, a web area), or why it can't be read.
@@ -127,6 +148,11 @@ struct AccessibilityElement {
 
     private func setAttribute(_ name: String, to value: Bool) {
         AXUIElementSetAttributeValue(element, name as CFString, value as CFBoolean)
+    }
+
+    private func isSettable(_ name: String) -> Bool {
+        var settable: DarwinBoolean = false
+        return AXUIElementIsAttributeSettable(element, name as CFString, &settable) == .success && settable.boolValue
     }
 
     private func attribute<Value>(_ name: String) -> Value? {

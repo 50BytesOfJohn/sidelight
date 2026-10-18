@@ -45,9 +45,6 @@ struct PanelRegion: Equatable {
 /// With avoidance off it watches nothing, asks for nothing and remembers nothing, so it costs nothing.
 @Observable
 final class WindowAvoider {
-    /// While Accessibility access isn't granted, it's checked this often at first, then less and less often.
-    static let trustPollInterval: Duration = .seconds(3)
-    static let maximumTrustPollInterval: Duration = .seconds(60)
     static let mouseUpPollInterval: Duration = .milliseconds(50)
     /// An app not ready for Accessibility yet is tried again after this, then twice as long each time up to the
     /// maximum, so a slow launch is still caught without asking a hung app often.
@@ -65,9 +62,6 @@ final class WindowAvoider {
     /// After the Space changes or the screens wake, the window server takes a moment to list what's shown now.
     static let spaceChangeSettleDelay: Duration = .milliseconds(300)
     static let wakeSettleDelay: Duration = .seconds(1)
-
-    /// Whether the user granted Accessibility access.
-    private(set) var isTrusted = AXIsProcessTrusted()
 
     @ObservationIgnored var mode: WindowAvoidanceMode = .smart {
         didSet {
@@ -144,7 +138,6 @@ final class WindowAvoider {
     @ObservationIgnored private var pendingRegistrations: [pid_t: Task<Void, Never>] = [:]
     @ObservationIgnored private var windowsAwaitingMouseUp: [PendingWindow] = []
     @ObservationIgnored private var mouseUpTask: Task<Void, Never>?
-    @ObservationIgnored private let trustPoll = PacedTask()
     @ObservationIgnored private var workspaceObservations: [NotificationCenter.ObservationToken] = []
     @ObservationIgnored private var isStarted = false
     /// Windows Sidelight moved and may put back. Only ever in memory, and only for this run.
@@ -163,11 +156,14 @@ final class WindowAvoider {
     private let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
     /// Which apps' windows it may move, besides being apps with windows other than Sidelight.
     @ObservationIgnored private let includes: (NSRunningApplication) -> Bool
+    @ObservationIgnored private let permission: AccessibilityPermission
 
     /// - Parameter includes: Which apps' windows it may move: every app with windows, unless the app's composition
     ///   narrows it (to one disposable app, say, when trying window movement out).
-    init(includes: @escaping (NSRunningApplication) -> Bool = { _ in true }) {
+    init(permission: AccessibilityPermission, includes: @escaping (NSRunningApplication) -> Bool = { _ in true }) {
+        self.permission = permission
         self.includes = includes
+        permission.onChange { [weak self] in self?.trustChanged($0) }
     }
 
     /// Whether `application`'s windows may be moved: a regular app's, or an accessory app's (a menu bar app's
@@ -183,20 +179,12 @@ final class WindowAvoider {
         application.activationPolicy == .regular && isEligible(application)
     }
 
-    /// Starts observing apps while ``mode`` isn't off. Without Accessibility access yet, polls until it's granted.
+    /// Starts observing apps while ``mode`` isn't off. Without Accessibility access yet, waits for it.
     func start(promptingForAccess: Bool) {
         guard !isStarted else { return }
         isStarted = true
         AccessibilityElement.limitMessagingTimeout()
         if mode != .off { activate(promptingForAccess: promptingForAccess) }
-    }
-
-    /// Shows the system prompt and opens the Accessibility pane in System Settings.
-    func requestAccess() {
-        _ = Self.checkTrust(prompting: true)
-        SystemSettingsPane.accessibilityPrivacy.open()
-        // The person is about to grant it: notice that soon.
-        if trustPoll.isRunning { pollForTrust() }
     }
 
     /// Stops observing, and drops every pending change and what it remembered. Call before the app quits, after
@@ -269,7 +257,8 @@ final class WindowAvoider {
         }
         guard !changed.isEmpty else { return }
         guard AXIsProcessTrusted() else {
-            accessWasRevoked()
+            // Tells this avoider too, which then forgets what it moved.
+            permission.refresh()
             return
         }
         guard let primaryScreen = NSScreen.primary else { return }
@@ -437,12 +426,18 @@ final class WindowAvoider {
                 displayFrame: region.displayFrame, baselines: baselines))
     }
 
-    /// Without access, nothing can move: forget what was moved, and stop watching until access comes back. Then
-    /// windows are kept clear afresh.
-    private func accessWasRevoked() {
-        guard isTrusted else { return }
+    /// Forgets that it moved `window`, so it's never put back: the window manager placed it on purpose since, often
+    /// right where avoidance had left it, which would otherwise still count as untouched.
+    func forget(_ window: AccessibilityElement, pid: pid_t) {
+        movedWindows.removeAll { $0.isWindow(window, of: pid) }
+    }
+
+    /// Access granted: windows are kept clear afresh. Revoked: nothing can move, so it forgets what was moved and
+    /// stops watching until access comes back.
+    private func trustChanged(_ isTrusted: Bool) {
+        guard mode != .off, isStarted else { return }
+        if isTrusted { return registerAllApplications() }
         Log.avoidance.notice("Accessibility access was revoked; forgetting moved windows")
-        isTrusted = false
         movedWindows = []
         pendingTransitionStart = nil
         settlingTransition.cancel()
@@ -450,28 +445,24 @@ final class WindowAvoider {
         cancelChecks()
         for pid in Array(observers.keys) { unregister(pid) }
         registrationAttempts = [:]
-        pollForTrust()
     }
 
     // MARK: Observation
 
-    private static func checkTrust(prompting: Bool) -> Bool {
-        AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": prompting] as CFDictionary)
-    }
-
     private func activate(promptingForAccess: Bool) {
-        if Self.checkTrust(prompting: promptingForAccess) {
-            isTrusted = true
-            registerAllApplications()
+        permission.setNeeded(true, by: .avoidance)
+        let wasTrusted = permission.isTrusted
+        if permission.check(prompting: promptingForAccess) {
+            // Access that's only now noticed reached ``trustChanged(_:)``, which registered already.
+            if wasTrusted { registerAllApplications() }
         } else {
             Log.avoidance.info("Accessibility access not granted yet; waiting for it")
-            pollForTrust()
         }
         observeWorkspace()
     }
 
     private func deactivate() {
-        trustPoll.stop()
+        permission.setNeeded(false, by: .avoidance)
         mouseUpTask?.cancel()
         mouseUpTask = nil
         windowsAwaitingMouseUp = []
@@ -486,19 +477,6 @@ final class WindowAvoider {
         for pid in Array(observers.keys) { unregister(pid) }
         registrationAttempts = [:]
         Log.avoidance.info("Stopped observing windows")
-    }
-
-    private func pollForTrust() {
-        var interval = Self.trustPollInterval
-        trustPoll.start(after: interval) { [weak self] in
-            guard AXIsProcessTrusted() else {
-                interval = min(interval * 2, Self.maximumTrustPollInterval)
-                return interval
-            }
-            self?.isTrusted = true
-            self?.registerAllApplications()
-            return nil
-        }
     }
 
     private func observeWorkspace() {
@@ -797,7 +775,8 @@ final class WindowAvoider {
     @discardableResult
     private func check(_ scope: CheckScope, rechecking: Set<pid_t> = [], reason: String) -> Int {
         let regions = occupiedRegions()
-        guard mode != .off, isStarted, isTrusted, !regions.isEmpty, let primaryScreen = NSScreen.primary else {
+        guard mode != .off, isStarted, permission.isTrusted, !regions.isEmpty, let primaryScreen = NSScreen.primary
+        else {
             return 0
         }
         let screenHeight = primaryScreen.frame.height

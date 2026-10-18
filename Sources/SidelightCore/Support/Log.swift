@@ -11,6 +11,7 @@ public enum Log {
     public static let configuration = Logger(subsystem: subsystem, category: "configuration")
     public static let accounts = Logger(subsystem: subsystem, category: "accounts")
     public static let avoidance = Logger(subsystem: subsystem, category: "avoidance")
+    public static let windowManager = Logger(subsystem: subsystem, category: "window-manager")
     public static let codex = Logger(subsystem: subsystem, category: "codex")
     public static let claudeCode = Logger(subsystem: subsystem, category: "claude-code")
     public static let claudeSessions = Logger(subsystem: subsystem, category: "claude-sessions")

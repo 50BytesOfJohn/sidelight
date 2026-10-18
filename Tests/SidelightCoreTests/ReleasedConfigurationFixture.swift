@@ -202,6 +202,13 @@ struct ReleasedConfigurationFixture {
         c.windowAvoidance = .clip
         c.hotkey = Hotkey(keyCode: 49, modifiers: [.control, .option, .shift], key: "Space")
         c.updates = UpdateSettings(checksAutomatically: false, installsAutomatically: true)
+        c.windowManager.isEnabled = true
+        c.windowManager.gap = 4
+        c.windowManager.padding = 12
+        c.windowManager.cyclesSizes = false
+        c.windowManager.shortcuts = WindowManagerPreset.spectacle.shortcuts
+        c.windowManager[action: .center] = Hotkey(
+            keyCode: 8, modifiers: [.control, .shift], key: "C", isEnabled: false)
         c.displays = [
             DisplayProfile(
                 id: "37D8832A-2D66-02CA-B9F7-8F30A301B230", name: "Studio Display", showsPanel: false, position: .top,

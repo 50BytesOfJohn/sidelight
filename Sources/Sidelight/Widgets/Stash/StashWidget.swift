@@ -88,14 +88,14 @@ struct StashSettingsEditor: View {
 /// macOS says when another app has taken a shortcut for itself, but not when one merely shares it.
 private struct StashCaptureStatus: View {
     @Environment(HotkeyCenter.self) private var hotkeys
-    @Environment(WindowAvoider.self) private var windowAvoider
+    @Environment(AccessibilityPermission.self) private var accessibility
     @Environment(SettingsNavigator.self) private var navigator
     @Environment(ConfigurationStore.self) private var store
 
     var body: some View {
-        // Access is asked for each time this is drawn, as window avoidance's flag goes stale while avoidance is off;
-        // reading the flag still redraws this when access is granted.
-        let _ = windowAvoider.isTrusted
+        // Access is asked for each time this is drawn, as the flag goes stale while nothing needs access; reading the
+        // flag still redraws this when access is granted.
+        let _ = accessibility.isTrusted
         let status = status(hasAccess: AXIsProcessTrusted())
         StatusRow(color: status.color, alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 3) {

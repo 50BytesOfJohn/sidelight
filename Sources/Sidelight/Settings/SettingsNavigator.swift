@@ -20,11 +20,14 @@ final class SettingsNavigator {
         case accounts(provider: AccountProvider?, adding: Bool)
         /// The Keyboard Shortcuts pane.
         case shortcuts
+        /// The Window Manager pane, with its shortcuts.
+        case windowManager
 
         var pane: SettingsPane {
             switch self {
             case .accounts: .accounts
             case .shortcuts: .shortcuts
+            case .windowManager: .windowManager
             }
         }
 
@@ -32,7 +35,7 @@ final class SettingsNavigator {
         var hasMoreThanPane: Bool {
             switch self {
             case .accounts: true
-            case .shortcuts: false
+            case .shortcuts, .windowManager: false
             }
         }
     }
@@ -42,6 +45,8 @@ final class SettingsNavigator {
     }
 
     func showShortcuts() { show(.shortcuts) }
+
+    func showWindowManager() { show(.windowManager) }
 
     private func show(_ request: Request) {
         self.request = request

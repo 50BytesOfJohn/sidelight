@@ -6,6 +6,7 @@ struct WindowsSettingsPane: View {
     @Environment(ConfigurationStore.self) private var store
     @Environment(DisplayMonitor.self) private var monitor
     @Environment(WindowAvoider.self) private var windowAvoider
+    @Environment(AccessibilityPermission.self) private var accessibility
     @Environment(RectangleIntegration.self) private var rectangle
 
     var body: some View {
@@ -30,19 +31,13 @@ struct WindowsSettingsPane: View {
             }
 
             Section {
-                LabeledContent("Accessibility access") {
-                    if windowAvoider.isTrusted {
-                        Label("Granted", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                    } else {
-                        Button("Grant Access…") { windowAvoider.requestAccess() }
-                    }
-                }
+                AccessibilityAccessRow()
                 LabeledContent("Windows already under the panel") {
                     Button("Move Them Now") { windowAvoider.avoidAllWindows() }
-                        .disabled(!windowAvoider.isTrusted || configuration.windowAvoidance == .off)
+                        .disabled(!accessibility.isTrusted || configuration.windowAvoidance == .off)
                 }
             } footer: {
-                if !windowAvoider.isTrusted {
+                if !accessibility.isTrusted {
                     Text("macOS only lets Sidelight move other apps' windows with Accessibility access.")
                         .settingsFootnote()
                 }
