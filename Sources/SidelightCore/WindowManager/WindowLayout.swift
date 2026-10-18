@@ -76,8 +76,12 @@ public enum WindowLayout {
     /// Where a window the app sized `accepted` goes when it refused `tile`'s size (a minimum or maximum size): against
     /// the edges of the work area the tile touches (left for a left half, top and right for the top-right corner),
     /// centred in the tile along an axis where it touches both or neither, then moved into `area` where it fits.
-    public static func anchored(_ accepted: CGSize, for action: WindowAction, tile: CGRect, in area: CGRect) -> CGRect {
-        let unit = action.unitRect() ?? UnitRect(minX: 0.5, minY: 0.5, maxX: 0.5, maxY: 0.5)
+    /// `isPortrait` is the display's, as the tile was laid out for: a third's edges depend on it.
+    public static func anchored(
+        _ accepted: CGSize, for action: WindowAction, tile: CGRect, in area: CGRect, isPortrait: Bool = false
+    ) -> CGRect {
+        let unit =
+            action.unitRect(isPortrait: isPortrait) ?? UnitRect(minX: 0.5, minY: 0.5, maxX: 0.5, maxY: 0.5)
         func origin(start: Double, end: Double, tileMin: CGFloat, tileLength: CGFloat, length: CGFloat) -> CGFloat {
             switch (start <= 0, end >= 1) {
             case (true, false): tileMin
@@ -90,6 +94,13 @@ public enum WindowLayout {
         let y = origin(
             start: unit.minY, end: unit.maxY, tileMin: tile.minY, tileLength: tile.height, length: accepted.height)
         return clamped(CGRect(origin: CGPoint(x: x, y: y), size: accepted), to: area)
+    }
+
+    /// `size` within a window's minimum and maximum sizes, as an app would size it when asked for `size`.
+    public static func clampedSize(_ size: CGSize, minimum: CGSize, maximum: CGSize) -> CGSize {
+        CGSize(
+            width: min(max(size.width, minimum.width), max(minimum.width, maximum.width)),
+            height: min(max(size.height, minimum.height), max(minimum.height, maximum.height)))
     }
 
     /// `frame` moved (never resized) into `area` along each axis where it fits; against its leading edge where not.

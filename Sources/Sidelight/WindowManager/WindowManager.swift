@@ -74,12 +74,12 @@ final class WindowManager {
             if let placement = cycle.placement(isSameWindow: isSameWindow, frame: current),
                 let tile = frame(for: placement.action, step: placement.step, size: current.size, on: area)
             {
-                guard let accepted = place(window, at: tile, from: current, as: placement.action, in: area.workArea)
+                guard let accepted = place(window, at: tile, from: current, as: placement.action, on: area)
                 else { return fail(action, "it can't be moved") }
                 cycle.record(action, placement: placement, accepted: accepted, now: now)
             } else {
                 let moved = WindowLayout.transfer(current, from: displays[source].workArea, to: area.workArea)
-                guard let accepted = place(window, at: moved, from: current, as: nil, in: area.workArea) else {
+                guard let accepted = place(window, at: moved, from: current, as: nil, on: area) else {
                     return fail(action, "it can't be moved")
                 }
                 cycle.record(action, placement: nil, accepted: accepted, now: now)
@@ -89,7 +89,7 @@ final class WindowManager {
                 for: action, isSameWindow: isSameWindow, frame: current, now: now, cycles: settings.cyclesSizes)
             let area = displays[source]
             guard let tile = frame(for: action, step: step, size: current.size, on: area) else { return }
-            guard let accepted = place(window, at: tile, from: current, as: action, in: area.workArea) else {
+            guard let accepted = place(window, at: tile, from: current, as: action, on: area) else {
                 return fail(action, "it can't be moved")
             }
             cycle.record(action, placement: (action, step), accepted: accepted, now: now)
@@ -110,12 +110,14 @@ final class WindowManager {
 
     /// Puts `window`, now at `current`, at `frame`, as the tile for `action` (`nil` for a move to another display).
     /// A window of a fixed size keeps it, centred where the tile is; one the app sizes differently is moved again to
-    /// keep the tile's edges (see ``WindowLayout/anchored(_:for:tile:in:)``). Returns the frame the app accepted, after
+    /// keep the tile's edges (see ``WindowLayout/anchored(_:for:tile:in:isPortrait:)``). Returns the frame the app accepted, after
     /// noting where to put the window back and telling window avoidance the window is placed on purpose; `nil` when it
     /// can't be moved.
     private func place(
-        _ window: ManagedWindow, at frame: CGRect, from current: CGRect, as action: WindowAction?, in area: CGRect
+        _ window: ManagedWindow, at frame: CGRect, from current: CGRect, as action: WindowAction?,
+        on display: DisplayArea
     ) -> CGRect? {
+        let area = display.workArea
         guard window.isPositionSettable else { return nil }
         var requested = frame
         if !window.isSizeSettable {
@@ -128,7 +130,10 @@ final class WindowManager {
         guard var accepted = window.setFrame(requested) else { return nil }
         if abs(accepted.width - requested.width) > 1 || abs(accepted.height - requested.height) > 1 {
             let anchored =
-                action.map { WindowLayout.anchored(accepted.size, for: $0, tile: requested, in: area) }
+                action.map {
+                    WindowLayout.anchored(
+                        accepted.size, for: $0, tile: requested, in: area, isPortrait: display.isPortrait)
+                }
                 ?? WindowLayout.clamped(accepted, to: area)
             if !ReservationTransition.isUnchanged(anchored, since: accepted) {
                 accepted = window.setFrame(anchored) ?? accepted
@@ -290,7 +295,21 @@ private enum ManagedWindow {
         case .other(let element, _, _):
             return element.setFrame(frame)
         case .own(let own):
-            guard let window = own.window, let cocoa = Self.accessibility(frame) else { return nil }
+            guard let window = own.window, var cocoa = Self.accessibility(frame) else { return nil }
+            // AppKit doesn't hold a frame set in code to the window's minimum and maximum sizes, as an app does
+            // for an Accessibility resize: so it's sized within them here, and anchored like any other app's.
+            let contentMinimum = window.frameRect(forContentRect: CGRect(origin: .zero, size: window.contentMinSize))
+            let contentMaximum = window.frameRect(forContentRect: CGRect(origin: .zero, size: window.contentMaxSize))
+            let size = WindowLayout.clampedSize(
+                cocoa.size,
+                minimum: CGSize(
+                    width: max(window.minSize.width, contentMinimum.width),
+                    height: max(window.minSize.height, contentMinimum.height)),
+                maximum: CGSize(
+                    width: min(window.maxSize.width, contentMaximum.width),
+                    height: min(window.maxSize.height, contentMaximum.height)))
+            // Kept at the same top edge: Cocoa's origin is the bottom-left.
+            cocoa = CGRect(x: cocoa.minX, y: cocoa.maxY - size.height, width: size.width, height: size.height)
             window.setFrame(cocoa, display: true)
             return Self.accessibility(window.frame)
         }

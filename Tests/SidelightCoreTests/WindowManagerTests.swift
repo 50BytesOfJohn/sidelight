@@ -123,6 +123,30 @@ struct WindowLayoutTests {
             WindowLayout.anchored(CGSize(width: 1200, height: 600), for: .center, tile: area, in: area).minX == 0)
     }
 
+    @Test func `a constrained third on a portrait display keeps its bottom edge, centred across`() throws {
+        let area = CGRect(x: 0, y: 0, width: 600, height: 900)
+        let tile = try #require(WindowLayout.frame(for: .lastThird, in: area, gap: 0, isPortrait: true))
+        #expect(tile == CGRect(x: 0, y: 600, width: 600, height: 300))
+        #expect(
+            WindowLayout.anchored(
+                CGSize(width: 500, height: 200), for: .lastThird, tile: tile, in: area, isPortrait: true)
+                == CGRect(x: 50, y: 700, width: 500, height: 200))
+    }
+
+    @Test func `a size is held within a window's minimum and maximum`() {
+        let minimum = CGSize(width: 700, height: 520)
+        let maximum = CGSize(width: 1200, height: CGFloat.greatestFiniteMagnitude)
+        #expect(
+            WindowLayout.clampedSize(CGSize(width: 300, height: 200), minimum: minimum, maximum: maximum)
+                == minimum)
+        #expect(
+            WindowLayout.clampedSize(CGSize(width: 1500, height: 900), minimum: minimum, maximum: maximum)
+                == CGSize(width: 1200, height: 900))
+        // A maximum below the minimum gives way to the minimum.
+        #expect(
+            WindowLayout.clampedSize(CGSize(width: 900, height: 600), minimum: minimum, maximum: .zero) == minimum)
+    }
+
     @Test func `centring keeps the size, no bigger than the area`() {
         let area = CGRect(x: 100, y: 0, width: 1000, height: 800)
         #expect(
