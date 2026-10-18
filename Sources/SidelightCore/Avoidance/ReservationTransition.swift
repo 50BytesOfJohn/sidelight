@@ -1,60 +1,5 @@
 import CoreGraphics
 
-/// What reserves a display's edge: the panel itself, or the details panel standing in for it.
-public enum ReservationRole: String, Sendable {
-    case main
-    case details
-}
-
-/// The strip a display keeps clear, in Accessibility coordinates (see ``AvoidanceGeometry``).
-public struct Reservation: Equatable, Sendable {
-    public var frame: CGRect
-    public var edge: PanelPosition
-    public var role: ReservationRole
-
-    public init(frame: CGRect, edge: PanelPosition, role: ReservationRole) {
-        self.frame = frame
-        self.edge = edge
-        self.role = role
-    }
-}
-
-/// Where a window was before Sidelight moved it, for each panel that did, and where Sidelight left it. A layer per
-/// panel, so closing the details panel puts a window back where the side panel had it, and hiding everything puts
-/// it back where it was before either.
-public struct WindowBaselines: Equatable, Sendable {
-    /// Before the side panel or bar first moved it.
-    public var main: CGRect?
-    /// Before the details panel first moved it.
-    public var details: CGRect?
-    /// The frame the app ended up with the last time Sidelight moved it, which may not be what was asked for.
-    public var accepted: CGRect
-
-    public init(main: CGRect? = nil, details: CGRect? = nil, accepted: CGRect) {
-        self.main = main
-        self.details = details
-        self.accepted = accepted
-    }
-
-    /// Where it was before any panel moved it.
-    public var earliest: CGRect? { main ?? details }
-
-    public subscript(role: ReservationRole) -> CGRect? {
-        get {
-            switch role {
-            case .main: main
-            case .details: details
-            }
-        }
-        set {
-            switch role {
-            case .main: main = newValue
-            case .details: details = newValue
-            }
-        }
-    }
-}
-
 /// What happens to one window when a display's reservation changes from one strip to another in a single step: a
 /// details panel opening in place of the side panel or closing again, the panels being hidden or shown, or a panel
 /// moving or resizing.
@@ -77,20 +22,12 @@ public struct WindowBaselines: Equatable, Sendable {
 ///
 /// All rects use Accessibility coordinates, as ``AvoidanceGeometry`` does.
 public enum ReservationTransition {
-    /// Frames this close count as the same: apps round to whole points, and some to more.
-    public static let tolerance: CGFloat = 2
+    /// Frames this close count as the same (see ``WindowFrames/tolerance``).
+    static var tolerance: CGFloat { WindowFrames.tolerance }
 
     public struct Move: Equatable, Sendable {
-        public enum Reason: String, Sendable {
-            /// Out of a newly reserved strip.
-            case push
-            /// Back where it was before a panel moved it.
-            case restore
-            /// Following the edge it was snapped to.
-            case follow
-        }
-
-        public var reason: Reason
+        /// Never ``WindowMoveReason/keepClear``: that's everyday avoidance, not a transition.
+        public var reason: WindowMoveReason
         public var frame: CGRect
         /// Where to put the window instead if the app refuses ``frame``'s size (it has a minimum).
         public var fallback: CGRect?
@@ -99,7 +36,8 @@ public enum ReservationTransition {
         public var details: CGRect?
 
         public init(
-            reason: Reason, frame: CGRect, fallback: CGRect? = nil, main: CGRect? = nil, details: CGRect? = nil
+            reason: WindowMoveReason, frame: CGRect, fallback: CGRect? = nil, main: CGRect? = nil,
+            details: CGRect? = nil
         ) {
             self.reason = reason
             self.frame = frame
@@ -120,35 +58,38 @@ public enum ReservationTransition {
         case move(Move)
     }
 
-    /// Whether a window at `frame` is still where Sidelight left it at `accepted`: every edge within ``tolerance``.
-    public static func isUnchanged(_ frame: CGRect, since accepted: CGRect) -> Bool {
-        abs(frame.minX - accepted.minX) <= tolerance && abs(frame.minY - accepted.minY) <= tolerance
-            && abs(frame.width - accepted.width) <= tolerance && abs(frame.height - accepted.height) <= tolerance
-    }
-
     /// What to do with a window at `window`, on a display whose reservation changes from `old` to `new` (`nil`: none).
     ///
+    /// *Keep clear* applies to every window: a strip growing into a window pushes it whatever put it there. *Put it
+    /// back* applies only to a window avoidance moved itself, which is what `isPlacedOnPurpose` rules out — a
+    /// window manager tile isn't avoidance's to undo, so hiding the panels leaves it where it is, and following a
+    /// closing details panel's edge isn't its to decide either.
+    ///
     /// - Parameters:
-    ///   - baselines: What Sidelight remembers of the window; `nil` if it never moved it.
+    ///   - baselines: What avoidance remembers of the window; `nil` if it never moved it.
     ///   - visibleFrame: The display's visible frame.
     ///   - displayFrame: The display's whole frame. A window that isn't entirely on it never follows an edge.
+    ///   - isPlacedOnPurpose: Whether the window is still exactly where a deliberate placement left it.
     public static func decide(
         window: CGRect, baselines: WindowBaselines?, from old: Reservation?, to new: Reservation?,
-        visibleFrame: CGRect, displayFrame: CGRect, mode: WindowAvoidanceMode
+        visibleFrame: CGRect, displayFrame: CGRect, mode: WindowAvoidanceMode, isPlacedOnPurpose: Bool = false
     ) -> Decision {
         guard mode != .off else { return .leave(nil) }
-        // Remembered, and nobody has moved it since: still Sidelight's to put back.
-        let ours = baselines.flatMap { isUnchanged(window, since: $0.accepted) ? $0 : nil }
+        // Remembered, and nobody has moved it since: still avoidance's to put back. A deliberate placement never is,
+        // however much avoidance remembers of where the window used to be.
+        let ours =
+            isPlacedOnPurpose
+            ? nil : baselines.flatMap { WindowFrames.isUnchanged(window, since: $0.accepted) ? $0 : nil }
 
         guard let new else {
             // Everything released: back to before any panel moved it.
-            guard let ours, let target = ours.earliest, !isUnchanged(target, since: window) else {
+            guard let ours, let target = ours.earliest, !WindowFrames.isUnchanged(target, since: window) else {
                 return .leave(nil)
             }
             return .move(Move(reason: .restore, frame: target))
         }
 
-        if let old, old.role == .details, new.role == .main,
+        if !isPlacedOnPurpose, let old, old.role == .details, new.role == .main,
             let decision = closingDetails(
                 window: window, ours: ours, details: old, next: new, visibleFrame: visibleFrame,
                 displayFrame: displayFrame, mode: mode)
@@ -171,9 +112,10 @@ public enum ReservationTransition {
 
         // The new strip pushes what it covers; what it doesn't cover stays.
         let plan = AvoidanceGeometry.plan(
-            window: start, panel: new.frame, visibleFrame: visibleFrame, edge: new.edge, mode: mode)
+            window: start, panel: new.frame, visibleFrame: visibleFrame, edge: new.edge, mode: mode,
+            clearance: new.clearance)
         let target = plan?.frame ?? start
-        guard !isUnchanged(target, since: window) else { return .leave(ours) }
+        guard !WindowFrames.isUnchanged(target, since: window) else { return .leave(ours) }
         return .move(
             Move(
                 reason: plan == nil ? .restore : .push, frame: target, fallback: plan?.shiftFallback, main: kept.main,
@@ -198,7 +140,9 @@ public enum ReservationTransition {
         let before = ours?.details
         // A window Sidelight pushed against the details panel touches it because of that push, not because someone
         // snapped it there; it follows the edge back only if it was snapped to the returning edge before.
-        let snappedBefore = before.flatMap { contactGap(of: $0, edge: details.edge, boundary: boundary) }
+        let snappedBefore = before.flatMap {
+            contactGap(of: $0, edge: details.edge, boundary: boundary, clearance: details.clearance)
+        }
         let follow =
             before == nil || snappedBefore != nil
             ? followPlan(
@@ -209,7 +153,7 @@ public enum ReservationTransition {
         if let follow {
             // A window someone moved or resized since is theirs: it follows the edge, but isn't put back later.
             let main = ours?.main ?? follow.barBaseline
-            guard !isUnchanged(follow.plan.frame, since: window) else {
+            guard !WindowFrames.isUnchanged(follow.plan.frame, since: window) else {
                 return .leave(main.map { WindowBaselines(main: $0, accepted: window) })
             }
             return .move(
@@ -219,10 +163,11 @@ public enum ReservationTransition {
         guard let before else { return nil }
         // Back where it was before the details panel, kept clear of the returning strip.
         let plan = AvoidanceGeometry.plan(
-            window: before, panel: next.frame, visibleFrame: visibleFrame, edge: next.edge, mode: mode)
+            window: before, panel: next.frame, visibleFrame: visibleFrame, edge: next.edge, mode: mode,
+            clearance: next.clearance)
         let target = plan?.frame ?? before
         let main = ours?.main ?? (plan != nil ? before : nil)
-        guard !isUnchanged(target, since: window) else {
+        guard !WindowFrames.isUnchanged(target, since: window) else {
             return .leave(main.map { WindowBaselines(main: $0, accepted: window) })
         }
         return .move(Move(reason: .restore, frame: target, fallback: plan?.shiftFallback, main: main))
@@ -240,10 +185,13 @@ public enum ReservationTransition {
 
     /// How far `frame`'s near edge is from `boundary` when it's snapped to it: touching it (`0`) or the usual avoidance
     /// gap away, within ``tolerance``. `nil` when it isn't snapped.
-    static func contactGap(of frame: CGRect, edge: PanelPosition, boundary: CGFloat) -> CGFloat? {
+    static func contactGap(
+        of frame: CGRect, edge: PanelPosition, boundary: CGFloat,
+        clearance: CGFloat = Reservation.defaultClearance
+    ) -> CGFloat? {
         let near = nearEdge(of: frame, edge: edge)
         if abs(near - boundary) <= tolerance { return 0 }
-        if abs(near - (boundary + AvoidanceGeometry.gap)) <= tolerance { return AvoidanceGeometry.gap }
+        if abs(near - (boundary + clearance)) <= tolerance { return clearance }
         return nil
     }
 
@@ -268,7 +216,7 @@ public enum ReservationTransition {
         let panel = AvoidanceGeometry.canonical(details.frame, edge: edge)
         let visible = AvoidanceGeometry.canonical(visibleFrame, edge: edge)
         guard canonicalWindow.minY < panel.maxY, canonicalWindow.maxY > panel.minY,
-            let contact = contactGap(of: window, edge: edge, boundary: panel.maxX)
+            let contact = contactGap(of: window, edge: edge, boundary: panel.maxX, clearance: details.clearance)
         else { return nil }
 
         let boundary = returningBoundary(details: details, next: next, visibleFrame: visibleFrame)
@@ -293,8 +241,8 @@ public enum ReservationTransition {
         guard next.edge.isBar else { return (plan, nil) }
         func clear(_ frame: CGRect) -> CGRect {
             AvoidanceGeometry.plan(
-                window: frame, panel: next.frame, visibleFrame: visibleFrame, edge: next.edge, mode: mode)?.frame
-                ?? frame
+                window: frame, panel: next.frame, visibleFrame: visibleFrame, edge: next.edge, mode: mode,
+                clearance: next.clearance)?.frame ?? frame
         }
         let unclipped = plan.frame
         plan.frame = clear(plan.frame)

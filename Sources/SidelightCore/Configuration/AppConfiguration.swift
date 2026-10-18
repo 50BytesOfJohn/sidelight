@@ -23,6 +23,8 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
     public var stash = StashOptions()
     /// What every Awake widget shares: whether the display stays on too.
     public var awake = AwakeOptions()
+    /// The shortcuts that move and resize the frontmost window, and how tiles are spaced.
+    public var windowManager = WindowManagerSettings()
     /// The panel's sections along its edge, each with its own widgets. Every panel shows at least one.
     public var sections: [PanelSection] = [PanelSection(widgets: AppConfiguration.defaultWidgets)]
     /// Per-display overrides of ``panel``.
@@ -161,7 +163,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
 extension AppConfiguration {
     private enum CodingKeys: String, CodingKey {
         case panel, appearance, windowAvoidance, hotkey, updates, details, stash, sections, displays, accounts
-        case defaultAccounts, awake
+        case defaultAccounts, awake, windowManager
     }
 
     /// Every setting released versions saved is required, as it always was. Settings added since take their
@@ -176,6 +178,7 @@ extension AppConfiguration {
         details = try container.decode(.details, or: DetailsPanelSettings())
         stash = container.decodeLeniently(.stash, or: StashOptions())
         awake = container.decodeLeniently(.awake, or: AwakeOptions())
+        windowManager = container.decodeLeniently(.windowManager, or: WindowManagerSettings())
         sections = try container.decode([PanelSection].self, forKey: .sections)
         displays = try container.decode([DisplayProfile].self, forKey: .displays)
         // An account or provider only a newer version knows is left out, rather than failing the whole file.

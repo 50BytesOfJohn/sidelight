@@ -10,8 +10,7 @@ extension WidgetMetadata {
         tint: .indigo,
         summary: "Your apps, one click away",
         details: "Opens apps, and brings running ones forward, like the Dock. Running apps get a dot. Sidelight "
-            + "is told when apps open and quit, and never checks on a timer. New Window uses Accessibility, like "
-            + "window avoidance does."
+            + "is told when apps open and quit, and never checks on a timer. New Window needs Accessibility access."
     )
 }
 
@@ -31,7 +30,7 @@ struct AppLauncherWidgetView: View {
     @Environment(AppLauncherService.self) private var service
     @Environment(DetailsPresenter.self) private var details
     @Environment(ConfigurationStore.self) private var store
-    @Environment(WindowAvoider.self) private var windowAvoider
+    @Environment(AccessibilityPermission.self) private var accessibility
     @Environment(\.widgetPlacement) private var placement
     @Environment(\.isWidgetPreview) private var isPreview
     /// The content's width, measured once and again only when the panel resizes.
@@ -193,7 +192,7 @@ struct AppLauncherWidgetView: View {
         return LauncherItemActions(
             service: service,
             edit: { [store] change in store.configuration.updateAppLauncher(placement.widgetID, change) },
-            showAllApps: { showAllApps(scope: .pinned) }, canPressMenus: windowAvoider.isTrusted)
+            showAllApps: { showAllApps(scope: .pinned) }, canPressMenus: accessibility.isTrusted)
     }
 
     private var allAppsAction: (() -> Void)? {

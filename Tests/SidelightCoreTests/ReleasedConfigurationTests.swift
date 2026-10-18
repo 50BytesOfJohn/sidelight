@@ -41,6 +41,13 @@ struct ReleasedConfigurationTests {
         }
     }
 
+    @Test(arguments: releases)
+    func `a released configuration loads with the window manager off, on the Sidelight preset`(release: String) throws {
+        let loaded = try AppConfiguration(json: Self.load(release))
+        #expect(loaded.windowManager == WindowManagerSettings())
+        #expect(loaded.windowManager.preset == .sidelight)
+    }
+
     @Test func `the retired Agent activity widget is the only one dropped`() throws {
         let url = try #require(
             Bundle.module.url(forResource: "v0.2.0", withExtension: "json", subdirectory: "ReleasedConfigurations"))

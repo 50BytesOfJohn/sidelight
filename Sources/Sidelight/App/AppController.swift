@@ -26,6 +26,10 @@ final class AppController {
         let keyring = AccountKeyring(secrets: composition.accountSecrets)
         let accounts = AccountStore(configuration: configurationStore, keyring: keyring)
         let accountAccess = AccountAccess(keyring: keyring, accounts: accounts)
+        let accessibility = AccessibilityPermission()
+        let windowPlacer = WindowPlacer()
+        let windowAvoider = WindowAvoider(
+            permission: accessibility, placer: windowPlacer, includes: composition.movesWindows)
         let stash = StashStore(
             fileURL: composition.stashFile, deleteDoneAfter: configurationStore.configuration.stash.deleteDonePeriod)
         stash.order = configurationStore.configuration.stash.order
@@ -57,7 +61,10 @@ final class AppController {
             awake: AwakeSession(),
             details: DetailsPresenter(),
             hotkeys: HotkeyCenter(),
-            windowAvoider: WindowAvoider(includes: composition.movesWindows),
+            accessibility: accessibility,
+            windowAvoider: windowAvoider,
+            windowPlacer: windowPlacer,
+            windowManager: WindowManager(permission: accessibility, placer: windowPlacer),
             loginItem: LoginItem(),
             rectangle: RectangleIntegration(),
             updater: Updater()
@@ -65,7 +72,7 @@ final class AppController {
         environment.awake.keepsDisplayOn = configurationStore.configuration.awake.keepsDisplayOn
         self.environment = environment
         serviceKinds = composition.serviceKinds
-        windows = WindowCoordinator(environment: environment)
+        windows = WindowCoordinator(environment: environment, placer: windowPlacer)
         environment.settingsNavigator.showSettings = { [windows] in windows.show(.settings) }
         environment.settingsNavigator.showWidgetSettings = { [windows] in windows.showSettings(forWidget: $0) }
         panels = PanelCoordinator(environment: environment)
@@ -81,17 +88,26 @@ final class AppController {
         avoider.occupiedRegions = { [weak panels] in panels?.occupiedRegions ?? [] }
         avoider.mode = configuration.windowAvoidance
         avoider.start(promptingForAccess: true)
+        environment.windowManager.occupiedRegions = { [weak panels] in panels?.occupiedRegions ?? [] }
+        // Avoidance asked for access already, unless it's off.
+        environment.windowManager.apply(
+            configuration.windowManager, promptingForAccess: configuration.windowAvoidance == .off)
         windows.occupiedRegions = { [weak panels] in panels?.occupiedRegions ?? [] }
         panels.onReservationsChanged = { [weak windows] in windows?.panelsChanged(settlingFor: $0) }
 
-        environment.hotkeys.handlers = [
+        var handlers: [HotkeyAction: () -> Void] = [
             .togglePanels: { [weak panels] in panels?.toggle() },
             .closeDetails: { [weak panels] in panels?.closeDetails() },
             .stashSelection: { [capture = environment.stashCapture] in capture.captureSelection() },
             .stashClipboard: { [capture = environment.stashCapture] in capture.addClipboard() },
         ]
+        for action in WindowAction.allCases {
+            handlers[.window(action)] = { [manager = environment.windowManager] in manager.perform(action) }
+        }
+        environment.hotkeys.handlers = handlers
         environment.hotkeys.register(configuration.hotkey, for: .togglePanels)
         registerStashHotkeys(for: configuration)
+        registerWindowManagerHotkeys(for: configuration)
 
         environment.updater.onSettingsChange = { [store] in store.configuration.updates = $0 }
         environment.updater.start(with: configuration.updates)
@@ -134,8 +150,10 @@ final class AppController {
     private func apply(_ configuration: AppConfiguration, displays: [Display]) {
         panels.apply(configuration, displays: displays)
         environment.windowAvoider.mode = configuration.windowAvoidance
+        environment.windowManager.apply(configuration.windowManager)
         environment.hotkeys.register(configuration.hotkey, for: .togglePanels)
         registerStashHotkeys(for: configuration)
+        registerWindowManagerHotkeys(for: configuration)
         environment.updater.apply(configuration.updates)
         environment.stash.deleteDoneAfter = configuration.stash.deleteDonePeriod
         if environment.stash.order != configuration.stash.order { environment.stash.order = configuration.stash.order }
@@ -154,6 +172,17 @@ final class AppController {
         } else {
             hotkeys.unregister(.stashSelection)
             hotkeys.unregister(.stashClipboard)
+        }
+    }
+
+    /// The window manager's shortcuts are taken only while it's on, so they take nothing from other apps otherwise.
+    private func registerWindowManagerHotkeys(for configuration: AppConfiguration) {
+        let settings = configuration.windowManager
+        let actions = WindowAction.allCases
+        if settings.isEnabled {
+            environment.hotkeys.register(actions.map { (.window($0), settings[action: $0]) })
+        } else {
+            environment.hotkeys.unregister(actions.map(HotkeyAction.window))
         }
     }
 

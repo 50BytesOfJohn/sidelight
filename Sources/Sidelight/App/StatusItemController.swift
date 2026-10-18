@@ -75,8 +75,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         let avoider = environment.windowAvoider
         menu.addItem(NSMenuItem("Move Overlapping Windows Now") { avoider.avoidAllWindows() })
-        if !avoider.isTrusted {
-            menu.addItem(NSMenuItem("Grant Accessibility Access…") { avoider.requestAccess() })
+        let accessibility = environment.accessibility
+        if !accessibility.isTrusted {
+            menu.addItem(NSMenuItem("Grant Accessibility Access…") { accessibility.request() })
         }
         let rectangle = environment.rectangle
         menu.addItem(

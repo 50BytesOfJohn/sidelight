@@ -100,7 +100,7 @@ struct AppLauncherDetailsView: View {
     let browser: AppLauncherBrowser
     @Environment(AppLauncherService.self) private var service
     @Environment(ConfigurationStore.self) private var store
-    @Environment(WindowAvoider.self) private var windowAvoider
+    @Environment(AccessibilityPermission.self) private var accessibility
     @Environment(\.closeDetails) private var closeDetails
     @FocusState private var isSearchFocused: Bool
 
@@ -145,7 +145,7 @@ struct AppLauncherDetailsView: View {
                 guard settings != nil else { return }
                 store.configuration.updateAppLauncher(id, change)
             },
-            showAllApps: nil, canPressMenus: windowAvoider.isTrusted,
+            showAllApps: nil, canPressMenus: accessibility.isTrusted,
             didOpen: { [closeDetails] in closeDetails?() })
     }
 

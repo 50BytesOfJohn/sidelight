@@ -6,7 +6,8 @@
 
 A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Codex, Claude Code and Cursor usage
 (each on its own, or side by side in one AI Usage card), calendar, now playing, Claude Code and Codex sessions and system stats. Other apps' windows are moved or shrunk so they never sit
-under the panel. Why it exists and where it's going: [docs/VISION.md](docs/VISION.md).
+under the panel, and optional shortcuts tile the frontmost window into halves, thirds and corners. Why it exists
+and where it's going: [docs/VISION.md](docs/VISION.md).
 
 Requires an Apple Silicon Mac with macOS 26. Install with Homebrew:
 
@@ -64,7 +65,9 @@ Sources/
     Configuration/        AppConfiguration, PanelSection, WidgetSettings, Appearance, Hotkey; the config.json schema
     Panel/                Panel geometry and how sections share its length
     Imaging/              Image-effect patterns (Bayer dither, ASCII ramp), desktop-picture crop geometry
-    Avoidance/            Window-avoidance geometry (pure functions)
+    Geometry/             Where a window may go (WorkArea), and the order its frame is written in (pure functions)
+    Avoidance/            Window-avoidance geometry, reservations, placement intents (pure functions)
+    WindowManager/        Window-manager tiles, display order and size cycling (pure functions)
     Codex/                codex app-server JSON-RPC session, rollout-file parser, usage models
     ClaudeCode/           Claude plan limits per account (each a Claude Code folder) and signing accounts in through Claude Code
     ClaudeSessions/       Claude Code's live session registry, transcript titles, links back into a session
@@ -81,7 +84,8 @@ Sources/
     Configuration/        ConfigurationStore (persistence, hot reload), user-facing names
     Panel/                The panel window, its frame/animations, root view, backgrounds
     Windows/              Widgets manager + Settings window lifecycle, links between them
-    WindowAvoidance/      Accessibility observers, Rectangle integration
+    WindowAvoidance/      Accessibility observers and access, the one writer of window frames, Rectangle
+    WindowManager/        Shortcuts that tile the frontmost window
     Hotkey/               Global shortcut (Carbon)
     Manager/              Widgets window: active list, gallery, inspector
     Settings/             Settings window

@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 struct AppLauncherSettingsEditor: View {
     @Binding var settings: AppLauncherSettings
     @Environment(AppLauncherService.self) private var service
-    @Environment(WindowAvoider.self) private var windowAvoider
+    @Environment(AccessibilityPermission.self) private var accessibility
 
     var body: some View {
         apps
@@ -37,15 +37,15 @@ struct AppLauncherSettingsEditor: View {
         ExpandableRow(title: "Advanced") {
             InfoLabel(
                 "New Window",
-                info: "New Window presses the app's own New Window menu item, through Accessibility, the access "
-                    + "window avoidance uses. Without it, the menu doesn't offer New Window.")
+                info: "New Window presses the app's own New Window menu item, which needs Accessibility access. "
+                    + "Without it, the menu doesn't offer New Window.")
             StatusRow(
-                color: windowAvoider.isTrusted ? .green : .orange,
-                text: windowAvoider.isTrusted ? "New Window available" : "New Window needs Accessibility access"
+                color: accessibility.isTrusted ? .green : .orange,
+                text: accessibility.isTrusted ? "New Window available" : "New Window needs Accessibility access"
             ) {
-                if !windowAvoider.isTrusted {
+                if !accessibility.isTrusted {
                     Spacer(minLength: 4)
-                    Button("Grant Access…") { windowAvoider.requestAccess() }
+                    Button("Grant Access…") { accessibility.request() }
                 }
             }
         }

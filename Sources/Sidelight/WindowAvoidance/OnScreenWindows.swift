@@ -41,8 +41,8 @@ struct OnScreenWindows {
     /// on-screen window with the frame still counts; another listed window with it doesn't, as that one could be the
     /// one on screen.
     func contains(_ frame: CGRect, of pid: pid_t, siblings: [CGRect]) -> Bool {
-        let isShown = framesByProcess[pid, default: []].contains { ReservationTransition.isUnchanged($0, since: frame) }
-        return isShown && !siblings.contains { ReservationTransition.isUnchanged($0, since: frame) }
+        let isShown = framesByProcess[pid, default: []].contains { WindowFrames.isUnchanged($0, since: frame) }
+        return isShown && !siblings.contains { WindowFrames.isUnchanged($0, since: frame) }
     }
 
     /// The apps with a window on screen that overlaps any of `rects`: the only ones worth asking about their windows.
