@@ -1,7 +1,7 @@
 import SidelightCore
 import SwiftUI
 
-/// A small screen showing where a window action puts the window: the tile itself for halves, corners, thirds and
+/// A small picture of where a window action puts the window: the tile itself for halves, corners, thirds and
 /// maximize, a symbol for the rest. Follows the text color, so it reads in light and dark.
 struct TileGlyph: View {
     let action: WindowAction

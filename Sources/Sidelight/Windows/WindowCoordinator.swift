@@ -109,9 +109,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     /// Sidelight's floating panel would cover its own window on a small screen: move the window beside it, and
     /// shrink it if it must. Window avoidance only moves other apps' windows.
     ///
-    /// Where the room is comes from the same ``WorkArea`` the window manager's tiles and avoidance use, so an own
-    /// window stops on exactly the line everything else does, and the move goes through ``WindowPlacer`` like any
-    /// other: the registry then knows the window is where Sidelight put it on purpose.
+    /// The room beside the panel comes from the same ``WorkArea`` the window manager's tiles and avoidance use, so
+    /// an own window stops on the line everything else does, and the move goes through ``WindowPlacer`` like any
+    /// other.
     private func keepClearOfPanels(_ window: NSWindow) {
         guard let screen = window.screen ?? NSScreen.main, let height = ScreenLayout.primaryScreenHeight else {
             return

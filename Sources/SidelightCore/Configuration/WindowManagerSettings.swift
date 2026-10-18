@@ -5,7 +5,7 @@ public struct WindowManagerSettings: Codable, Equatable, Sendable {
     public var isEnabled = false
     /// Between neighbouring tiles, in points.
     public var gap = 8
-    /// Along the screen's edges, in points. Beside a panel the space is always window avoidance's gap.
+    /// Along the screen's edges, in points. Beside a panel the space is always the panel's own clearance.
     public var padding = 8
     /// Pressing a half again soon goes ½ → ⅓ → ⅔.
     public var cyclesSizes = true

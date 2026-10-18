@@ -4,8 +4,8 @@ import CoreGraphics
 /// avoidance moves other apps' windows through Accessibility; Sidelight's own it simply places, atomically, so they
 /// never flash on the way.
 ///
-/// Where the room is comes from ``WorkArea/clear``, the same answer the window manager's tiles and avoidance use.
-/// This only decides how a window that doesn't fit there gives way.
+/// The room beside the panel comes from ``WorkArea/clear``, the same answer the window manager's tiles and
+/// avoidance use. This only decides how a window that doesn't fit there gives way.
 public enum OwnWindowPlacement {
     /// `window` moved and, only if it must, shrunk to fit `free`, never below `minimumSize`. A window that already
     /// fits stays where it is. One that can't shrink enough starts right beside the panel and reaches away from it,

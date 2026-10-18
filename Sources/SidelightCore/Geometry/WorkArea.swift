@@ -3,8 +3,7 @@ import CoreGraphics
 /// Where a window may go on one display.
 ///
 /// The one answer to that question, for every feature that moves a window: the window manager's tiles, window
-/// avoidance, and Sidelight's own windows. They used to agree by imitation — each deriving "the strip plus the gap
-/// beside it" from its own arithmetic — and now agree by construction.
+/// avoidance, and Sidelight's own windows.
 ///
 /// Two rects, for the two different questions:
 ///

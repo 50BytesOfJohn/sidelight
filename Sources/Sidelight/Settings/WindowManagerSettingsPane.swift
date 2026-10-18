@@ -8,7 +8,7 @@ import SwiftUI
 struct WindowManagerSettingsPane: View {
     @Environment(ConfigurationStore.self) private var store
     @State private var rectangle = RectangleWatch()
-    /// A preset chosen over custom shortcuts, waiting for the person to say they may be replaced.
+    /// A preset chosen over custom shortcuts, waiting to be confirmed.
     @State private var pendingPreset: WindowManagerPreset?
 
     var body: some View {
@@ -43,8 +43,7 @@ struct WindowManagerSettingsPane: View {
                 Text("Layout")
             } footer: {
                 SettingsCaption(
-                    "Pressing a half again within 0.7 s on the same window goes ½ → ⅓ → ⅔. Windows always stay "
-                        + "clear of the panel, the same distance from it as window avoidance leaves.")
+                    "Press a half again, straight away, to go ½ → ⅓ → ⅔. Windows always stay clear of the panel.")
             }
 
             Section {
@@ -60,9 +59,8 @@ struct WindowManagerSettingsPane: View {
                 Text("Shortcuts")
             } footer: {
                 SettingsCaption(
-                    "A preset sets every shortcut below and which are on. Rectangle's also uses Magnet's keys for "
-                        + "halves, maximize and center. Sidelight's is Rectangle's with the thirds off: cycling a "
-                        + "half reaches them.")
+                    "A preset sets every shortcut below, and which of them are on. Sidelight's is Rectangle's with "
+                        + "the thirds off, since cycling a half reaches them.")
             }
 
             ForEach(ShortcutCatalog.windowGroups, id: \.title) { group in
@@ -78,7 +76,7 @@ struct WindowManagerSettingsPane: View {
         ) { preset in
             Button("Use \(preset.title)") { apply(preset) }
         } message: { preset in
-            Text("Every window shortcut, and whether it's on, becomes \(preset.title)'s.")
+            Text("Every window shortcut below becomes \(preset.title)'s.")
         }
         .onAppear { rectangle.start() }
         .onDisappear { rectangle.stop() }
@@ -86,8 +84,7 @@ struct WindowManagerSettingsPane: View {
 
     private static let footers = [
         "Thirds": "Left to right, or top to bottom on a portrait display.",
-        "Size & Position": "Restore puts a window back where it was before the window manager first moved it.",
-        "Displays": "Moving a window to another Space isn't possible without private macOS APIs.",
+        "Size & Position": "Restore puts a window back where it was before the first shortcut moved it.",
     ]
 
     private func spacingStepper(_ title: String, value: Binding<Int>) -> some View {

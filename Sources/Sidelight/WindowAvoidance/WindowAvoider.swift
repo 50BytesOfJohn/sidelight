@@ -37,8 +37,8 @@ struct PanelRegion: Equatable {
 /// It remembers where each window was before it moved it, so when a strip is released (the panels hide, or the
 /// details panel gives way to the side panel again) windows nobody touched since go back. See
 /// ``ReservationTransition`` for exactly what moves. That memory, and every frame it writes, belong to
-/// ``WindowPlacer``: avoidance decides *when* and *where*, the placer decides *how*, and one registry says whether a
-/// window is still avoidance's to put back or someone placed it on purpose.
+/// ``WindowPlacer``: avoidance decides when and where, the placer how, and its registry says whether a window is
+/// still avoidance's to put back or someone placed it on purpose.
 ///
 /// It only ever moves a window it can be sure of: a standard window of an eligible app, on the active Space as the
 /// window server lists it, and told apart from that app's other windows (see ``OnScreenWindows``). Anything less

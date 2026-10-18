@@ -26,17 +26,13 @@ struct PlacedWindow {
 /// place through it, and it keeps one record per window.
 ///
 /// **Why one writer.** Accessibility has no settable combined frame, so a placement is two messages with the window
-/// composited in between, and until now the order was hardcoded for avoidance's benefit — size first, which leaves
-/// the window at its old origin at its new size. For a window that was under the panel to begin with, that
-/// intermediate frame is a window under the panel, which is why one keypress looked like two moves.
-/// ``PlacementOrder`` now picks the order so no frame along the way covers a panel, the app's enhanced user
-/// interface is off for the *whole* placement rather than per write, and corrections happen inside the same scope,
-/// so a window settles once.
+/// composited in between: ``PlacementOrder`` picks the order so no frame along the way covers a panel. The app's
+/// enhanced user interface is off for the whole placement rather than per write, and corrections happen in the same
+/// scope, so a window settles once instead of visibly moving twice.
 ///
-/// **Why one registry.** Both features used to remember "a window we moved, and where it was", and the window
-/// manager had to reach into avoidance and delete a row after every tile so avoidance wouldn't put the tile back.
-/// Instead a placement says what kind of placement it was: *keep clear* applies to every window, whatever put it
-/// there, and *put it back* only ever applies to a window avoidance moved itself (see ``PlacementIntent``).
+/// **Why one registry.** A placement says what kind of placement it was, and that decides what may move the window
+/// next: *keep clear* applies to every window, whatever put it there, and *put it back* only ever applies to a
+/// window avoidance moved itself (see ``PlacementIntent``).
 ///
 /// Only ever in memory, and only for this run.
 @Observable
@@ -197,11 +193,9 @@ final class WindowPlacer {
 
     /// Keeps the registry to ``limit`` records, dropping what matters least first.
     ///
-    /// The two kinds of memory are worth different amounts. What avoidance may put back is what hiding a panel
-    /// needs, and the window waiting for it may have been pushed long before a run of window manager presses
-    /// started; where the manager would put a window back is a convenience for one shortcut. So a long run of
-    /// presses never costs a pushed window its way home, and everyday avoidance never costs a tile its restore
-    /// frame while anything emptier is still on the list. The record just made is never the one to go.
+    /// What avoidance may put back is what hiding a panel needs, so it outranks a restore frame, which is only a
+    /// convenience for one shortcut: a long run of presses never costs a pushed window its way home. Records with
+    /// nothing left to put back go first, and the record just made never goes.
     private func trim() {
         guard records.count > limit else { return }
         /// Drops the records `isExpendable` names, oldest first, until the registry fits. Never the newest, which
@@ -234,8 +228,7 @@ final class WindowPlacer {
         return intent.isDeliberate ? (kept ?? before) : kept
     }
 
-    /// Whether `window`, now at `frame`, is still exactly where a deliberate placement left it. The one predicate
-    /// that used to be a call from the window manager into avoidance, deleting a row.
+    /// Whether `window`, now at `frame`, is still exactly where a deliberate placement left it.
     func isPlacedOnPurpose(_ window: ManagedWindow, at frame: CGRect) -> Bool {
         guard let record = records.last(where: { $0.window.isSame(as: window) }), record.intent.isDeliberate else {
             return false

@@ -18,12 +18,11 @@ public enum FrameWrite: Equatable, Sendable {
 /// | size, then position | the old origin at the new size |
 ///
 /// Position first is almost always the clear one, because the new origin is already out of the panel's way; size
-/// first leaves the window wherever it was, which for a window that was under the panel means still under the panel.
-/// That's the whole reason a shortcut used to look like two moves. Size first is still right when the window is
-/// about to grow past a panel on the far side, so the rule is a choice and not a constant.
+/// first leaves the window where it was, which for a window under the panel means still under the panel. Size first
+/// is right when the window is about to grow past a panel on the far side, so the order is a choice, not a constant.
 ///
-/// Position first pays a second dividend: for a tile anchored to the leading edge the window is already at the
-/// tile's origin before the size write, so an app that refuses the size needs no correction at all.
+/// Position first also helps an app that refuses the size: for a tile anchored to the leading edge the window is
+/// already at the tile's origin by then, so there's nothing left to correct.
 public enum PlacementOrder {
     /// A write this far off what the window already has is left out: apps round what they're asked for, and a
     /// message that changes nothing still costs a round trip and can still make an app animate.

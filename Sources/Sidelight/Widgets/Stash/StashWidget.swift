@@ -12,7 +12,7 @@ extension WidgetMetadata {
         details:
             "Stash the text selected in any app, or the clipboard, with a shortcut (Settings → Shortcuts), then copy "
             + "items into Claude, Codex or Cursor and check them off. Everything stays on this Mac, in a stash folder "
-            + "next to config.json. Selecting needs the Accessibility access window avoidance uses."
+            + "next to config.json. Stashing a selection needs Accessibility access."
     )
 }
 

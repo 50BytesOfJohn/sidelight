@@ -10,8 +10,7 @@ extension WidgetMetadata {
         tint: .indigo,
         summary: "Your apps, one click away",
         details: "Opens apps, and brings running ones forward, like the Dock. Running apps get a dot. Sidelight "
-            + "is told when apps open and quit, and never checks on a timer. New Window uses Accessibility, like "
-            + "window avoidance does."
+            + "is told when apps open and quit, and never checks on a timer. New Window needs Accessibility access."
     )
 }
 

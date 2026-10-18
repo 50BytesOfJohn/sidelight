@@ -23,8 +23,8 @@ struct ShortcutSetting: Identifiable {
     }
 }
 
-/// Every shortcut Settings offers, in groups, and what's wrong with each. The Keyboard Shortcuts pane edits the
-/// panel's and the stash's; the Window Manager pane edits its own. Both check against all of them.
+/// Every shortcut Settings offers, in groups. The Keyboard Shortcuts pane edits the panel's and the stash's; the
+/// Window Manager pane edits its own. Both check a new shortcut against all of them.
 enum ShortcutCatalog {
     static let panel = [
         ShortcutSetting(

@@ -57,9 +57,8 @@ public enum WindowMoveReason: String, Equatable, Sendable {
 
 /// Why a window is where it is, which decides what may move it next.
 ///
-/// The one line that matters: *keep clear* applies to every window, whatever put it there; *put it back* applies
-/// only to a window avoidance moved itself. So a deliberate placement needs nothing deleted from avoidance's
-/// memory afterwards — it just isn't avoidance's to undo.
+/// *Keep clear* applies to every window, whatever put it there; *put it back* applies only to a window avoidance
+/// moved itself. So a deliberate placement is never avoidance's to undo.
 public enum PlacementIntent: Equatable, Sendable {
     /// Window avoidance keeping a strip clear, or giving one back.
     case avoidance(WindowMoveReason)

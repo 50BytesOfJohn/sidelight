@@ -37,8 +37,8 @@ struct AppLauncherSettingsEditor: View {
         ExpandableRow(title: "Advanced") {
             InfoLabel(
                 "New Window",
-                info: "New Window presses the app's own New Window menu item, through Accessibility, the access "
-                    + "window avoidance uses. Without it, the menu doesn't offer New Window.")
+                info: "New Window presses the app's own New Window menu item, which needs Accessibility access. "
+                    + "Without it, the menu doesn't offer New Window.")
             StatusRow(
                 color: accessibility.isTrusted ? .green : .orange,
                 text: accessibility.isTrusted ? "New Window available" : "New Window needs Accessibility access"
