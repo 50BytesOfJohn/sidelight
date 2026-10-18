@@ -105,8 +105,7 @@ struct AccountStoreTests {
         #expect(accounts.uses(of: work.id) == 1)
         // Not used again, even before the keychain is done.
         #expect(try await keyring.secret(for: personal.id) == nil)
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(deleted.withLock { $0 } == [personal.id])
+        #expect(await eventually { deleted.withLock { $0 } == [personal.id] })
         #expect(secrets.withLock { $0[personal.id] } == nil)
     }
 
@@ -151,7 +150,7 @@ struct AccountStoreTests {
         accounts.remove(work.id)
         #expect(accounts.status(of: work.id) == nil && accounts.identity(of: work.id) == nil)
         #expect(configuration.configuration.accounts.isEmpty)
-        try await Task.sleep(for: .milliseconds(50))
+        await settle()
     }
 
     @Test func `a key is read from the keychain once`() async throws {

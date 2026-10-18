@@ -4,6 +4,7 @@ Native macOS (Apple Silicon only) side panel / bar of always-on widgets, general
 
 - Build with `make`, not raw `swift build`: it points `DEVELOPER_DIR` at Xcode, and SwiftUI macros need that.
 - Done = `make check` passes: lint, zero warnings, tests.
+- Never wait a fixed time in a test. `make check` runs the suite once on an idle machine, so a wait a loaded CI runner outruns passes here and fails there. Wait for something with `eventually { }`, and use `settle()` before asserting something didn't happen (both in `Tests/SidelightTests/TestSupport.swift`; `make lint` enforces this). `make stress` reruns the suite under load, which may shake out a rarer flake but can't prove the absence of one.
 - Commits, PRs and the contributor workflow: `CONTRIBUTING.md`.
 - Signing, notarization, Sparkle updates and cutting a release: `docs/RELEASING.md`.
 - Try changes in the real app with `make dev` (Ctrl-C quits).

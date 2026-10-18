@@ -10,7 +10,7 @@ struct RemoteResourceTests {
         let resource = RemoteResource<Int, OpenRouterProblem>()
         resource.fetch = { .success(await answers.next()) }
         resource.refreshNow()
-        try? await Task.sleep(for: .milliseconds(20))
+        await settle()
         #expect(answers.callCount == 0)
         resource.policy = .manual
         #expect(await eventually { answers.pendingCount == 1 })
@@ -21,7 +21,7 @@ struct RemoteResourceTests {
         resource.policy = nil
         resource.policy = .manual
         resource.refreshNow()
-        try? await Task.sleep(for: .milliseconds(30))
+        await settle()
         #expect(answers.callCount == 1)
         #expect(resource.value == 42)
         resource.policy = nil
@@ -37,7 +37,7 @@ struct RemoteResourceTests {
         resource.policy = .manual
         #expect(await eventually { answers.pendingCount == 2 })
         await answers.answer(1)
-        try? await Task.sleep(for: .milliseconds(20))
+        await settle()
         #expect(resource.value == nil && resource.isFetching)
         await answers.answer(2)
         #expect(await eventually { resource.value == 2 && !resource.isFetching })
@@ -58,7 +58,7 @@ struct RemoteResourceTests {
         #expect(await eventually { resource.problem == .invalidKey && !resource.isFetching })
         resource.policy = nil
         resource.policy = .every(.seconds(60))
-        try? await Task.sleep(for: .milliseconds(30))
+        await settle()
         #expect(attempt == 2)
         #expect(resource.value == 42 && resource.fetchedAt == fetchedAt)
         resource.policy = nil
@@ -74,11 +74,11 @@ struct RemoteResourceTests {
         resource.policy = .every(.milliseconds(1))
         #expect(await eventually { resource.problem == .rateLimited && !resource.isFetching })
         for _ in 0..<10 { resource.refreshNow() }
-        try? await Task.sleep(for: .milliseconds(30))
+        await settle()
         #expect(attempts == 1)
         resource.policy = nil
         resource.policy = .every(.milliseconds(1))
-        try? await Task.sleep(for: .milliseconds(30))
+        await settle()
         #expect(attempts == 1)
         resource.policy = nil
     }
@@ -92,7 +92,7 @@ struct RemoteResourceTests {
         resource.reset()
         #expect(await eventually { answers.pendingCount == 2 })
         await answers.answer(10)
-        try? await Task.sleep(for: .milliseconds(20))
+        await settle()
         #expect(resource.value == nil)
         await answers.answer(20)
         #expect(await eventually { resource.value == 20 && !resource.isFetching })
@@ -116,7 +116,7 @@ extension RemoteResourceTests {
         resource.policy = .dailyUTC(delay: .seconds(600))
         #expect(await eventually { resource.value == 2 && !resource.isFetching })
         #expect(resource.fetchedAt == now)
-        try? await Task.sleep(for: .milliseconds(30))
+        await settle()
         #expect(attempts == 2)
         resource.policy = nil
     }

@@ -35,7 +35,7 @@ struct WatchedSessionIndexTests {
         index.start()
         await answers.answer(.success(["a"]))
         #expect(await eventually { index.hasLoaded })
-        try? await Task.sleep(for: .milliseconds(20))
+        await settle()
         #expect(answers.callCount == 1)
         index.stop()
     }
@@ -45,7 +45,7 @@ struct WatchedSessionIndexTests {
         await eventually { answers.pendingCount == 1 }
         index.stop()
         await answers.answer(.success(["late"]))
-        try? await Task.sleep(for: .milliseconds(20))
+        await settle()
         #expect(!index.hasLoaded)
         #expect(index.sessions.isEmpty)
     }
@@ -59,7 +59,7 @@ struct WatchedSessionIndexTests {
         await answers.answer(.success(["old"]))
         await answers.answer(.success(["new"]))
         #expect(await eventually { index.sessions == ["new"] })
-        try? await Task.sleep(for: .milliseconds(20))
+        await settle()
         #expect(index.sessions == ["new"])
         index.stop()
     }
@@ -114,7 +114,7 @@ struct WatchedSessionIndexTests {
         await eventually { index.hasLoaded }
         index.stop()
         index.scheduleReload()
-        try? await Task.sleep(for: .milliseconds(20))
+        await settle()
         #expect(answers.callCount == 1)
     }
 }

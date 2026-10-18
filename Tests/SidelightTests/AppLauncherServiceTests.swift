@@ -110,8 +110,7 @@ struct AppLauncherServiceTests {
         #expect(service.launching.isEmpty)
 
         #expect(service.beginLaunching(id))
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(service.launching.isEmpty)
+        #expect(await eventually { service.launching.isEmpty })
     }
 
     @Test func `finds a moved app by its bundle identifier, and a deleted one is missing`() {

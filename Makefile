@@ -8,7 +8,7 @@ endif
 
 SWIFT_SOURCES := Sources Tests Package.swift scripts/verify-update.swift
 
-.PHONY: build test app run dev release format lint check clean
+.PHONY: build test stress app run dev release format lint check clean
 
 ## Compile all targets (debug).
 build:
@@ -18,6 +18,10 @@ build:
 test:
 	swift test -Xswiftc -warnings-as-errors
 	python3 -m unittest discover -s Tests/ReleaseTests
+
+## Rerun the tests on a busy machine until one fails: make stress [REPETITIONS=20].
+stress:
+	scripts/stress-tests.sh $(REPETITIONS)
 
 ## Build and sign build/Sidelight.app (release).
 app:
@@ -47,8 +51,9 @@ format:
 ## Fail on any formatting or style violation.
 lint:
 	swift format lint --strict --recursive $(SWIFT_SOURCES)
-	bash -n scripts/build-app.sh scripts/release.sh scripts/publish-release.sh Resources/claude-code-statusline.sh \
-		Resources/claude-code-sign-in-link.sh
+	bash -n scripts/build-app.sh scripts/release.sh scripts/publish-release.sh scripts/check-test-waits.sh \
+		scripts/stress-tests.sh Resources/claude-code-statusline.sh Resources/claude-code-sign-in-link.sh
+	scripts/check-test-waits.sh
 
 ## What CI runs.
 check: lint build test
