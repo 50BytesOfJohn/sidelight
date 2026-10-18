@@ -22,7 +22,7 @@ struct OpenRouterServiceTests {
         service.refreshCatalogue()
         service.stop()
         service.start()
-        try? await Task.sleep(for: .milliseconds(30))
+        await settle()
         #expect(requests.values.count == 1)
         #expect(requests.values.first?.value(forHTTPHeaderField: "Authorization") == nil)
         #expect(store.reads == 0 && service.account(.tested) == nil)
@@ -47,7 +47,7 @@ struct OpenRouterServiceTests {
         service.stop()
         await replies.answer(Self.response(#"{"data":{"total_credits":10,"total_usage":1}}"#))
         await replies.answer(Self.response(#"{"data":[]}"#))
-        try? await Task.sleep(for: .milliseconds(30))
+        await settle()
         #expect(service.tested.balance.value == nil)
         #expect(service.tested.activity(for: .account)?.value == nil)
         #expect(!service.tested.balance.isFetching)
@@ -122,7 +122,7 @@ struct OpenRouterServiceTests {
         #expect(service.tested.keyList.hasMore)
         #expect(requests.values.count == 1)
         service.tested.loadKeysIfNeeded()
-        try? await Task.sleep(for: .milliseconds(20))
+        await settle()
         #expect(requests.values.count == 1)
         service.tested.loadMoreKeys()
         #expect(await eventually { !service.tested.keyList.isLoading && !service.tested.keyList.hasMore })
@@ -146,7 +146,7 @@ struct OpenRouterServiceTests {
         let attempts = requests.values.count
         service.demand = OpenRouterDemand.shared(
             balance: .manual, activity: [.account: .minutes(15)], keepsAccountData: true)
-        try? await Task.sleep(for: .milliseconds(50))
+        await settle()
         #expect(requests.values.count == attempts)
         service.stop()
     }
@@ -224,7 +224,7 @@ extension OpenRouterServiceTests {
             keepsAccountData: true)
         #expect(await eventually { service.tested.activity(for: .account)?.problem == .rateLimited })
         service.tested.refreshAccount(scope: .account)
-        try? await Task.sleep(for: .milliseconds(30))
+        await settle()
         #expect(requests.values.count == count)
         service.stop()
     }

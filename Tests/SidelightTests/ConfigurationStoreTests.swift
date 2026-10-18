@@ -78,7 +78,7 @@ struct ConfigurationStoreTests {
         let edit = Data(#"{ "windowAvoidance": "#.utf8)
         try edit.write(to: file)
         // Read and ignored, or not read yet: either way it's kept.
-        if waitsForTheWatcher { try await Task.sleep(for: .milliseconds(500)) }
+        if waitsForTheWatcher { await settle(.milliseconds(500)) }
         #expect(backups.isEmpty)
         store.configuration.windowAvoidance = .off
         store.flush()
@@ -162,7 +162,11 @@ struct ConfigurationStoreTests {
         let edit = try file(eventCount: 5)
         try edit.write(to: file)
         // The reload runs first and saves the app's change, or the save runs first: either way both are kept.
-        try await Task.sleep(for: .milliseconds(800))
+        // The save keeps the edit aside before writing, so the file holding the app's change means both have landed.
+        #expect(
+            await eventually {
+                (try? AppConfiguration(json: Data(contentsOf: file)).windowAvoidance) == .off
+            })
         #expect(store.configuration.windowAvoidance == .off)
         #expect(try AppConfiguration(json: Data(contentsOf: file)).windowAvoidance == .off)
         #expect(try backups(prefix: "config.external-edit-").map { try Data(contentsOf: $0) } == [edit])

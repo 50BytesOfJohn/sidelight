@@ -148,6 +148,7 @@ struct ProcessRunnerTests {
     func `cancelling the task ends the tool`() async {
         let start = ContinuousClock.now
         let task = Task { await ProcessRunner.result(of: URL(filePath: "/bin/sleep"), arguments: ["30"]) }
+        // sleeps on purpose: the tool has to be running before the cancellation it is asked to notice.
         try? await Task.sleep(for: .milliseconds(200))
         task.cancel()
         let result = await task.value

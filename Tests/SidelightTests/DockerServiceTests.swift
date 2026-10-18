@@ -55,6 +55,7 @@ private nonisolated final class FakeDocker: Sendable {
         calls.withLock { $0.append(arguments) }
         if arguments.contains("ps") {
             let delay = psDelay.withLock { $0 }
+            // sleeps on purpose: a slow `docker ps`, which is what the test is about.
             if delay > .zero { try? await Task.sleep(for: delay) }
             if holdsPS.withLock({ $0 }) { await psAnswers.next() }
             if let failure = psFailure.withLock({ $0 }) {
@@ -104,7 +105,7 @@ struct DockerServiceTests {
         service.start()
         let connection = try #require(service.connection(.current))
         #expect(await eventually { connection.status == .connected })
-        try? await Task.sleep(for: .milliseconds(60))
+        await settle(.milliseconds(60))
         #expect(fake.streams.count == 1)
         #expect(fake.count("ps") == 1)
         let order = fake.allCalls.filter { $0.contains("events") || $0.contains("ps") }
@@ -121,12 +122,12 @@ struct DockerServiceTests {
         service.start()
         let connection = try #require(service.connection(.current))
         #expect(await eventually { connection.status == .connected })
-        try? await Task.sleep(for: .milliseconds(40))
+        await settle()
         let before = fake.count("ps")
         fake.ids.withLock { $0 = ["c1", "c2"] }
         for _ in 0..<10 { fake.streams[0].continuation.yield(Data("start".utf8)) }
         #expect(await eventually { connection.snapshot?.containers.count == 2 })
-        try? await Task.sleep(for: .milliseconds(80))
+        await settle(.milliseconds(80))
         #expect(fake.count("ps") - before <= 2)
         service.stop()
     }
@@ -181,9 +182,9 @@ struct DockerServiceTests {
         #expect(await eventually { fake.psAnswers.pendingCount == 1 })
         service.stop()
         await fake.psAnswers.answer(())
-        try? await Task.sleep(for: .milliseconds(60))
+        #expect(await eventually { fake.streams[0].isTerminated.withLock { $0 } })
+        await settle()
         #expect(connection.snapshot?.containers.count == 1)
-        #expect(fake.streams[0].isTerminated.withLock { $0 })
         fake.holdsPS.withLock { $0 = false }
         service.start()
         #expect(connection.snapshot?.containers.count == 1)
@@ -204,7 +205,7 @@ struct DockerServiceTests {
         service.demand = DockerDemand(contexts: [.current, .named("other")])
         #expect(current.stats.isEmpty)
         let count = fake.count("stats")
-        try? await Task.sleep(for: .milliseconds(100))
+        await settle(.milliseconds(100))
         #expect(fake.count("stats") == count)
         service.stop()
     }

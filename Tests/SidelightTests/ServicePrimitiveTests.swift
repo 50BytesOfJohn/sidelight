@@ -41,7 +41,7 @@ struct CoalescedReloadTests {
         await eventually { answers.pendingCount == 2 }
         // The old read finishes after its replacement started: it publishes nothing and leaves the new one running.
         await answers.answer(())
-        try? await Task.sleep(for: .milliseconds(20))
+        await settle()
         #expect(reload.isActive)
         await answers.answer(())
         #expect(await eventually { !reload.isActive })
@@ -53,7 +53,7 @@ struct CoalescedReloadTests {
         var reads = 0
         reload.request(after: .milliseconds(50)) { reads += 1 }
         reload.cancel()
-        try? await Task.sleep(for: .milliseconds(100))
+        await settle(.milliseconds(100))
         #expect(reads == 0)
         #expect(!reload.isActive)
     }
@@ -67,7 +67,7 @@ struct RepeatingTaskTests {
         #expect(await eventually { runs >= 2 })
         repeating.stop()
         let stoppedAt = runs
-        try? await Task.sleep(for: .milliseconds(30))
+        await settle()
         #expect(runs == stoppedAt)
         #expect(!repeating.isRunning)
     }
@@ -99,11 +99,11 @@ struct FetchScheduleTests {
         #expect(schedule.lastAttempt != nil)
         schedule.stop()
         schedule.start(fetch)
-        try? await Task.sleep(for: .milliseconds(30))
+        await settle()
         #expect(fetches == 1)
         // Too soon after the last fetch for a manual one, too.
         schedule.refreshNow()
-        try? await Task.sleep(for: .milliseconds(30))
+        await settle()
         #expect(fetches == 1)
     }
 
@@ -136,7 +136,7 @@ struct FetchScheduleTests {
         schedule.stop()
         #expect(!schedule.isFetching)
         await answers.answer(.failed)
-        try? await Task.sleep(for: .milliseconds(20))
+        await settle()
         #expect(schedule.lastAttempt == nil)
         #expect(schedule.consecutiveFailures == 0)
     }
@@ -167,7 +167,7 @@ struct DelayedTaskTests {
         delayed.schedule(after: .milliseconds(20)) { runs += 1 }
         delayed.cancel()
         #expect(!delayed.isPending)
-        try? await Task.sleep(for: .milliseconds(50))
+        await settle()
         #expect(runs == 0)
     }
 
@@ -215,7 +215,7 @@ struct PacedTaskTests {
         paced.start(after: .zero, run: run("new"))
         await eventually { answers.pendingCount == 2 }
         await answers.answer(())
-        try? await Task.sleep(for: .milliseconds(20))
+        await settle()
         #expect(paced.isRunning)
         await answers.answer(())
         #expect(await eventually { published == ["new"] })

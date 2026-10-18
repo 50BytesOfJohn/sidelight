@@ -28,6 +28,7 @@ You need an Apple Silicon Mac with **macOS 26** and **Xcode 27** (Swift 6.4). Th
 make dev      # debug build, runs in the foreground with logs in this terminal (Ctrl-C quits)
 make run      # release build of build/Sidelight.app, then launch it
 make test     # unit tests
+make stress   # rerun the tests on a busy machine until one fails, for timing bugs an idle run hides
 make format   # format all Swift sources in place
 make check    # lint + build + test: what CI runs, and must pass before a PR is merged
 ```
@@ -68,6 +69,13 @@ request asking for your branch to be merged.
    `Tests/SidelightCoreTests` for logic in `SidelightCore`, and try the change in the real app with `make dev`.
 
 4. **Run `make check`** and fix anything it reports. CI runs the same command and treats warnings as failures.
+
+   `make check` runs the tests once on an idle machine, so it won't catch a test that waits a fixed time for
+   something and gets away with it. Don't write one: wait for the thing with `eventually { }`, and use
+   `settle()` only before asserting that something *didn't* happen (both are in
+   `Tests/SidelightTests/TestSupport.swift`, and `make lint` rejects a bare `Task.sleep` in a test). If you
+   touch anything with timing in it, `make stress` reruns the suite against a loaded machine and stops at the
+   first failure. It can turn up a rare flake, but passing it doesn't prove there isn't one.
 
 5. **Commit** with a short, imperative summary line, like the existing history does: *"Add battery widget"*,
    *"Fix panel flicker when switching Spaces"*. Explain the *why* in the body if it isn't obvious.
