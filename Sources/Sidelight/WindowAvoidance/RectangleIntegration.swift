@@ -37,7 +37,9 @@ final class RectangleIntegration {
         for display in displays {
             let panel = display.panel(in: configuration)
             guard panel.showsPanel else { continue }
-            let gap = Int(PanelMetrics.thickness(of: panel, on: display) + AvoidanceGeometry.gap)
+            // The same number every placement in Sidelight leaves beside a panel; Rectangle's gap is a scalar
+            // per screen edge, not a rect, so it reads the clearance rather than a whole ``Reservation/keepOut``.
+            let gap = Int(PanelMetrics.thickness(of: panel, on: display) + Reservation.defaultClearance)
             points[panel.position] = max(points[panel.position] ?? 0, gap)
             mainScreenOnly = mainScreenOnly && display.isMain
         }

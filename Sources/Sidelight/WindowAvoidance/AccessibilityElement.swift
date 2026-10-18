@@ -71,34 +71,32 @@ struct AccessibilityElement {
     /// Whether the app lets its window be resized: not for a window of a fixed size.
     var isSizeSettable: Bool { isSettable(kAXSizeAttribute) }
 
-    /// Resizes, moves, then fixes whatever didn't take. Shrinking first means a window never has to cross the
-    /// screen's edge on its way; an app that clamped the size while the window still stood in its old place gets it
-    /// again once it's moved, and one that clamped the origin while the old size still overflowed gets that again.
-    ///
-    /// While the app's enhanced user interface is on (VoiceOver, and some window tools, turn it on), apps animate
-    /// frame changes and can drop part of one, so it's off for the move and back on after.
-    ///
-    /// Returns the frame the app accepted, which an app with a minimum or fixed size makes differ; `nil` once the
-    /// window can't be read.
-    @discardableResult
-    func setFrame(_ frame: CGRect) -> CGRect? {
-        let application = processIdentifier.map(Self.application)
-        let enhancedInterface = application?.attribute(Self.enhancedUserInterfaceAttribute) as Bool? ?? false
-        if enhancedInterface { application?.setAttribute(Self.enhancedUserInterfaceAttribute, to: false) }
-        defer { if enhancedInterface { application?.setAttribute(Self.enhancedUserInterfaceAttribute, to: true) } }
+    /// Moves the window. Position and size are separate Accessibility writes, with the window composited in between,
+    /// so which one goes first decides what's briefly on screen: ``WindowPlacer`` owns that order, and nothing here
+    /// writes both.
+    func setPosition(_ point: CGPoint) {
+        var point = point
+        if let value = AXValueCreate(.cgPoint, &point) {
+            AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, value)
+        }
+    }
 
-        setSize(frame.size)
-        setPosition(frame.origin)
-        guard var actual = self.frame else { return nil }
-        if abs(actual.width - frame.width) > 1 || abs(actual.height - frame.height) > 1 {
-            setSize(frame.size)
-            actual = self.frame ?? actual
+    func setSize(_ size: CGSize) {
+        var size = size
+        if let value = AXValueCreate(.cgSize, &size) {
+            AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value)
         }
-        if abs(actual.minX - frame.minX) > 1 || abs(actual.minY - frame.minY) > 1 {
-            setPosition(frame.origin)
-            actual = self.frame ?? actual
-        }
-        return actual
+    }
+
+    /// Whether the app's enhanced user interface is on: VoiceOver and some window tools turn it on, and then the app
+    /// animates frame changes and can drop part of one. ``WindowPlacer`` turns it off for a whole placement, so a
+    /// window that takes several writes to settle animates none of them.
+    var hasEnhancedUserInterface: Bool {
+        attribute(Self.enhancedUserInterfaceAttribute) ?? false
+    }
+
+    func setEnhancedUserInterface(_ isOn: Bool) {
+        setAttribute(Self.enhancedUserInterfaceAttribute, to: isOn)
     }
 
     /// The app's element that has keyboard focus (a text field, a text view, a web area), or why it can't be read.
@@ -123,7 +121,7 @@ struct AccessibilityElement {
     /// Asks an app (this element is its application element) to build its accessibility tree, which Electron apps
     /// leave out until a screen reader seems to need it, and keep it until it quits; a cost in that app, so ask only
     /// for an app that needs it. `AXManualAccessibility` is Electron's switch for exactly this; the broader
-    /// `AXEnhancedUserInterface` is left alone, as it makes apps animate window changes (see ``setFrame(_:)``).
+    /// `AXEnhancedUserInterface` is left alone, as it makes apps animate window changes (see ``hasEnhancedUserInterface``).
     /// Electron answers `attributeUnsupported` even when it takes the request, so there's no telling whether it did.
     func requestAccessibilityTree() {
         setAttribute(Self.manualAccessibilityAttribute, to: true)
@@ -131,20 +129,6 @@ struct AccessibilityElement {
 
     private static let enhancedUserInterfaceAttribute = "AXEnhancedUserInterface"
     private static let manualAccessibilityAttribute = "AXManualAccessibility"
-
-    private func setPosition(_ point: CGPoint) {
-        var point = point
-        if let value = AXValueCreate(.cgPoint, &point) {
-            AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, value)
-        }
-    }
-
-    private func setSize(_ size: CGSize) {
-        var size = size
-        if let value = AXValueCreate(.cgSize, &size) {
-            AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value)
-        }
-    }
 
     private func setAttribute(_ name: String, to value: Bool) {
         AXUIElementSetAttributeValue(element, name as CFString, value as CFBoolean)

@@ -167,9 +167,9 @@ struct ReservationTransitionTests {
 
     @Test func `restore tolerance checks position and size independently`() {
         let frame = CGRect(x: 400, y: 50, width: 700, height: 600)
-        #expect(ReservationTransition.isUnchanged(frame.offsetBy(dx: 2, dy: -2), since: frame))
-        #expect(!ReservationTransition.isUnchanged(frame.offsetBy(dx: 3, dy: 0), since: frame))
-        #expect(!ReservationTransition.isUnchanged(CGRect(x: 400, y: 50, width: 703, height: 600), since: frame))
+        #expect(WindowFrames.isUnchanged(frame.offsetBy(dx: 2, dy: -2), since: frame))
+        #expect(!WindowFrames.isUnchanged(frame.offsetBy(dx: 3, dy: 0), since: frame))
+        #expect(!WindowFrames.isUnchanged(CGRect(x: 400, y: 50, width: 703, height: 600), since: frame))
     }
 }
 
@@ -268,5 +268,64 @@ extension ReservationTransitionTests {
             return
         }
         #expect(hidden.frame == CGRect(x: 0, y: 0, width: 1160, height: 900))
+    }
+}
+
+/// What a window the window manager placed on purpose is, and isn't, avoidance's to move: *keep clear* applies to
+/// it like any other window, *put it back* never does.
+struct DeliberatePlacementTests {
+    let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+    let main = Reservation(frame: CGRect(x: 0, y: 0, width: 200, height: 900), edge: .left, role: .main)
+    let details = Reservation(frame: CGRect(x: 0, y: 0, width: 360, height: 900), edge: .left, role: .details)
+
+    private func decision(
+        _ window: CGRect, _ baselines: WindowBaselines? = nil, from: Reservation?, to: Reservation?,
+        onPurpose: Bool
+    ) -> ReservationTransition.Decision {
+        ReservationTransition.decide(
+            window: window, baselines: baselines, from: from, to: to, visibleFrame: screen, displayFrame: screen,
+            mode: .clip, isPlacedOnPurpose: onPurpose)
+    }
+
+    /// A tile that happens to land where avoidance had pushed the window: hiding the panels used to put it back,
+    /// which is why the manager had to delete avoidance's row after every press.
+    @Test func `hiding the panels leaves a tile where it is, however much avoidance remembers`() {
+        let tile = CGRect(x: 208, y: 0, width: 616, height: 900)
+        let remembered = WindowBaselines(main: CGRect(x: 0, y: 100, width: 600, height: 400), accepted: tile)
+        #expect(decision(tile, remembered, from: main, to: nil, onPurpose: false) != .leave(nil))
+        #expect(decision(tile, remembered, from: main, to: nil, onPurpose: true) == .leave(nil))
+    }
+
+    /// Keeping clear is unconditional, and the way back it leaves is to the tile, not to where the window was
+    /// before the manager ever touched it.
+    @Test func `a strip growing into a tile still pushes it, with a fresh way back to the tile`() throws {
+        let wider = Reservation(frame: CGRect(x: 0, y: 0, width: 400, height: 900), edge: .left, role: .main)
+        let tile = CGRect(x: 208, y: 0, width: 616, height: 900)
+        let remembered = WindowBaselines(main: CGRect(x: 0, y: 100, width: 600, height: 400), accepted: tile)
+        guard case .move(let move) = decision(tile, remembered, from: main, to: wider, onPurpose: true) else {
+            Issue.record("a strip that grows into a tile has to push it")
+            return
+        }
+        #expect(move.reason == .push)
+        #expect(move.frame.minX == 408)
+        // The way back is the tile, so hiding the panel returns it there rather than to the pre-manager frame.
+        let baselines = try #require(move.baselines(accepted: move.frame))
+        #expect(baselines.main == tile)
+        #expect(
+            decision(move.frame, baselines, from: wider, to: nil, onPurpose: false)
+                == .move(.init(reason: .restore, frame: tile)))
+    }
+
+    /// Following a closing details panel's edge is a way of putting a window back, so it isn't avoidance's to do to
+    /// a window someone placed. The returning strip still pushes it if it covers it.
+    @Test func `a tile doesn't follow a closing details panel's edge`() {
+        let snapped = CGRect(x: 368, y: 0, width: 600, height: 900)
+        #expect(decision(snapped, from: details, to: main, onPurpose: true) == .leave(nil))
+        // Without the intent it follows the edge back, as a snapped window does.
+        guard case .move(let move) = decision(snapped, from: details, to: main, onPurpose: false) else {
+            Issue.record("a snapped window follows the edge back")
+            return
+        }
+        #expect(move.reason == .follow)
     }
 }

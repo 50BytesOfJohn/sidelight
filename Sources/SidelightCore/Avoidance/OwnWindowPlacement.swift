@@ -1,28 +1,12 @@
 import CoreGraphics
 
 /// Where Sidelight puts its own windows (Widgets, Settings, the builder) so its panel never covers them. Window
-/// avoidance moves other apps' windows through Accessibility; Sidelight's own it simply places.
+/// avoidance moves other apps' windows through Accessibility; Sidelight's own it simply places, atomically, so they
+/// never flash on the way.
 ///
-/// Works in any coordinate space, as long as every rect is in the same one: it reasons about which side of the
-/// panel has room, not about which edge is up.
+/// Where the room is comes from ``WorkArea/clear``, the same answer the window manager's tiles and avoidance use.
+/// This only decides how a window that doesn't fit there gives way.
 public enum OwnWindowPlacement {
-    /// The part of `visibleFrame` a window can use beside `panels`: the largest stretch of it left on any side of
-    /// each panel, less the gap window avoidance keeps. The whole visible frame when no panel is in it.
-    public static func freeFrame(in visibleFrame: CGRect, beside panels: [CGRect]) -> CGRect {
-        panels.reduce(visibleFrame) { free, panel in
-            let panel = panel.intersection(free)
-            guard !panel.isNull, !panel.isEmpty else { return free }
-            let gap = AvoidanceGeometry.gap
-            let sides = [
-                CGRect(x: free.minX, y: free.minY, width: panel.minX - gap - free.minX, height: free.height),
-                CGRect(x: panel.maxX + gap, y: free.minY, width: free.maxX - panel.maxX - gap, height: free.height),
-                CGRect(x: free.minX, y: free.minY, width: free.width, height: panel.minY - gap - free.minY),
-                CGRect(x: free.minX, y: panel.maxY + gap, width: free.width, height: free.maxY - panel.maxY - gap),
-            ]
-            return sides.max { $0.width * $0.height < $1.width * $1.height } ?? free
-        }
-    }
-
     /// `window` moved and, only if it must, shrunk to fit `free`, never below `minimumSize`. A window that already
     /// fits stays where it is. One that can't shrink enough starts right beside the panel and reaches away from it,
     /// overlapping it only as much as the screen forces.

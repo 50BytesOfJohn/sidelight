@@ -41,6 +41,7 @@ struct AppEnvironment {
     /// Whether Sidelight may move other apps' windows and read their selection.
     let accessibility: AccessibilityPermission
     let windowAvoider: WindowAvoider
+    let windowPlacer: WindowPlacer
     /// Moves and resizes the frontmost window on its shortcuts. Not a data service: nothing runs between presses.
     let windowManager: WindowManager
     let loginItem: LoginItem

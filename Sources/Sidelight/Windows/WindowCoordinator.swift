@@ -30,6 +30,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     private(set) var managerSelectionRequest: WidgetInstance.ID?
 
     @ObservationIgnored private let environment: AppEnvironment
+    /// The only thing that moves a window, Sidelight's own included.
+    @ObservationIgnored private let placer: WindowPlacer
     @ObservationIgnored private var windows: [Kind: NSWindow] = [:]
     /// The builder: one window, for whichever widget it was last opened for.
     @ObservationIgnored private var builderWindow: NSWindow?
@@ -38,8 +40,9 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     @ObservationIgnored var occupiedRegions: () -> [PanelRegion] = { [] }
     @ObservationIgnored private let pendingClearance = DelayedTask()
 
-    init(environment: AppEnvironment) {
+    init(environment: AppEnvironment, placer: WindowPlacer) {
         self.environment = environment
+        self.placer = placer
     }
 
     func show(_ kind: Kind) {
@@ -105,15 +108,30 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     /// Sidelight's floating panel would cover its own window on a small screen: move the window beside it, and
     /// shrink it if it must. Window avoidance only moves other apps' windows.
+    ///
+    /// Where the room is comes from the same ``WorkArea`` the window manager's tiles and avoidance use, so an own
+    /// window stops on exactly the line everything else does, and the move goes through ``WindowPlacer`` like any
+    /// other: the registry then knows the window is where Sidelight put it on purpose.
     private func keepClearOfPanels(_ window: NSWindow) {
-        guard let screen = window.screen ?? NSScreen.main else { return }
+        guard let screen = window.screen ?? NSScreen.main, let height = ScreenLayout.primaryScreenHeight else {
+            return
+        }
+        func accessibility(_ rect: CGRect) -> CGRect {
+            AvoidanceGeometry.accessibilityRect(fromCocoa: rect, primaryScreenHeight: height)
+        }
         // Not the details panel: it's open only for a moment, and nothing would put the window back after.
-        let panels = occupiedRegions().filter { $0.role == .main && $0.displayFrame == screen.frame }.map(\.frame)
-        let free = OwnWindowPlacement.freeFrame(in: screen.visibleFrame, beside: panels)
+        let reservations = occupiedRegions()
+            .filter { $0.role == .main && $0.displayFrame == screen.frame }
+            .map { $0.reservation(primaryScreenHeight: height) }
+        let visibleFrame = accessibility(screen.visibleFrame)
+        let area = WorkArea(visibleFrame: visibleFrame, reservations: reservations)
+        let current = accessibility(window.frame)
         let frame = OwnWindowPlacement.fit(
-            window.frame, minimumSize: window.minSize, in: free, visibleFrame: screen.visibleFrame)
-        guard frame != window.frame else { return }
-        window.setFrame(frame, display: true, animate: window.isVisible)
+            current, minimumSize: window.minSize, in: area.clear, visibleFrame: visibleFrame)
+        guard frame != current else { return }
+        placer.place(
+            .own(OwnWindow(window: window, animates: true)), at: frame, intent: .ownWindow, on: nil,
+            reason: "ownWindow")
     }
 
     private func updatePreviews() {

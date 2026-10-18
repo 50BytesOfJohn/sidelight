@@ -64,7 +64,8 @@ Sources/
     Configuration/        AppConfiguration, PanelSection, WidgetSettings, Appearance, Hotkey; the config.json schema
     Panel/                Panel geometry and how sections share its length
     Imaging/              Image-effect patterns (Bayer dither, ASCII ramp), desktop-picture crop geometry
-    Avoidance/            Window-avoidance geometry (pure functions)
+    Geometry/             Where a window may go (WorkArea) and which half of its frame to write first (pure)
+    Avoidance/            Window-avoidance geometry, reservations and what a placement means (pure functions)
     WindowManager/        Window-manager tiles, display order and size cycling (pure functions)
     Codex/                codex app-server JSON-RPC session, rollout-file parser, usage models
     ClaudeCode/           Claude plan limits per account (each a Claude Code folder) and signing accounts in through Claude Code
@@ -82,7 +83,7 @@ Sources/
     Configuration/        ConfigurationStore (persistence, hot reload), user-facing names
     Panel/                The panel window, its frame/animations, root view, backgrounds
     Windows/              Widgets manager + Settings window lifecycle, links between them
-    WindowAvoidance/      Accessibility observers and permission, Rectangle integration
+    WindowAvoidance/      Accessibility observers and permission, the one writer of window frames, Rectangle
     WindowManager/        Shortcuts that tile the frontmost window
     Hotkey/               Global shortcut (Carbon)
     Manager/              Widgets window: active list, gallery, inspector

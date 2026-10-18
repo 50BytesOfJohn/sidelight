@@ -10,7 +10,7 @@ struct WindowLayoutTests {
 
     @Test(arguments: WindowAction.allCases.filter { $0.unitRect() != nil }, [0, 8])
     func `every tile stays inside the work area`(action: WindowAction, gap: CGFloat) throws {
-        let area = WindowLayout.workArea(visibleFrame: visible, reservations: [], padding: 8)
+        let area = WorkArea(visibleFrame: visible, reservations: [], padding: 8).rect
         for step in 0..<3 {
             let frame = try #require(WindowLayout.frame(for: action, step: step, in: area, gap: gap))
             #expect(area.contains(frame), "\(action) step \(step): \(frame)")
@@ -19,7 +19,7 @@ struct WindowLayoutTests {
     }
 
     @Test func `padding insets every edge, and maximize fills what's left`() throws {
-        let area = WindowLayout.workArea(visibleFrame: visible, reservations: [], padding: 8)
+        let area = WorkArea(visibleFrame: visible, reservations: [], padding: 8).rect
         #expect(area == CGRect(x: 8, y: 28, width: 984, height: 764))
         #expect(WindowLayout.frame(for: .maximize, in: area, gap: 8) == area)
     }
@@ -76,8 +76,9 @@ struct WindowLayoutTests {
             case .top: CGRect(x: 0, y: 20, width: 1000, height: 60)
             case .bottom: CGRect(x: 0, y: 740, width: 1000, height: 60)
             }
-        let area = WindowLayout.workArea(
-            visibleFrame: visible, reservations: [Reservation(frame: panel, edge: edge, role: .main)], padding: 4)
+        let area = WorkArea(
+            visibleFrame: visible, reservations: [Reservation(frame: panel, edge: edge, role: .main)], padding: 4
+        ).rect
         let expected: CGRect =
             switch edge {
             case .left: CGRect(x: 308, y: 24, width: 688, height: 772)
@@ -90,9 +91,10 @@ struct WindowLayoutTests {
 
     @Test func `a details panel's strip counts like the panel's`() {
         let details = CGRect(x: 0, y: 20, width: 420, height: 780)
-        let area = WindowLayout.workArea(
+        let area = WorkArea(
             visibleFrame: visible, reservations: [Reservation(frame: details, edge: .left, role: .details)],
-            padding: 8)
+            padding: 8
+        ).rect
         #expect(area.minX == 428)
     }
 
@@ -100,27 +102,31 @@ struct WindowLayoutTests {
         let area = CGRect(x: 0, y: 0, width: 1000, height: 800)
         let left = CGRect(x: 0, y: 0, width: 496, height: 800)
         #expect(
-            WindowLayout.anchored(CGSize(width: 600, height: 800), for: .leftHalf, tile: left, in: area)
+            WindowLayout.anchored(CGSize(width: 600, height: 800), for: .leftHalf, tile: left, in: .unreserved(area))
                 == CGRect(x: 0, y: 0, width: 600, height: 800))
         let right = CGRect(x: 504, y: 0, width: 496, height: 800)
         #expect(
-            WindowLayout.anchored(CGSize(width: 600, height: 800), for: .rightHalf, tile: right, in: area)
+            WindowLayout.anchored(CGSize(width: 600, height: 800), for: .rightHalf, tile: right, in: .unreserved(area))
                 == CGRect(x: 400, y: 0, width: 600, height: 800))
         let topRight = CGRect(x: 504, y: 0, width: 496, height: 396)
         #expect(
-            WindowLayout.anchored(CGSize(width: 600, height: 500), for: .topRight, tile: topRight, in: area)
+            WindowLayout.anchored(
+                CGSize(width: 600, height: 500), for: .topRight, tile: topRight, in: .unreserved(area))
                 == CGRect(x: 400, y: 0, width: 600, height: 500))
         let bottomLeft = CGRect(x: 0, y: 404, width: 496, height: 396)
         #expect(
-            WindowLayout.anchored(CGSize(width: 300, height: 500), for: .bottomLeft, tile: bottomLeft, in: area)
+            WindowLayout.anchored(
+                CGSize(width: 300, height: 500), for: .bottomLeft, tile: bottomLeft, in: .unreserved(area))
                 == CGRect(x: 0, y: 300, width: 300, height: 500))
         // Centred along both axes, and moved back inside.
         let third = CGRect(x: 336, y: 0, width: 328, height: 800)
         #expect(
-            WindowLayout.anchored(CGSize(width: 400, height: 600), for: .centerThird, tile: third, in: area)
+            WindowLayout.anchored(
+                CGSize(width: 400, height: 600), for: .centerThird, tile: third, in: .unreserved(area))
                 == CGRect(x: 300, y: 100, width: 400, height: 600))
         #expect(
-            WindowLayout.anchored(CGSize(width: 1200, height: 600), for: .center, tile: area, in: area).minX == 0)
+            WindowLayout.anchored(CGSize(width: 1200, height: 600), for: .center, tile: area, in: .unreserved(area))
+                .minX == 0)
     }
 
     @Test func `a constrained third on a portrait display keeps its bottom edge, centred across`() throws {
@@ -129,7 +135,7 @@ struct WindowLayoutTests {
         #expect(tile == CGRect(x: 0, y: 600, width: 600, height: 300))
         #expect(
             WindowLayout.anchored(
-                CGSize(width: 500, height: 200), for: .lastThird, tile: tile, in: area, isPortrait: true)
+                CGSize(width: 500, height: 200), for: .lastThird, tile: tile, in: .unreserved(area), isPortrait: true)
                 == CGRect(x: 50, y: 700, width: 500, height: 200))
     }
 

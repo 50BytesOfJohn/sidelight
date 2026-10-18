@@ -7,29 +7,29 @@ import os
 /// clear of the panel.
 ///
 /// Not a data service: nothing runs between presses. It watches nothing, polls nothing, and while it's off it asks
-/// for no access and keeps nothing. What it keeps while on is in memory only: the last press, for cycling a half's
-/// size, and where windows were before it first placed them, for putting them back.
+/// for no access and keeps nothing. The only thing it keeps while on is the last press, for cycling a half's size;
+/// where a window was before it first placed one belongs to ``WindowPlacer``, along with every other window
+/// Sidelight has moved.
+///
+/// It knows nothing of window avoidance. Its tiles are clear of the panels because ``WorkArea`` says where windows
+/// go, and avoidance leaves them because the placer says someone asked for them to be there.
 @Observable
 final class WindowManager {
-    /// How many windows ``WindowAction/restore`` can put back, the most recently placed first.
-    static let restoreLimit = 32
-
     @ObservationIgnored private(set) var settings = WindowManagerSettings()
     /// The strips the panels keep clear, which tiles stay out of; empty while the panels are hidden.
     @ObservationIgnored var occupiedRegions: () -> [PanelRegion] = { [] }
 
     @ObservationIgnored private let permission: AccessibilityPermission
-    @ObservationIgnored private let avoider: WindowAvoider
+    @ObservationIgnored private let placer: WindowPlacer
     @ObservationIgnored private var cycle = SizeCycle()
     /// The window the last press placed, which ``cycle`` is about.
     @ObservationIgnored private var lastWindow: ManagedWindow?
-    @ObservationIgnored private var restoreList: [RestoreEntry] = []
 
     private static let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
 
-    init(permission: AccessibilityPermission, avoider: WindowAvoider) {
+    init(permission: AccessibilityPermission, placer: WindowPlacer) {
         self.permission = permission
-        self.avoider = avoider
+        self.placer = placer
     }
 
     /// Takes new settings. Switched on, it needs Accessibility access, and asks for it if `promptingForAccess`;
@@ -42,7 +42,7 @@ final class WindowManager {
         guard settings.isEnabled else {
             cycle.reset()
             lastWindow = nil
-            restoreList = []
+            placer.forgetDeliberatePlacements()
             return
         }
         // So a hung app costs a second at most, even with window avoidance off.
@@ -54,7 +54,7 @@ final class WindowManager {
     func perform(_ action: WindowAction) {
         guard settings.isEnabled, let window = frontWindow() else { return }
         guard let current = window.frame else { return fail(action, "its frame can't be read") }
-        let displays = DisplayArea.all(regions: occupiedRegions(), padding: CGFloat(settings.padding))
+        let displays = ScreenLayout.areas(regions: occupiedRegions(), padding: CGFloat(settings.padding))
         guard let source = WindowLayout.sourceDisplay(of: current, among: displays.map(\.frame)) else {
             return fail(action, "no display")
         }
@@ -63,7 +63,7 @@ final class WindowManager {
 
         switch action {
         case .restore:
-            restore(window)
+            restore(window, among: displays)
         case .nextDisplay, .previousDisplay:
             guard
                 let target = WindowLayout.neighbor(
@@ -74,12 +74,15 @@ final class WindowManager {
             if let placement = cycle.placement(isSameWindow: isSameWindow, frame: current),
                 let tile = frame(for: placement.action, step: placement.step, size: current.size, on: area)
             {
-                guard let accepted = place(window, at: tile, from: current, as: placement.action, on: area)
+                guard
+                    let accepted = place(
+                        window, at: tile, as: placement.action, step: placement.step, pressed: action, on: area)
                 else { return fail(action, "it can't be moved") }
                 cycle.record(action, placement: placement, accepted: accepted, now: now)
             } else {
-                let moved = WindowLayout.transfer(current, from: displays[source].workArea, to: area.workArea)
-                guard let accepted = place(window, at: moved, from: current, as: nil, on: area) else {
+                let moved = WindowLayout.transfer(
+                    current, from: displays[source].workArea.rect, to: area.workArea.rect)
+                guard let accepted = place(window, at: moved, as: nil, step: 0, pressed: action, on: area) else {
                     return fail(action, "it can't be moved")
                 }
                 cycle.record(action, placement: nil, accepted: accepted, now: now)
@@ -89,7 +92,7 @@ final class WindowManager {
                 for: action, isSameWindow: isSameWindow, frame: current, now: now, cycles: settings.cyclesSizes)
             let area = displays[source]
             guard let tile = frame(for: action, step: step, size: current.size, on: area) else { return }
-            guard let accepted = place(window, at: tile, from: current, as: action, on: area) else {
+            guard let accepted = place(window, at: tile, as: action, step: step, pressed: action, on: area) else {
                 return fail(action, "it can't be moved")
             }
             cycle.record(action, placement: (action, step), accepted: accepted, now: now)
@@ -103,74 +106,56 @@ final class WindowManager {
 
     /// Where `action` at `step` puts a window of `size` on `display`.
     private func frame(for action: WindowAction, step: Int, size: CGSize, on display: DisplayArea) -> CGRect? {
-        if action == .center { return WindowLayout.centered(size, in: display.workArea) }
+        if action == .center { return WindowLayout.centered(size, in: display.workArea.rect) }
         return WindowLayout.frame(
-            for: action, step: step, in: display.workArea, gap: CGFloat(settings.gap), isPortrait: display.isPortrait)
+            for: action, step: step, in: display.workArea.rect, gap: CGFloat(settings.gap),
+            isPortrait: display.isPortrait)
     }
 
-    /// Puts `window`, now at `current`, at `frame`, as the tile for `action` (`nil` for a move to another display).
-    /// A window of a fixed size keeps it, centred where the tile is; one the app sizes differently is moved again to
-    /// keep the tile's edges (see ``WindowLayout/anchored(_:for:tile:in:isPortrait:)``). Returns the frame the app accepted, after
-    /// noting where to put the window back and telling window avoidance the window is placed on purpose; `nil` when it
-    /// can't be moved.
+    /// Puts `window` at `frame`, as the tile for `tile` (`nil` for a move to another display that isn't re-applying
+    /// one), from pressing `pressed`.
+    ///
+    /// A window of a fixed size keeps it, centred where the tile is; one the app sizes differently is anchored to the
+    /// tile's edges (see ``WindowLayout/anchored(_:for:tile:in:isPortrait:)``), which the placer applies inside the
+    /// same placement. For a leading-anchored tile the window is already at the tile's origin by then, so there's
+    /// usually nothing to correct. Returns the frame the app accepted; `nil` when it can't be moved.
     private func place(
-        _ window: ManagedWindow, at frame: CGRect, from current: CGRect, as action: WindowAction?,
+        _ window: ManagedWindow, at frame: CGRect, as tile: WindowAction?, step: Int, pressed: WindowAction,
         on display: DisplayArea
     ) -> CGRect? {
         let area = display.workArea
         guard window.isPositionSettable else { return nil }
         var requested = frame
         if !window.isSizeSettable {
+            guard let current = window.frame else { return nil }
             let centered = CGRect(
                 x: (frame.midX - current.width / 2).rounded(.down), y: (frame.midY - current.height / 2).rounded(.down),
                 width: current.width, height: current.height)
-            requested = WindowLayout.clamped(centered, to: area)
+            requested = WindowLayout.fitted(centered, in: area)
         }
-        noteOriginal(of: window, at: current)
-        guard var accepted = window.setFrame(requested) else { return nil }
-        if abs(accepted.width - requested.width) > 1 || abs(accepted.height - requested.height) > 1 {
-            let anchored =
-                action.map {
-                    WindowLayout.anchored(
-                        accepted.size, for: $0, tile: requested, in: area, isPortrait: display.isPortrait)
-                }
-                ?? WindowLayout.clamped(accepted, to: area)
-            if !ReservationTransition.isUnchanged(anchored, since: accepted) {
-                accepted = window.setFrame(anchored) ?? accepted
-            }
-        }
-        if !restoreList.isEmpty { restoreList[0].lastSet = accepted }
-        window.placed(by: avoider)
-        return accepted
+        let isPortrait = display.isPortrait
+        return placer.place(
+            window, at: requested, intent: .manager(tile ?? pressed, step: tile == nil ? 0 : step), on: display,
+            correcting: { accepted in
+                guard let tile else { return WindowLayout.fitted(accepted, in: area) }
+                return WindowLayout.anchored(
+                    accepted.size, for: tile, tile: requested, in: area, isPortrait: isPortrait)
+            },
+            reason: pressed.rawValue)
     }
 
     // MARK: Restoring
 
-    /// A window placed by the manager, where it was before, and where it was last put.
-    private struct RestoreEntry {
-        let window: ManagedWindow
-        let original: CGRect
-        var lastSet: CGRect
-    }
-
-    /// Notes where `window` is before it's placed, as the newest entry: a window still where the manager last put it
-    /// keeps the frame from before the first placement; one moved since starts from where it is.
-    private func noteOriginal(of window: ManagedWindow, at current: CGRect) {
-        let previous = restoreList.firstIndex { $0.window.isSame(as: window) }.map { restoreList.remove(at: $0) }
-        let original =
-            previous.flatMap { ReservationTransition.isUnchanged(current, since: $0.lastSet) ? $0.original : nil }
-            ?? current
-        restoreList.insert(RestoreEntry(window: window, original: original, lastSet: current), at: 0)
-        if restoreList.count > Self.restoreLimit { restoreList.removeLast(restoreList.count - Self.restoreLimit) }
-    }
-
-    private func restore(_ window: ManagedWindow) {
-        guard let index = restoreList.firstIndex(where: { $0.window.isSame(as: window) }) else {
+    /// Puts `window` back where Sidelight first found it, and forgets it: there's nothing left to put back.
+    private func restore(_ window: ManagedWindow, among displays: [DisplayArea]) {
+        guard let original = placer.baseline(of: window) else {
             return fail(.restore, "the manager never placed it")
         }
-        let entry = restoreList.remove(at: index)
-        guard window.setFrame(entry.original) != nil else { return fail(.restore, "it can't be moved") }
-        window.placed(by: avoider)
+        let display = ScreenLayout.display(of: original, among: displays)
+        guard placer.place(window, at: original, intent: .restore, on: display, reason: "restore") != nil else {
+            return fail(.restore, "it can't be moved")
+        }
+        placer.forget(window)
         cycle.reset()
     }
 
@@ -217,113 +202,5 @@ final class WindowManager {
         NSSound.beep()
         let name = action?.rawValue ?? "window action"
         Log.windowManager.notice("Can't do \(name, privacy: .public): \(reason, privacy: .public)")
-    }
-}
-
-/// One display as the manager sees it, in Accessibility space.
-private struct DisplayArea {
-    let frame: CGRect
-    /// Where tiles go (see ``WindowLayout/workArea(visibleFrame:reservations:padding:)``).
-    let workArea: CGRect
-    let isPortrait: Bool
-
-    static func all(regions: [PanelRegion], padding: CGFloat) -> [DisplayArea] {
-        guard let screenHeight = NSScreen.primary?.frame.height else { return [] }
-        func accessibility(_ rect: CGRect) -> CGRect {
-            AvoidanceGeometry.accessibilityRect(fromCocoa: rect, primaryScreenHeight: screenHeight)
-        }
-        return Display.connected().map { display in
-            let reservations = regions.filter { $0.displayID == display.id }.map {
-                Reservation(frame: accessibility($0.frame), edge: $0.edge, role: $0.role)
-            }
-            return DisplayArea(
-                frame: accessibility(display.frame),
-                workArea: WindowLayout.workArea(
-                    visibleFrame: accessibility(display.visibleFrame), reservations: reservations, padding: padding),
-                isPortrait: display.frame.height > display.frame.width)
-        }
-    }
-}
-
-/// One of Sidelight's own windows, held weakly so a closed one goes away.
-private struct OwnWindow {
-    weak var window: NSWindow?
-}
-
-/// A window the manager places: another app's, through Accessibility, or one of Sidelight's own, directly.
-private enum ManagedWindow {
-    /// Process identifiers are reused: a window of a later process with the same one isn't this window.
-    case other(AccessibilityElement, pid: pid_t, launchDate: Date?)
-    case own(OwnWindow)
-
-    func isSame(as other: ManagedWindow) -> Bool {
-        switch (self, other) {
-        case (.other(let element, let pid, let launchDate), .other(let otherElement, let otherPID, let otherLaunch)):
-            pid == otherPID && launchDate == otherLaunch && element.isSameElement(as: otherElement)
-        case (.own(let window), .own(let otherWindow)):
-            window.window != nil && window.window === otherWindow.window
-        default:
-            false
-        }
-    }
-
-    /// In Accessibility space.
-    var frame: CGRect? {
-        switch self {
-        case .other(let element, _, _): element.frame
-        case .own(let own): own.window.flatMap { window in Self.accessibility(window.frame) }
-        }
-    }
-
-    var isPositionSettable: Bool {
-        switch self {
-        case .other(let element, _, _): element.isPositionSettable
-        case .own(let own): own.window != nil
-        }
-    }
-
-    var isSizeSettable: Bool {
-        switch self {
-        case .other(let element, _, _): element.isSizeSettable
-        case .own(let own): own.window?.styleMask.contains(.resizable) ?? false
-        }
-    }
-
-    /// Moves it to `frame`, in Accessibility space; returns the frame it took there, `nil` once it's gone.
-    func setFrame(_ frame: CGRect) -> CGRect? {
-        switch self {
-        case .other(let element, _, _):
-            return element.setFrame(frame)
-        case .own(let own):
-            guard let window = own.window, var cocoa = Self.accessibility(frame) else { return nil }
-            // AppKit doesn't hold a frame set in code to the window's minimum and maximum sizes, as an app does
-            // for an Accessibility resize: so it's sized within them here, and anchored like any other app's.
-            let contentMinimum = window.frameRect(forContentRect: CGRect(origin: .zero, size: window.contentMinSize))
-            let contentMaximum = window.frameRect(forContentRect: CGRect(origin: .zero, size: window.contentMaxSize))
-            let size = WindowLayout.clampedSize(
-                cocoa.size,
-                minimum: CGSize(
-                    width: max(window.minSize.width, contentMinimum.width),
-                    height: max(window.minSize.height, contentMinimum.height)),
-                maximum: CGSize(
-                    width: min(window.maxSize.width, contentMaximum.width),
-                    height: min(window.maxSize.height, contentMaximum.height)))
-            // Kept at the same top edge: Cocoa's origin is the bottom-left.
-            cocoa = CGRect(x: cocoa.minX, y: cocoa.maxY - size.height, width: size.width, height: size.height)
-            window.setFrame(cocoa, display: true)
-            return Self.accessibility(window.frame)
-        }
-    }
-
-    /// Tells window avoidance it was placed on purpose, so avoidance never puts it back.
-    func placed(by avoider: WindowAvoider) {
-        guard case .other(let element, let pid, _) = self else { return }
-        avoider.forget(element, pid: pid)
-    }
-
-    /// Converts between Cocoa and Accessibility space: the conversion is its own inverse.
-    private static func accessibility(_ rect: CGRect) -> CGRect? {
-        guard let screenHeight = NSScreen.primary?.frame.height else { return nil }
-        return AvoidanceGeometry.accessibilityRect(fromCocoa: rect, primaryScreenHeight: screenHeight)
     }
 }

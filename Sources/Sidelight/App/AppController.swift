@@ -27,7 +27,9 @@ final class AppController {
         let accounts = AccountStore(configuration: configurationStore, keyring: keyring)
         let accountAccess = AccountAccess(keyring: keyring, accounts: accounts)
         let accessibility = AccessibilityPermission()
-        let windowAvoider = WindowAvoider(permission: accessibility, includes: composition.movesWindows)
+        let windowPlacer = WindowPlacer()
+        let windowAvoider = WindowAvoider(
+            permission: accessibility, placer: windowPlacer, includes: composition.movesWindows)
         let stash = StashStore(
             fileURL: composition.stashFile, deleteDoneAfter: configurationStore.configuration.stash.deleteDonePeriod)
         stash.order = configurationStore.configuration.stash.order
@@ -61,7 +63,8 @@ final class AppController {
             hotkeys: HotkeyCenter(),
             accessibility: accessibility,
             windowAvoider: windowAvoider,
-            windowManager: WindowManager(permission: accessibility, avoider: windowAvoider),
+            windowPlacer: windowPlacer,
+            windowManager: WindowManager(permission: accessibility, placer: windowPlacer),
             loginItem: LoginItem(),
             rectangle: RectangleIntegration(),
             updater: Updater()
@@ -69,7 +72,7 @@ final class AppController {
         environment.awake.keepsDisplayOn = configurationStore.configuration.awake.keepsDisplayOn
         self.environment = environment
         serviceKinds = composition.serviceKinds
-        windows = WindowCoordinator(environment: environment)
+        windows = WindowCoordinator(environment: environment, placer: windowPlacer)
         environment.settingsNavigator.showSettings = { [windows] in windows.show(.settings) }
         environment.settingsNavigator.showWidgetSettings = { [windows] in windows.showSettings(forWidget: $0) }
         panels = PanelCoordinator(environment: environment)

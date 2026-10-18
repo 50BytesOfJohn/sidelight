@@ -32,7 +32,7 @@ public struct SizeCycle: Sendable {
     ) -> Int {
         guard cycles, action.cycles, isSameWindow, let last, last.action == action,
             let placement = last.placement, placement.action == action, now - last.at < Self.window,
-            ReservationTransition.isUnchanged(frame, since: last.frame)
+            WindowFrames.isUnchanged(frame, since: last.frame)
         else { return 0 }
         return (placement.step + 1) % action.cycleLength
     }
@@ -40,7 +40,7 @@ public struct SizeCycle: Sendable {
     /// The placement the window still has, whenever it was made: what the last action left it at, if it's the same
     /// window and hasn't moved since.
     public func placement(isSameWindow: Bool, frame: CGRect) -> (action: WindowAction, step: Int)? {
-        guard isSameWindow, let last, ReservationTransition.isUnchanged(frame, since: last.frame) else { return nil }
+        guard isSameWindow, let last, WindowFrames.isUnchanged(frame, since: last.frame) else { return nil }
         return last.placement
     }
 

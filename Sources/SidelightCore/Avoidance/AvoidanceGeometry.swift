@@ -23,19 +23,20 @@ public struct AvoidancePlan: Equatable, Sendable {
 /// y growing downwards. The math is written once for a panel on the *left* edge; other edges are mapped into
 /// that canonical space (right = mirror x, top = swap axes, bottom = swap axes and mirror) and back.
 public enum AvoidanceGeometry {
-    /// Space left between the panel and a moved window.
-    public static let gap: CGFloat = 8
     /// A window whose near edge is this close to the visible frame's edge counts as snapped.
     static let snapTolerance: CGFloat = 2
     /// Clipping that would leave less than this fraction of the window's width shifts instead.
     static let minimumClipFraction: CGFloat = 0.4
 
+    /// - Parameter clearance: The space to leave between the panel and the window: the panel's own
+    ///   ``Reservation/clearance``.
     public static func plan(
         window: CGRect,
         panel: CGRect,
         visibleFrame: CGRect,
         edge: PanelPosition,
-        mode: WindowAvoidanceMode
+        mode: WindowAvoidanceMode,
+        clearance: CGFloat = Reservation.defaultClearance
     ) -> AvoidancePlan? {
         guard mode != .off, window.intersects(panel) else { return nil }
 
@@ -43,7 +44,7 @@ public enum AvoidanceGeometry {
         let window = canonical(window, edge: edge)
         let visible = canonical(visibleFrame, edge: edge)
 
-        let minX = panel.maxX + gap
+        let minX = panel.maxX + clearance
         let minY = max(window.minY, visible.minY)
         let height = min(window.height, visible.maxY - minY)
         let shifted = CGRect(x: minX, y: minY, width: min(window.width, visible.maxX - minX), height: height)
@@ -70,14 +71,18 @@ public enum AvoidanceGeometry {
     }
 
     /// Where `window`, at the size the app insists on, goes to be clear of `panel`: moved away from the screen's edge
-    /// until its near edge is ``gap`` past the panel. `nil` when it already is clear, give or take what apps round.
+    /// until its near edge is `clearance` past the panel. `nil` when it already is clear, give or take what apps
+    /// round.
     ///
     /// For an app that refused the size a plan asked for, so kept a window too big for the room beside the panel:
     /// it stays as big as it wants, out from under the panel, even if that puts part of it past the screen's edge.
-    public static func clearing(_ window: CGRect, of panel: CGRect, edge: PanelPosition) -> CGRect? {
+    public static func clearing(
+        _ window: CGRect, of panel: CGRect, edge: PanelPosition,
+        clearance: CGFloat = Reservation.defaultClearance
+    ) -> CGRect? {
         guard window.intersects(panel.insetBy(dx: snapTolerance, dy: snapTolerance)) else { return nil }
         let moved = canonical(window, edge: edge)
-        let near = canonical(panel, edge: edge).maxX + gap
+        let near = canonical(panel, edge: edge).maxX + clearance
         return restored(CGRect(x: near, y: moved.minY, width: moved.width, height: moved.height), edge: edge)
     }
 

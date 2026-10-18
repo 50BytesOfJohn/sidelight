@@ -36,7 +36,9 @@ struct PanelRegion: Equatable {
 ///
 /// It remembers where each window was before it moved it, so when a strip is released (the panels hide, or the
 /// details panel gives way to the side panel again) windows nobody touched since go back. See
-/// ``ReservationTransition`` for exactly what moves.
+/// ``ReservationTransition`` for exactly what moves. That memory, and every frame it writes, belong to
+/// ``WindowPlacer``: avoidance decides *when* and *where*, the placer decides *how*, and one registry says whether a
+/// window is still avoidance's to put back or someone placed it on purpose.
 ///
 /// It only ever moves a window it can be sure of: a standard window of an eligible app, on the active Space as the
 /// window server lists it, and told apart from that app's other windows (see ``OnScreenWindows``). Anything less
@@ -116,22 +118,6 @@ final class WindowAvoider {
         let recheck: pid_t?
     }
 
-    /// A window Sidelight moved, and where to put it back.
-    private struct MovedWindow {
-        let window: AccessibilityElement
-        let processIdentifier: pid_t
-        /// Process identifiers are reused: a window of a later process with the same one isn't this window.
-        let launchDate: Date?
-        let displayID: Display.ID
-        /// The display's frame when the window was moved. Once it changes, the frames below mean nothing.
-        let displayFrame: CGRect
-        var baselines: WindowBaselines
-
-        func isWindow(_ other: AccessibilityElement, of pid: pid_t) -> Bool {
-            processIdentifier == pid && window.isSameElement(as: other)
-        }
-    }
-
     @ObservationIgnored private var observers: [pid_t: AXObserver] = [:]
     @ObservationIgnored private var registrationAttempts: [pid_t: Int] = [:]
     /// Delayed registrations (fresh launches and retries), cancelled when avoidance turns off or the app quits.
@@ -140,8 +126,6 @@ final class WindowAvoider {
     @ObservationIgnored private var mouseUpTask: Task<Void, Never>?
     @ObservationIgnored private var workspaceObservations: [NotificationCenter.ObservationToken] = []
     @ObservationIgnored private var isStarted = false
-    /// Windows Sidelight moved and may put back. Only ever in memory, and only for this run.
-    @ObservationIgnored private var movedWindows: [MovedWindow] = []
     /// The strips before a change that's waiting: for a panel to settle, or the mouse button to come up. Later
     /// changes keep this start and go to wherever things are by then, so a change undone meanwhile moves nothing,
     /// and a change replaced by another moves windows once.
@@ -157,11 +141,17 @@ final class WindowAvoider {
     /// Which apps' windows it may move, besides being apps with windows other than Sidelight.
     @ObservationIgnored private let includes: (NSRunningApplication) -> Bool
     @ObservationIgnored private let permission: AccessibilityPermission
+    /// The only thing that writes a window frame, and the one registry of what Sidelight has placed.
+    @ObservationIgnored private let placer: WindowPlacer
 
     /// - Parameter includes: Which apps' windows it may move: every app with windows, unless the app's composition
     ///   narrows it (to one disposable app, say, when trying window movement out).
-    init(permission: AccessibilityPermission, includes: @escaping (NSRunningApplication) -> Bool = { _ in true }) {
+    init(
+        permission: AccessibilityPermission, placer: WindowPlacer,
+        includes: @escaping (NSRunningApplication) -> Bool = { _ in true }
+    ) {
         self.permission = permission
+        self.placer = placer
         self.includes = includes
         permission.onChange { [weak self] in self?.trustChanged($0) }
     }
@@ -231,7 +221,7 @@ final class WindowAvoider {
         pendingTransitionStart = nil
         guard mode != .off, isStarted else { return }
         applyTransition(from: start, to: [])
-        movedWindows = []
+        placer.forgetAvoidance()
     }
 
     /// Applies the change waiting since ``pendingTransitionStart``, unless the mouse button is down: then once it's up.
@@ -261,24 +251,17 @@ final class WindowAvoider {
             permission.refresh()
             return
         }
-        guard let primaryScreen = NSScreen.primary else { return }
-        let screenHeight = primaryScreen.frame.height
-        func accessibility(_ rect: CGRect) -> CGRect {
-            AvoidanceGeometry.accessibilityRect(fromCocoa: rect, primaryScreenHeight: screenHeight)
-        }
+        guard let screenHeight = ScreenLayout.primaryScreenHeight else { return }
 
         // Frames on a display that's gone or changed shape since can't be put back anywhere meaningful.
         let displays = Display.connected()
-        movedWindows.removeAll { entry in
-            !displays.contains { $0.id == entry.displayID && $0.frame == entry.displayFrame }
-        }
+        placer.forgetAvoidanceOnStaleDisplays(among: displays)
         guard displays.contains(where: { changed.contains($0.id) }) else { return }
-        let displayFrames = displays.map { (display: $0, frame: accessibility($0.frame)) }
+        let areas = ScreenLayout.areas(regions: new, among: displays)
         let onScreen = OnScreenWindows.current()
 
-        var remaining = movedWindows
-        var updated: [MovedWindow] = []
-        var counts: [ReservationTransition.Move.Reason: Int] = [:]
+        var visited: [ManagedWindow] = []
+        var counts: [WindowMoveReason: Int] = [:]
         // Every regular app, and the accessory apps being watched: no other app's windows were ever moved.
         let applications = NSWorkspace.shared.runningApplications.filter {
             isWatchedEagerly($0) || (observers[$0.processIdentifier] != nil && isEligible($0))
@@ -293,69 +276,64 @@ final class WindowAvoider {
                 else { return nil }
                 return (window, frame)
             }
-            for (window, frame) in windows {
+            for (element, frame) in windows {
                 // The display holding most of it, if its strip changed.
                 guard
-                    let display = displayFrames.max(by: { area(frame, $0.frame) < area(frame, $1.frame) }),
-                    area(frame, display.frame) > 0, changed.contains(display.display.id)
+                    let display = areas.max(by: { area(frame, $0.frame) < area(frame, $1.frame) }),
+                    area(frame, display.frame) > 0, changed.contains(display.id)
                 else { continue }
-                let entry = remaining.firstIndex { $0.isWindow(window, of: pid) }.map { remaining.remove(at: $0) }
+                let window = ManagedWindow.other(element, pid: pid, launchDate: application.launchDate)
                 // Another Space, or not told apart from another window: never moved, and no longer put back.
-                guard mayMove(window, frame: frame, of: application, among: allWindows, onScreen: onScreen) else {
+                guard mayMove(element, frame: frame, of: application, among: allWindows, onScreen: onScreen) else {
                     continue
                 }
+                visited.append(window)
 
-                let id = display.display.id
-                // An app that quit, and another that got its process identifier since: not the window remembered.
-                let launchDate = application.launchDate
-                let baselines = entry.flatMap { $0.displayID == id && $0.launchDate == launchDate ? $0.baselines : nil }
-                let from = before[id].map { Reservation(frame: accessibility($0.frame), edge: $0.edge, role: $0.role) }
-                let to = after[id].map { Reservation(frame: accessibility($0.frame), edge: $0.edge, role: $0.role) }
+                let id = display.id
+                let baselines = placer.avoidanceBaselines(of: window, on: display)
+                let from = before[id].map { $0.reservation(primaryScreenHeight: screenHeight) }
+                let to = after[id].map { $0.reservation(primaryScreenHeight: screenHeight) }
                 let decision = ReservationTransition.decide(
-                    window: frame, baselines: baselines, from: from, to: to,
-                    visibleFrame: accessibility(display.display.visibleFrame), displayFrame: display.frame, mode: mode)
+                    window: frame, baselines: baselines, from: from, to: to, visibleFrame: display.visibleFrame,
+                    displayFrame: display.frame, mode: mode,
+                    isPlacedOnPurpose: placer.isPlacedOnPurpose(window, at: frame))
 
-                let kept: WindowBaselines?
                 switch decision {
                 case .leave(let baselines):
-                    kept = baselines
+                    placer.setAvoidanceBaselines(baselines, of: window, at: frame, on: display)
                 case .move(let move):
                     let axis = move.reason == .follow ? before[id]?.edge : after[id]?.edge
-                    kept = perform(
-                        move, on: window, from: frame, axis: axis ?? .left, clearOf: to, previous: baselines)
+                    perform(
+                        move, on: window, from: frame, axis: axis ?? .left, clearOf: to, on: display,
+                        previous: baselines)
                     counts[move.reason, default: 0] += 1
-                }
-                if let kept {
-                    updated.append(
-                        MovedWindow(
-                            window: window, processIdentifier: pid, launchDate: launchDate, displayID: id,
-                            displayFrame: display.display.frame, baselines: kept))
                 }
             }
         }
-        // Windows remembered on these displays and not found (closed, minimized, full screen, their app quit) are
-        // forgotten; those on other displays stay as they were.
-        movedWindows = remaining.filter { !changed.contains($0.displayID) } + updated
+        // Windows remembered on these displays and not found (closed, minimized, full screen, their app quit) have
+        // nowhere to go back to; those on other displays keep what they had.
+        placer.forgetAvoidance(onDisplays: changed, except: { window in visited.contains { $0.isSame(as: window) } })
         let summary = counts.map { "\($0.key.rawValue)=\($0.value)" }.sorted().joined(separator: " ")
         Log.avoidance.info("Reservations changed on \(changed.count) displays: \(summary, privacy: .public)")
     }
 
-    /// Moves `window` as `move` says, falling back to keeping its size if the app refuses to resize it, and kept clear
-    /// of `reservation`, the strip reserved now. Returns what to remember: where the app actually put it, never where
-    /// it was asked to go.
+    /// Moves `window` as `move` says, and notes what avoidance may put back afterwards: a move refused outright
+    /// leaves whatever way back the window already had, and one that happened leaves the move's own.
     private func perform(
-        _ move: ReservationTransition.Move, on window: AccessibilityElement, from frame: CGRect, axis: PanelPosition,
-        clearOf reservation: Reservation?, previous: WindowBaselines?
-    ) -> WindowBaselines? {
+        _ move: ReservationTransition.Move, on window: ManagedWindow, from frame: CGRect, axis: PanelPosition,
+        clearOf reservation: Reservation?, on display: DisplayArea, previous: WindowBaselines?
+    ) {
         // Gone meanwhile.
         guard
-            let accepted = place(
-                window, at: move.frame, fallback: move.fallback, axis: axis, clearOf: reservation,
-                reason: move.reason.rawValue)
-        else { return nil }
+            let accepted = placer.place(
+                window, at: move.frame, fallback: move.fallback.map { (frame: $0, axis: axis) },
+                intent: .avoidance(move.reason), on: display, clearOf: reservation, reason: move.reason.rawValue)
+        else { return }
         // Refused outright: nothing moved, so there's nothing new to put back.
-        guard !ReservationTransition.isUnchanged(accepted, since: frame) else {
-            return previous.flatMap { ReservationTransition.isUnchanged(frame, since: $0.accepted) ? $0 : nil }
+        guard !WindowFrames.isUnchanged(accepted, since: frame) else {
+            let kept = previous.flatMap { WindowFrames.isUnchanged(frame, since: $0.accepted) ? $0 : nil }
+            placer.setAvoidanceBaselines(kept, of: window, at: frame, on: display)
+            return
         }
         Log.avoidance.debug(
             """
@@ -363,41 +341,11 @@ final class WindowAvoider {
             to=\(NSStringFromRect(accepted), privacy: .public)
             """
         )
-        return move.baselines(accepted: accepted)
+        placer.setAvoidanceBaselines(move.baselines(accepted: accepted), of: window, at: accepted, on: display)
     }
 
-    /// Puts `window` at `frame`, or at `fallback` if the app refused to shrink it along `axis` (it has a minimum
-    /// size), then makes sure it's clear of `reservation`: an app that refuses a size keeps its own, which can leave
-    /// the far side of the window under the panel, so it's moved again at that size. Returns the frame the app
-    /// accepted, or `nil` if the window is gone.
-    private func place(
-        _ window: AccessibilityElement, at frame: CGRect, fallback: CGRect?, axis: PanelPosition,
-        clearOf reservation: Reservation?, reason: String
-    ) -> CGRect? {
-        window.setFrame(frame)
-        var accepted = window.frame
-        if let fallback, let actual = accepted,
-            AvoidanceGeometry.clipWasRefused(requested: frame, actual: actual, edge: axis)
-        {
-            window.setFrame(fallback)
-            accepted = window.frame
-        }
-        if let reservation, let actual = accepted,
-            let clear = AvoidanceGeometry.clearing(actual, of: reservation.frame, edge: reservation.edge)
-        {
-            Log.avoidance.debug(
-                """
-                \(reason, privacy: .public): the app kept \(NSStringFromRect(actual), privacy: .public) over the \
-                panel; moving it to \(NSStringFromRect(clear), privacy: .public)
-                """
-            )
-            window.setFrame(clear)
-            accepted = window.frame
-        }
-        return accepted
-    }
-
-    /// Notes that everyday avoidance moved `window` from `before` to `accepted` to keep `region` clear.
+    /// Notes what avoidance may put back after it moved `window` from `before` to `accepted`, to keep a strip of
+    /// `role` clear.
     ///
     /// A window still where Sidelight last left it keeps the baselines it had, with the new accepted frame. Otherwise
     /// it starts over, and only the side panel or bar gives it a way back: hiding the panels puts back what they
@@ -405,31 +353,18 @@ final class WindowAvoider {
     /// ``ReservationTransition``). A window it pushes later, opened or moved since, has no frame from before the
     /// session to return to; it can still follow the edge it's left touching when the details panel closes.
     private func remember(
-        _ window: AccessibilityElement, pid: pid_t, launchDate: Date?, before: CGRect, accepted: CGRect,
-        region: PanelRegion
+        _ window: ManagedWindow, before: CGRect, accepted: CGRect, role: ReservationRole,
+        previous: WindowBaselines?, on display: DisplayArea?
     ) {
-        guard !ReservationTransition.isUnchanged(accepted, since: before) else { return }
-        let previous = movedWindows.firstIndex { $0.isWindow(window, of: pid) }.map { movedWindows.remove(at: $0) }
+        guard !WindowFrames.isUnchanged(accepted, since: before) else { return }
         var baselines =
-            previous.flatMap { entry in
-                entry.displayID == region.displayID && entry.launchDate == launchDate
-                    && ReservationTransition.isUnchanged(before, since: entry.baselines.accepted)
-                    ? entry.baselines : nil
-            } ?? WindowBaselines(accepted: accepted)
-        if region.role == .main { baselines.main = baselines.main ?? before }
+            previous.flatMap { WindowFrames.isUnchanged(before, since: $0.accepted) ? $0 : nil }
+            ?? WindowBaselines(accepted: accepted)
+        if role == .main { baselines.main = baselines.main ?? before }
         baselines.accepted = accepted
         // Nothing to put back: nothing to remember.
-        guard baselines.main != nil || baselines.details != nil else { return }
-        movedWindows.append(
-            MovedWindow(
-                window: window, processIdentifier: pid, launchDate: launchDate, displayID: region.displayID,
-                displayFrame: region.displayFrame, baselines: baselines))
-    }
-
-    /// Forgets that it moved `window`, so it's never put back: the window manager placed it on purpose since, often
-    /// right where avoidance had left it, which would otherwise still count as untouched.
-    func forget(_ window: AccessibilityElement, pid: pid_t) {
-        movedWindows.removeAll { $0.isWindow(window, of: pid) }
+        let hasWayBack = baselines.main != nil || baselines.details != nil
+        placer.setAvoidanceBaselines(hasWayBack ? baselines : nil, of: window, at: accepted, on: display)
     }
 
     /// Access granted: windows are kept clear afresh. Revoked: nothing can move, so it forgets what was moved and
@@ -438,7 +373,7 @@ final class WindowAvoider {
         guard mode != .off, isStarted else { return }
         if isTrusted { return registerAllApplications() }
         Log.avoidance.notice("Accessibility access was revoked; forgetting moved windows")
-        movedWindows = []
+        placer.forgetAvoidance()
         pendingTransitionStart = nil
         settlingTransition.cancel()
         windowsAwaitingMouseUp = []
@@ -469,7 +404,7 @@ final class WindowAvoider {
         pendingTransitionStart = nil
         settlingTransition.cancel()
         cancelChecks()
-        movedWindows = []
+        placer.forgetAvoidance()
         for task in pendingRegistrations.values { task.cancel() }
         pendingRegistrations = [:]
         for token in workspaceObservations { NSWorkspace.shared.notificationCenter.removeObserver(token) }
@@ -509,7 +444,7 @@ final class WindowAvoider {
                 let pid = message.application.processIdentifier
                 self?.unregister(pid)
                 self?.recheckAttempts[pid] = nil
-                self?.movedWindows.removeAll { $0.processIdentifier == pid }
+                self?.placer.forget(pid: pid)
             },
             // Windows on a Space that wasn't shown when they opened, or when the panels changed, couldn't be moved
             // then; nor could any be while the screens slept.
@@ -664,25 +599,26 @@ final class WindowAvoider {
         let regions = occupiedRegions()
         guard mode != .off,
             !regions.isEmpty,
-            let primaryScreen = NSScreen.primary,
+            let screenHeight = ScreenLayout.primaryScreenHeight,
             let pid = window.processIdentifier,
             pid != ownProcessIdentifier
         else { return .clear }
         // A window just announced, or a busy app's, may not answer yet.
         guard let windowFrame = window.frame else { return .unsure }
 
-        let screenHeight = primaryScreen.frame.height
         let plans = regions.lazy.compactMap { region in
-            AvoidanceGeometry.plan(
+            let reservation = region.reservation(primaryScreenHeight: screenHeight)
+            return AvoidanceGeometry.plan(
                 window: windowFrame,
-                panel: AvoidanceGeometry.accessibilityRect(fromCocoa: region.frame, primaryScreenHeight: screenHeight),
+                panel: reservation.frame,
                 visibleFrame: AvoidanceGeometry.accessibilityRect(
                     fromCocoa: region.visibleFrame, primaryScreenHeight: screenHeight),
                 edge: region.edge,
-                mode: self.mode
-            ).map { (plan: $0, region: region) }
+                mode: self.mode,
+                clearance: reservation.clearance
+            ).map { (plan: $0, region: region, reservation: reservation) }
         }
-        guard let (plan, region) = plans.first else { return .clear }
+        guard let (plan, region, reservation) = plans.first else { return .clear }
         guard !window.isMinimized, !window.isFullScreen else { return .clear }
         // Only now that it would move: whether it's a standard window (one just created may not be yet), and this
         // app's window on the active Space, told apart from its others (one just created may not be shown yet).
@@ -697,16 +633,18 @@ final class WindowAvoider {
             return .unsure
         }
         let edge = region.edge
-        let reservation = Reservation(
-            frame: AvoidanceGeometry.accessibilityRect(fromCocoa: region.frame, primaryScreenHeight: screenHeight),
-            edge: edge, role: region.role)
+        let managed = ManagedWindow.other(window, pid: pid, launchDate: application.launchDate)
+        let display = ScreenLayout.areas(regions: regions).first { $0.id == region.displayID }
+        // Read before the placement, which replaces the window's record.
+        let previous = display.flatMap { placer.avoidanceBaselines(of: managed, on: $0) }
 
-        let accepted = place(
-            window, at: plan.frame, fallback: plan.shiftFallback, axis: edge, clearOf: reservation, reason: reason)
+        let accepted = placer.place(
+            managed, at: plan.frame, fallback: plan.shiftFallback.map { (frame: $0, axis: edge) },
+            intent: .avoidance(.keepClear), on: display, clearOf: reservation, reason: reason)
         if let accepted {
             remember(
-                window, pid: pid, launchDate: application.launchDate, before: windowFrame, accepted: accepted,
-                region: region)
+                managed, before: windowFrame, accepted: accepted, role: region.role, previous: previous,
+                on: display)
         }
 
         let delay = Date.now.timeIntervalSince(eventDate) * 1000
@@ -775,14 +713,12 @@ final class WindowAvoider {
     @discardableResult
     private func check(_ scope: CheckScope, rechecking: Set<pid_t> = [], reason: String) -> Int {
         let regions = occupiedRegions()
-        guard mode != .off, isStarted, permission.isTrusted, !regions.isEmpty, let primaryScreen = NSScreen.primary
+        guard mode != .off, isStarted, permission.isTrusted, !regions.isEmpty,
+            let screenHeight = ScreenLayout.primaryScreenHeight
         else {
             return 0
         }
-        let screenHeight = primaryScreen.frame.height
-        let panels = regions.map {
-            AvoidanceGeometry.accessibilityRect(fromCocoa: $0.frame, primaryScreenHeight: screenHeight)
-        }
+        let panels = regions.map { $0.reservation(primaryScreenHeight: screenHeight).frame }
         let onScreen = OnScreenWindows.current()
         let candidates = onScreen.processes(overlapping: panels).filter(scope.contains)
 

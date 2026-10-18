@@ -8,29 +8,6 @@ public enum WindowLayout {
     /// What the gap and padding settings offer, in points.
     public static let spacingRange = 0...32
 
-    /// Where tiles go on one display: its visible frame (without the menu bar and Dock), less the strip a panel
-    /// reserves on it and ``AvoidanceGeometry/gap`` beside that, less `padding` along its other edges.
-    ///
-    /// Beside a panel the space is always the avoidance gap, whatever the padding, so a tile sits exactly where window
-    /// avoidance would leave a window.
-    public static func workArea(visibleFrame: CGRect, reservations: [Reservation], padding: CGFloat) -> CGRect {
-        var minX = visibleFrame.minX + padding
-        var minY = visibleFrame.minY + padding
-        var maxX = visibleFrame.maxX - padding
-        var maxY = visibleFrame.maxY - padding
-        let gap = AvoidanceGeometry.gap
-        for reservation in reservations {
-            let panel = reservation.frame
-            switch reservation.edge {
-            case .left: minX = max(visibleFrame.minX, panel.maxX + gap)
-            case .right: maxX = min(visibleFrame.maxX, panel.minX - gap)
-            case .top: minY = max(visibleFrame.minY, panel.maxY + gap)
-            case .bottom: maxY = min(visibleFrame.maxY, panel.minY - gap)
-            }
-        }
-        return CGRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
-    }
-
     /// The frame `action` gives a window at `step` of its cycle in `area`; `nil` for an action that isn't a tile.
     ///
     /// Each boundary is rounded once and both neighbours derive from it, so complementary tiles never overlap or leave
@@ -75,10 +52,10 @@ public enum WindowLayout {
 
     /// Where a window the app sized `accepted` goes when it refused `tile`'s size (a minimum or maximum size): against
     /// the edges of the work area the tile touches (left for a left half, top and right for the top-right corner),
-    /// centred in the tile along an axis where it touches both or neither, then moved into `area` where it fits.
+    /// centred in the tile along an axis where it touches both or neither, then fitted into `area`.
     /// `isPortrait` is the display's, as the tile was laid out for: a third's edges depend on it.
     public static func anchored(
-        _ accepted: CGSize, for action: WindowAction, tile: CGRect, in area: CGRect, isPortrait: Bool = false
+        _ accepted: CGSize, for action: WindowAction, tile: CGRect, in area: WorkArea, isPortrait: Bool = false
     ) -> CGRect {
         let unit =
             action.unitRect(isPortrait: isPortrait) ?? UnitRect(minX: 0.5, minY: 0.5, maxX: 0.5, maxY: 0.5)
@@ -93,7 +70,15 @@ public enum WindowLayout {
             start: unit.minX, end: unit.maxX, tileMin: tile.minX, tileLength: tile.width, length: accepted.width)
         let y = origin(
             start: unit.minY, end: unit.maxY, tileMin: tile.minY, tileLength: tile.height, length: accepted.height)
-        return clamped(CGRect(origin: CGPoint(x: x, y: y), size: accepted), to: area)
+        return fitted(CGRect(origin: CGPoint(x: x, y: y), size: accepted), in: area)
+    }
+
+    /// `frame` moved into `area` where it fits, and clear of every panel: a window too big for the room beside one
+    /// overflows the far edge rather than slide under the strip, which is where avoidance would leave it anyway, so
+    /// there's nothing left for avoidance to correct.
+    public static func fitted(_ frame: CGRect, in area: WorkArea) -> CGRect {
+        let moved = clamped(frame, to: area.rect)
+        return area.clearing(moved) ?? moved
     }
 
     /// `size` within a window's minimum and maximum sizes, as an app would size it when asked for `size`.
