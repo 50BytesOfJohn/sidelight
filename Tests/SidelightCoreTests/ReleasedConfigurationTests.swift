@@ -12,7 +12,8 @@ import Testing
 /// which start over as every agent's block (``withoutAIUsageAgents(_:)``).
 struct ReleasedConfigurationTests {
     static let legacyReleases = ["v0.1.2", "v0.2.0", "v0.2.1", "v0.3.0", "v0.4.0", "v0.5.0", "v0.6.0"]
-    static let releases = legacyReleases + ["v0.7.0", "v0.7.1", "v0.8.0", "v0.9.0"]
+    static let releasesBeforeWindowManager = legacyReleases + ["v0.7.0", "v0.7.1", "v0.8.0", "v0.9.0"]
+    static let releases = releasesBeforeWindowManager + ["v0.11.0"]
 
     @Test(arguments: releases.filter { $0 != ReleasedConfigurationFixture.release })
     func `a released configuration loads with every setting kept`(release: String) throws {
@@ -41,7 +42,7 @@ struct ReleasedConfigurationTests {
         }
     }
 
-    @Test(arguments: releases)
+    @Test(arguments: releasesBeforeWindowManager)
     func `a released configuration loads with the window manager off, on the Sidelight preset`(release: String) throws {
         let loaded = try AppConfiguration(json: Self.load(release))
         #expect(loaded.windowManager == WindowManagerSettings())
