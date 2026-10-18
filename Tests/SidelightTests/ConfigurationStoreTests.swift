@@ -106,8 +106,11 @@ struct ConfigurationStoreTests {
         store.startWatchingFile()
         let outOfRange = try file(eventCount: 900)
         try outOfRange.write(to: file)
-        try await Task.sleep(for: .milliseconds(500))
-        #expect(store.configuration.widgets.contains { $0.settings == .calendar(CalendarSettings(eventCount: 10)) })
+        // However long the file event and the reload take on a busy machine.
+        #expect(
+            await eventually {
+                store.configuration.widgets.contains { $0.settings == .calendar(CalendarSettings(eventCount: 10)) }
+            })
         store.configuration.windowAvoidance = .off
         store.flush()
         #expect(try backups(prefix: "config.unsupported-").map { try Data(contentsOf: $0) } == [outOfRange])

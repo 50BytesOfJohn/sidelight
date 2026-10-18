@@ -105,6 +105,8 @@ final class PanelController {
         }
         let hostingView = NSHostingView(rootView: rootView.environment(environment))
         hostingView.sizingOptions = []
+        // Its own layer, for the content to slide in and out on (see `EdgeSlide`).
+        hostingView.wantsLayer = true
         window.contentView = hostingView
         // Measure the content now, so a fitted panel doesn't first show at the strip's full length.
         hostingView.layoutSubtreeIfNeeded()
@@ -134,15 +136,35 @@ final class PanelController {
         )
     }
 
-    func show() {
+    /// Shows the window; `animated` slides its content in from its edge, as when the details panel gives it back.
+    func show(animated: Bool = false) {
         layout.isShown = true
         window.alphaValue = 1
+        if let content = window.contentView {
+            if animated && EdgeSlide.isEnabled {
+                EdgeSlide.slideIn(content, from: layout.position)
+            } else {
+                EdgeSlide.stop(content)
+            }
+        }
         window.orderFrontRegardless()
     }
 
-    func hide() {
+    /// Hides the window; `animated` first slides its content out past its edge, as when the details panel takes its
+    /// place. Its widgets stop drawing at once either way.
+    func hide(animated: Bool = false) {
         layout.isShown = false
-        window.orderOut(nil)
+        guard animated, EdgeSlide.isEnabled, window.isVisible, let content = window.contentView else {
+            if let content = window.contentView { EdgeSlide.stop(content) }
+            window.orderOut(nil)
+            return
+        }
+        // Stays slid out once ordered out, so it never shows at rest for a moment before sliding in again.
+        EdgeSlide.slideOut(content, past: layout.position) { [weak self] finished in
+            // Shown again meanwhile.
+            guard finished, let self, !layout.isShown else { return }
+            window.orderOut(nil)
+        }
     }
 
     /// Hides the window for good and releases its SwiftUI content.
