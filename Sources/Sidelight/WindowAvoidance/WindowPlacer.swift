@@ -41,13 +41,18 @@ struct PlacedWindow {
 /// Only ever in memory, and only for this run.
 @Observable
 final class WindowPlacer {
-    /// How many windows it remembers, which is how many ``WindowAction/restore`` can put back. The least recently
-    /// placed goes first.
-    static let limit = 64
+    /// How many windows it remembers by default, which is how many ``WindowAction/restore`` can put back.
+    static let defaultLimit = 64
     /// A correction this small isn't worth a message: apps round what they're asked for.
     static let correctionTolerance: CGFloat = 1
 
     @ObservationIgnored private var records: [PlacedWindow] = []
+    /// How many windows it remembers (see ``trim()``). Only a test narrows it.
+    @ObservationIgnored private let limit: Int
+
+    init(limit: Int = WindowPlacer.defaultLimit) {
+        self.limit = limit
+    }
 
     // MARK: Placing
 
@@ -169,23 +174,49 @@ final class WindowPlacer {
     ) {
         prune()
         let previous = records.firstIndex { $0.window.isSame(as: window) }.map { records.remove(at: $0) }
+        // Nobody has moved it since Sidelight last did, so what the manager would put back still stands —
+        // wherever it's being sent, since a move to another display is a placement like any other.
+        let isUntouched = previous.map { WindowFrames.isUnchanged(before, since: $0.lastAccepted) } ?? false
+        // What avoidance may put back, though, only means anything on the display it was taken on.
         let onSameDisplay =
             previous.map { entry in
                 display.map { $0.id == entry.displayID && $0.cocoaFrame == entry.displayFrame } ?? true
             } ?? false
-        let isUntouched =
-            onSameDisplay && previous.map { WindowFrames.isUnchanged(before, since: $0.lastAccepted) } ?? false
         records.append(
             PlacedWindow(
                 window: window,
                 displayID: display?.id ?? previous?.displayID ?? "",
                 displayFrame: display?.cocoaFrame ?? previous?.displayFrame ?? .null,
                 baseline: baseline(before: before, previous: previous, isUntouched: isUntouched, intent: intent),
-                avoidance: intent.isDeliberate ? nil : (isUntouched ? previous?.avoidance : nil),
+                avoidance: intent.isDeliberate || !isUntouched || !onSameDisplay ? nil : previous?.avoidance,
                 lastRequested: requested,
                 lastAccepted: accepted,
                 intent: intent))
-        if records.count > Self.limit { records.removeFirst(records.count - Self.limit) }
+        trim()
+    }
+
+    /// Keeps the registry to ``limit`` records, dropping what matters least first.
+    ///
+    /// The two kinds of memory are worth different amounts. What avoidance may put back is what hiding a panel
+    /// needs, and the window waiting for it may have been pushed long before a run of window manager presses
+    /// started; where the manager would put a window back is a convenience for one shortcut. So a long run of
+    /// presses never costs a pushed window its way home, and everyday avoidance never costs a tile its restore
+    /// frame while anything emptier is still on the list. The record just made is never the one to go.
+    private func trim() {
+        guard records.count > limit else { return }
+        /// Drops the records `isExpendable` names, oldest first, until the registry fits. Never the newest, which
+        /// is the placement just made.
+        func dropOldest(where isExpendable: (PlacedWindow) -> Bool) {
+            var index = 0
+            while records.count > limit, index < records.count - 1 {
+                if isExpendable(records[index]) { records.remove(at: index) } else { index += 1 }
+            }
+        }
+        // Nothing left to put back at all: a window avoidance looked at, moved and has since given up on, or one
+        // that's closed since (an app's window can close without telling us, and only its app quitting forgets it).
+        dropOldest { $0.baseline == nil && $0.avoidance == nil }
+        dropOldest { $0.avoidance == nil }
+        dropOldest { _ in true }
     }
 
     /// Where the window was when it was first placed on purpose, which is what ``WindowAction/restore`` puts back;
@@ -254,12 +285,7 @@ final class WindowPlacer {
                 window: window, displayID: display?.id ?? "", displayFrame: display?.cocoaFrame ?? .null,
                 baseline: nil, avoidance: baselines, lastRequested: frame, lastAccepted: frame,
                 intent: .avoidance(.keepClear)))
-        if records.count > Self.limit { records.removeFirst(records.count - Self.limit) }
-    }
-
-    /// Every window avoidance has something to put back for.
-    var withAvoidanceBaselines: [PlacedWindow] {
-        records.filter { $0.avoidance != nil }
+        trim()
     }
 
     /// Drops what avoidance may put back for every window: access was revoked, avoidance was switched off, or

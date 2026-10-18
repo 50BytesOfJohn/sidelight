@@ -18,14 +18,6 @@ enum ManagedWindow {
     case other(AccessibilityElement, pid: pid_t, launchDate: Date?)
     case own(OwnWindow)
 
-    /// Another app's window, as Accessibility sees it; `nil` for one of Sidelight's own.
-    var element: AccessibilityElement? {
-        switch self {
-        case .other(let element, _, _): element
-        case .own: nil
-        }
-    }
-
     var processIdentifier: pid_t? {
         switch self {
         case .other(_, let pid, _): pid
@@ -50,12 +42,6 @@ enum ManagedWindow {
         default:
             false
         }
-    }
-
-    /// Whether `element` of `pid` is this window, for matching what Accessibility just handed back.
-    func isWindow(_ element: AccessibilityElement, of pid: pid_t) -> Bool {
-        guard case .other(let own, let ownPID, _) = self else { return false }
-        return ownPID == pid && own.isSameElement(as: element)
     }
 
     /// In Accessibility space.

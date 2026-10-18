@@ -77,16 +77,6 @@ public enum PlacementIntent: Equatable, Sendable {
         case .manager, .restore, .ownWindow: true
         }
     }
-
-    /// For the log.
-    public var name: String {
-        switch self {
-        case .avoidance(let reason): reason.rawValue
-        case .manager(let action, let step): "\(action.rawValue)/\(step)"
-        case .restore: "restore"
-        case .ownWindow: "ownWindow"
-        }
-    }
 }
 
 /// Where a window was before Sidelight moved it, for each panel that did, and where Sidelight left it. A layer per

@@ -109,9 +109,10 @@ struct AppLauncherServiceTests {
         service.finishLaunching(id)
         #expect(service.launching.isEmpty)
 
+        // The watchdog is scheduled with a second of tolerance, so the system may fire it any time up to that
+        // much later: waited for, not slept past.
         #expect(service.beginLaunching(id))
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(service.launching.isEmpty)
+        #expect(await eventually(timeout: .seconds(5)) { service.launching.isEmpty })
     }
 
     @Test func `finds a moved app by its bundle identifier, and a deleted one is missing`() {
