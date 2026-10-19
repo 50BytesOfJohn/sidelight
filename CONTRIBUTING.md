@@ -98,7 +98,7 @@ PRs are squash-merged, so don't worry about tidying intermediate commits.
 - The [`sidelight-conventions`](.agents/skills/sidelight-conventions/SKILL.md) skill covers where code goes
   and how services and widgets are wired. [adding-a-widget.md](.agents/skills/sidelight-conventions/adding-a-widget.md)
   is the checklist for a new widget.
-- The README's [Architecture](README.md#architecture) section maps out the source tree and data flow.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) maps out the source tree and data flow.
 - Formatting is enforced by `swift format` (`.swift-format`). Run `make format` and don't fight the formatter.
 
 ## Using AI coding agents

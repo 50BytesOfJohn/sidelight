@@ -1,120 +1,123 @@
-# Sidelight
+<p align="center">
+  <img src="docs/images/banner.webp" alt="Sidelight: a panel of widgets along the left edge of a Mac screen, showing a clock, AI usage limits for Claude Code, Codex and Cursor, agent sessions and upcoming events" width="100%">
+</p>
 
-[![CI](https://github.com/50BytesOfJohn/sidelight/actions/workflows/ci.yml/badge.svg)](https://github.com/50BytesOfJohn/sidelight/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![macOS 26+, Apple Silicon](https://img.shields.io/badge/macOS-26%2B%20%C2%B7%20Apple%20Silicon-black?logo=apple)
+<p align="center">
+  <a href="https://github.com/50BytesOfJohn/sidelight/releases/latest"><img src="https://img.shields.io/github/v/release/50BytesOfJohn/sidelight?label=download&color=b7a1ff" alt="Latest release"></a>
+  <a href="https://github.com/50BytesOfJohn/sidelight/actions/workflows/ci.yml"><img src="https://github.com/50BytesOfJohn/sidelight/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/macOS-26%2B%20%C2%B7%20Apple%20Silicon-black?logo=apple" alt="macOS 26+, Apple Silicon">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+</p>
 
-A native macOS side panel (or top/bottom bar) of glanceable widgets: clock, Codex, Claude Code and Cursor usage
-(each on its own, or side by side in one AI Usage card), calendar, now playing, Claude Code and Codex sessions and system stats. Other apps' windows are moved or shrunk so they never sit
-under the panel, and optional shortcuts tile the frontmost window into halves, thirds and corners. Why it exists
-and where it's going: [docs/VISION.md](docs/VISION.md).
+Sidelight puts a strip of widgets along one edge of your Mac screen and keeps it there. You can see how much
+of your Claude Code, Codex and Cursor limits you have left, which agent sessions need you, what's next on your
+calendar and what's playing, all without switching windows.
 
-Requires an Apple Silicon Mac with macOS 26. Install with Homebrew:
+Other windows move or shrink so they never sit under the panel. It's a native macOS app that uses almost no
+CPU while idle, so it can stay open all day.
+
+## Install
 
 ```sh
 brew install --cask 50bytesofjohn/tap/sidelight
 ```
 
-Or download the latest DMG from
-[GitHub Releases](https://github.com/50BytesOfJohn/sidelight/releases/latest), open it and drag Sidelight to
-Applications. Building from source needs Xcode 27 (Swift 6.4).
+Or download the DMG from the [latest release](https://github.com/50BytesOfJohn/sidelight/releases/latest),
+open it and drag Sidelight to Applications.
 
-## Getting started
+Sidelight needs an Apple Silicon Mac with macOS 26 or later. On first launch macOS asks for Accessibility
+access, which Sidelight uses to move other apps' windows out of the panel's way. Sidelight updates itself, and
+you can change how in Settings › General › Updates.
 
-```sh
-make run      # build build/Sidelight.app (release, signed) and launch it
-make test     # unit tests
-make check    # lint + build + test, what CI runs
-```
+## Widgets
 
-On first launch macOS asks for **Accessibility** access (needed to move other apps' windows). Optional tools:
+Add, remove and reorder widgets in the Widgets window. Many come in several styles and sizes, and you can add
+the same widget more than once with different settings.
 
-| Widget               | Needs                                                                 |
-| -------------------- | --------------------------------------------------------------------- |
-| Codex                | `codex` CLI (`brew install codex`); falls back to `~/.codex/sessions` |
-| Claude Code          | Pro or Max plan; live limits via its status line (widget settings); more accounts sign in through Claude Code in Settings › Accounts |
-| Cursor               | Signed-in Cursor app or `cursor-agent`; turn on fetching (settings)   |
-| AI Usage             | What each agent it shows needs (above), set up in its own settings    |
-| Now playing          | `brew install ungive/media-control/media-control`                     |
-| Calendar             | Calendar access, requested from the widget                            |
-| Claude Code sessions | A recent Claude Code; to open terminal tabs, macOS asks once per app  |
-| Codex sessions       | A recent Codex (CLI, desktop app or IDE extension)                    |
-| Agent sessions       | Each agent it lists, as above, Cursor 3 for its chats and OpenCode 2 for its sessions, listed by when they last changed (copy their ID or folder; they aren't opened from the widget). It shares those widgets' reading, so they needn't be placed |
+### AI agents
 
-Packaged releases use Developer ID signing and Apple notarization. Installed copies check for updates through
-Sparkle; update settings and a manual check are in **Settings → General → Updates**. The menu bar also has
-**Check for Updates…**. Maintainers: see [docs/RELEASING.md](docs/RELEASING.md) for the release workflow and credentials.
+| Widget               | Shows                                                         | Needs                                                      |
+| -------------------- | ------------------------------------------------------------- | ---------------------------------------------------------- |
+| AI Usage             | Codex, Claude Code and Cursor limits side by side in one card | Whatever each agent it shows needs (below)                 |
+| Claude Code          | Your plan's 5-hour and weekly limits, for one or more accounts | A Pro or Max plan, connected through Claude Code's status line |
+| Codex                | Plan limits and token use                                     | The `codex` CLI (`brew install codex`), signed in          |
+| Cursor               | Included usage this billing cycle                             | The Cursor app or `cursor-agent`, signed in                |
+| Claude Code sessions | Running sessions and whether they're working, need input or are done | A recent Claude Code                                |
+| Codex sessions       | Sessions and their plans                                      | A recent Codex (CLI, desktop app or IDE extension)         |
+| Agent sessions       | Claude Code, Codex, Cursor and OpenCode sessions in one list  | The agents you choose to list                              |
 
-## Configuration
+### Cloud
 
-Everything is stored in `~/Library/Application Support/Sidelight/config.json`. Edits to the file are applied
-live. A file that doesn't decode (including one written by an older build with a different shape) is moved to
-`config.invalid-<date>.json` and replaced with defaults. Future updates preserve configurations from published releases.
+| Widget                 | Shows                                          | Needs                                              |
+| ---------------------- | ---------------------------------------------- | -------------------------------------------------- |
+| Docker (beta)          | Running containers by Compose project, and their health | Docker Desktop, OrbStack or Colima         |
+| Railway (beta)         | Your services and deploys, the bill so far, and incidents | The `railway` CLI, signed in           |
+| OpenRouter (beta)      | New models, balances and spending              | An API key, for balances only                      |
+| Noodle Computer (beta) | Which of your Noodle computers are running     | The Noodle Computer app                            |
 
-Logs go to the unified log:
+### Essentials
 
-```sh
-log stream --level debug --predicate 'subsystem == "app.getsidelight.Sidelight"'
-```
+| Widget       | Shows                                                        | Needs                                                   |
+| ------------ | ------------------------------------------------------------ | ------------------------------------------------------- |
+| Clock        | Time and date, in many styles                                |                                                         |
+| Next events  | Today's and tomorrow's events                                | Calendar access, which the widget asks for              |
+| Now playing  | The track that's playing, from any app                       | `brew install ungive/media-control/media-control`       |
+| System       | CPU and memory use                                           |                                                         |
+| App Launcher | Your apps, one click away, with a dot on the running ones    |                                                         |
+| Stash        | Prompts and snippets saved with a shortcut, ready to paste into an agent | Accessibility access, to stash selected text |
+| Awake        | A switch that keeps your Mac from sleeping                   |                                                         |
 
-## Architecture
+Some widgets open a full-height details panel in place of the side panel when you click them, for example to
+browse every OpenRouter model or see a container's CPU and memory.
 
-```
-Sources/
-  SidelightCore/          UI-free domain logic. Foundation only, nonisolated, Sendable, fully unit-tested.
-    Configuration/        AppConfiguration, PanelSection, WidgetSettings, Appearance, Hotkey; the config.json schema
-    Panel/                Panel geometry and how sections share its length
-    Imaging/              Image-effect patterns (Bayer dither, ASCII ramp), desktop-picture crop geometry
-    Geometry/             Where a window may go (WorkArea), and the order its frame is written in (pure functions)
-    Avoidance/            Window-avoidance geometry, reservations, placement intents (pure functions)
-    WindowManager/        Window-manager tiles, display order and size cycling (pure functions)
-    Codex/                codex app-server JSON-RPC session, rollout-file parser, usage models
-    ClaudeCode/           Claude plan limits per account (each a Claude Code folder) and signing accounts in through Claude Code
-    ClaudeSessions/       Claude Code's live session registry, transcript titles, links back into a session
-    AgentSessions/        One session shape for every agent, so one widget lists them together
-    Cursor/               Cursor's included-usage pools from its dashboard endpoint (opt-in), sign-in, chat list
-    OpenCode/             OpenCode 2's session list, read-only from its database
-    Usage/                Rate-limit windows: pace forecast, reset rollover; refresh backoff
-    NowPlaying/           media-control stream state + diff merging
-    System/               CPU/memory sampling
-    Process/              ChildProcess (process groups, line streaming), file watchers, ProcessRunner, ProcessTable
-    Support/              Logging, formatting
-  Sidelight/              The app. AppKit + SwiftUI, main-actor isolated by default.
-    App/                  Entry point, AppDelegate, AppController (composition root), menus
-    Configuration/        ConfigurationStore (persistence, hot reload), user-facing names
-    Panel/                The panel window, its frame/animations, root view, backgrounds
-    Windows/              Widgets manager + Settings window lifecycle, links between them
-    WindowAvoidance/      Accessibility observers and access, the one writer of window frames, Rectangle
-    WindowManager/        Shortcuts that tile the frontmost window
-    Hotkey/               Global shortcut (Carbon)
-    Manager/              Widgets window: active list, gallery, inspector
-    Settings/             Settings window
-    Updates/              Sparkle updater, automatic checks and gentle reminders
-    Widgets/
-      Framework/          WidgetLayout, metadata, WidgetCard chrome, content/settings dispatch
-      <Feature>/          One folder per widget: its data service and its views
-    DesignSystem/         Motion, colors, reusable components (rings, bars, badges, …)
-    Support/              Alerts, System Settings deep links, activation helper
-Tests/
-  SidelightCoreTests/     Swift Testing suites for SidelightCore
-```
+## Make it yours
 
-**Data flow.** `AppController` builds every service once and hands them to SwiftUI through the environment
-(`AppEnvironment`). `ConfigurationStore` is the single source of truth; views bind to it directly, and
-`AppController` observes it (`Observations`) to drive the parts outside SwiftUI — panel frame, hotkey, window
-avoidance — and to run each data service only while a widget that needs it is visible (or the Widgets window,
-which previews all of them, is open). The Codex, Claude Code and Cursor services each run once for their own widget and
-any AI Usage widget showing them, and fetch on a timer only for visible widgets that opted in.
+- Put the panel on the left or right edge, or turn it into a bar along the top or bottom.
+- Show it on the main display only or on every display. Each display can have its own settings.
+- Choose what's behind the widgets: Liquid Glass, blur, a solid color or gradient, a picture (your desktop
+  picture by default), or nothing at all. Add film grain if you like.
+- Give pictures an effect: dither, halftone, pixelate, posterize, duotone or ASCII.
+- Show or hide the panel with a global shortcut.
+
+## Work around it
+
+Sidelight keeps other windows out from under the panel. When a window would overlap it, Sidelight moves or
+shrinks the window. It also works with [Rectangle](https://rectangleapp.com).
+
+If you don't use a window manager, turn on the built-in one in Settings. Its shortcuts tile the frontmost
+window into halves, thirds, two-thirds and corners, maximize or center it, or send it to another display.
+Pressing a half again cycles it through ½, ⅓ and ⅔. It comes with Sidelight, Rectangle and Spectacle shortcut
+presets.
+
+## Light on your Mac
+
+Sidelight runs all day, so it does as little as it can while you aren't looking at it. Each data source runs
+only while a widget that uses it is on screen. Widgets get told when something changes (an app opens, a Docker
+container stops) instead of asking on a timer wherever the source allows it. The one animated background, a
+slowly drifting gradient, is off until you turn it on.
+
+## Your data
+
+Sidelight reads usage and sessions from the tools already on your Mac: their CLIs, local files and sign-ins. It
+has no account of its own and no analytics. Fetching Cursor's usage from its dashboard and refreshing Claude
+limits from Anthropic are both off until you turn them on.
+
+Your settings live in `~/Library/Application Support/Sidelight/config.json`. Edits to the file apply
+immediately, and updates keep it working.
+
+## Where it's going
+
+Sidelight is young and changes quickly. Next up are ways for agents to push updates to the panel ("finished",
+"needs your input") and to build widgets for their users. [docs/VISION.md](docs/VISION.md) has the reasons
+behind the app and the plans for it.
 
 ## Contributing
 
-Contributions are welcome: bug reports, widget ideas, fixes and new widgets. Start with
-[CONTRIBUTING.md](CONTRIBUTING.md) for setup and the fork-and-pull-request workflow. Project conventions and the
-add-a-widget checklist live in the [`sidelight-conventions`](.agents/skills/sidelight-conventions/SKILL.md) agent
-skill; [AGENTS.md](AGENTS.md) holds the rules that apply to every change. Please follow the
-[Code of Conduct](CODE_OF_CONDUCT.md), and report security issues privately as described in
+Bug reports, widget ideas, fixes and new widgets are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers building
+from source and the pull request workflow, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) maps out the code.
+Please follow the [Code of Conduct](CODE_OF_CONDUCT.md), and report security issues privately as described in
 [SECURITY.md](SECURITY.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Provider logos belong to their owners; see [docs/BRAND_ASSETS.md](docs/BRAND_ASSETS.md).

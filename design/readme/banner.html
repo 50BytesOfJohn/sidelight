@@ -1,0 +1,172 @@
+<!doctype html>
+<!--
+  The README banner: an illustrated Sidelight panel on the left edge, with the name and what it does.
+  The widgets show made-up data. Render with design/readme/render.sh.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --navy: #0e0f1a;
+    --card: rgba(24, 24, 34, 0.62);
+    --stroke: rgba(255, 255, 255, 0.07);
+    --text: #f4f3f7;
+    --muted: rgba(235, 235, 245, 0.55);
+    --faint: rgba(235, 235, 245, 0.32);
+    --green: #4cd964;
+    --blue: #3d9bff;
+    --orange: #ff9f0a;
+    --track: rgba(255, 255, 255, 0.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 640px; background: transparent; }
+  body { font-family: -apple-system, "SF Pro Text", system-ui, sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
+
+  .canvas {
+    position: relative; width: 1280px; height: 640px; overflow: hidden; border-radius: 28px;
+    background:
+      radial-gradient(300px 320px at 0px 140px, rgba(255, 179, 138, 0.75), transparent 70%),
+      radial-gradient(300px 300px at 0px 330px, rgba(255, 143, 184, 0.7), transparent 70%),
+      radial-gradient(320px 320px at 0px 530px, rgba(183, 161, 255, 0.75), transparent 70%),
+      radial-gradient(900px 500px at 980px 320px, rgba(120, 110, 200, 0.10), transparent 70%),
+      var(--navy);
+  }
+  .grain { position: absolute; inset: 0; opacity: 0.22; mix-blend-mode: overlay; pointer-events: none; }
+
+  /* The panel */
+  .panel { position: absolute; left: 28px; top: 28px; bottom: 28px; width: 286px; display: flex; flex-direction: column; gap: 8px; }
+  .card {
+    background: var(--card); border: 1px solid var(--stroke); border-radius: 18px; padding: 13px 15px;
+    backdrop-filter: blur(24px); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  }
+  .clock .time { font-size: 50px; font-weight: 200; letter-spacing: -1px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .clock .date { margin-top: 6px; font-size: 13px; font-weight: 500; color: var(--muted); }
+
+  .label { font-size: 9.5px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--faint); margin-bottom: 7px; }
+
+  .agent + .agent { margin-top: 9px; }
+  .agent .head { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; margin-bottom: 4px; }
+  .agent .head img { width: 14px; height: 14px; object-fit: contain; }
+  .agent .head .used { margin-left: auto; font-size: 10px; font-weight: 500; color: var(--faint); }
+  .row { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--muted); height: 15px; }
+  .row .k { width: 16px; }
+  .row .pct { width: 30px; text-align: right; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+  .row .when { width: 56px; color: var(--faint); }
+  .bar { flex: 1; display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
+  .bar i { height: 4px; border-radius: 2px; background: var(--track); }
+  .bar i.on { background: var(--green); }
+  .bar i.warm { background: var(--orange); }
+
+  .session { display: flex; align-items: center; gap: 9px; }
+  .session + .session { margin-top: 8px; }
+  .session .dot { width: 18px; height: 18px; border-radius: 9px; display: grid; place-items: center; background: rgba(255, 255, 255, 0.06); flex: none; }
+  .session .dot img { width: 12px; height: 12px; object-fit: contain; }
+  .session .title { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session .meta { font-size: 10.5px; color: var(--muted); }
+  .session .meta b { font-weight: 600; }
+  .session .ago { margin-left: auto; font-size: 10px; color: var(--faint); align-self: flex-start; }
+  .working { color: var(--blue); }
+  .input { color: var(--orange); }
+  .done { color: var(--green); }
+
+  .event { display: flex; gap: 9px; align-items: stretch; font-size: 12px; }
+  .event + .event { margin-top: 7px; }
+  .event .stripe { width: 3px; border-radius: 2px; }
+  .event .what { font-weight: 600; }
+  .event .at { font-size: 10.5px; color: var(--muted); }
+
+  .awake { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; padding: 10px 15px; color: var(--muted); }
+  .awake .on { color: var(--green); font-weight: 600; }
+
+  /* The words */
+  .copy { position: absolute; left: 420px; top: 0; bottom: 0; right: 60px; display: flex; flex-direction: column; justify-content: center; }
+  .brand { display: flex; align-items: center; gap: 22px; }
+  .brand img { width: 112px; height: 112px; margin: -11px; filter: drop-shadow(0 0 1px rgba(255,255,255,0.35)) drop-shadow(0 12px 28px rgba(255, 143, 184, 0.25)); }
+  .brand h1 { font-family: -apple-system, "SF Pro Display", system-ui; font-size: 84px; font-weight: 700; letter-spacing: -2.5px; line-height: 1; }
+  .tagline { margin-top: 26px; font-size: 31px; line-height: 1.3; font-weight: 500; letter-spacing: -0.4px; color: rgba(244, 243, 247, 0.92); max-width: 720px; }
+  .tagline span { color: var(--muted); }
+  .chips { margin-top: 34px; display: flex; flex-wrap: wrap; gap: 9px; max-width: 760px; }
+  .chip { font-size: 15px; font-weight: 500; padding: 7px 14px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--stroke); color: rgba(244, 243, 247, 0.85); }
+  .foot { margin-top: 34px; font-size: 15px; color: var(--faint); letter-spacing: 0.2px; }
+</style>
+</head>
+<body>
+<div class="canvas">
+  <svg class="grain" width="1280" height="640">
+    <filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter>
+    <rect width="100%" height="100%" filter="url(#n)"/>
+  </svg>
+
+  <div class="panel">
+    <div class="card clock">
+      <div class="time">09:41</div>
+      <div class="date">Monday, 19 October</div>
+    </div>
+
+    <div class="card">
+      <div class="label">AI usage</div>
+      <div class="agent">
+        <div class="head"><img src="../../Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets/AIUsageClaude.imageset/claude.svg">Claude Code<span class="used">used</span></div>
+        <div class="row"><span class="k">5h</span><span class="bar"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="pct">34%</span><span class="when">in 2h 10m</span></div>
+        <div class="row"><span class="k">wk</span><span class="bar"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="warm"></i><i></i><i></i><i></i><i></i></span><span class="pct">58%</span><span class="when">Sat 06:00</span></div>
+      </div>
+      <div class="agent">
+        <div class="head"><img src="../../Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets/AIUsageCodex.imageset/codex-dark.png">Codex<span class="used">used</span></div>
+        <div class="row"><span class="k">5h</span><span class="bar"><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="pct">12%</span><span class="when">in 4h 02m</span></div>
+        <div class="row"><span class="k">wk</span><span class="bar"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="pct">41%</span><span class="when">Sun 12:50</span></div>
+      </div>
+      <div class="agent">
+        <div class="head"><img src="../../Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets/AIUsageCursor.imageset/cursor-dark.svg">Cursor<span class="used">included</span></div>
+        <div class="row"><span class="k">mo</span><span class="bar"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i></span><span class="pct">63%</span><span class="when">Nov 2</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Agent sessions</div>
+      <div class="session">
+        <span class="dot"><img src="../../Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets/AIUsageClaude.imageset/claude.svg"></span>
+        <div><div class="title">Fix flaky checkout test</div><div class="meta"><b class="working">Working</b> · web-shop</div></div>
+        <span class="ago">now</span>
+      </div>
+      <div class="session">
+        <span class="dot"><img src="../../Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets/AIUsageCodex.imageset/codex-dark.png"></span>
+        <div><div class="title">Move billing to the new API</div><div class="meta"><b class="input">Needs input</b> · billing</div></div>
+        <span class="ago">2m</span>
+      </div>
+      <div class="session">
+        <span class="dot"><img src="../../Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets/AIUsageCursor.imageset/cursor-dark.svg"></span>
+        <div><div class="title">Add dark mode tokens</div><div class="meta"><b class="done">Done</b> · design-kit</div></div>
+        <span class="ago">9m</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Next events</div>
+      <div class="event"><span class="stripe" style="background:#bf5af2"></span><div><div class="what">Design review</div><div class="at">10:30 to 11:15</div></div></div>
+      <div class="event"><span class="stripe" style="background:#30d158"></span><div><div class="what">Release 1.4</div><div class="at">Tomorrow, 14:00</div></div></div>
+    </div>
+
+  </div>
+
+  <div class="copy">
+    <div class="brand">
+      <img src="../logo/sidelight-icon.png">
+      <h1>Sidelight</h1>
+    </div>
+    <p class="tagline">Always-on widgets along the edge of your Mac screen. <span>Made for developers who run AI agents.</span></p>
+    <div class="chips">
+      <span class="chip">AI usage limits</span>
+      <span class="chip">Agent sessions</span>
+      <span class="chip">Calendar</span>
+      <span class="chip">Docker</span>
+      <span class="chip">Railway</span>
+      <span class="chip">Now playing</span>
+      <span class="chip">System stats</span>
+      <span class="chip">Window tiling</span>
+    </div>
+    <p class="foot">Native macOS app · Apple Silicon · Free and open source</p>
+  </div>
+</div>
+</body>
+</html>
