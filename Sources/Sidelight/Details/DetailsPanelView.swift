@@ -15,8 +15,8 @@ struct DetailsPanelView: View {
         let configuration = store.configuration
         let appearance = configuration.appearance.forDetailsPanel(configuration.details)
         let placement = layout.placement
-        let margin = PanelMetrics.margin(isBar: false)
-        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        let chrome = PanelChrome(appearance.shape, edge: placement.edge)
+        let shape = chrome.outline
         let imageURL = appearance.background.image.url(desktopPictures: desktopPictures, displayID: placement.displayID)
         let content = session.content
         ZStack {
@@ -24,7 +24,7 @@ struct DetailsPanelView: View {
                 background: appearance.background, shape: shape,
                 cutout: DesktopCutout(
                     displayID: placement.displayID, screen: placement.screenFrame,
-                    rect: placement.frame.insetBy(dx: margin, dy: margin), anchor: .center))
+                    rect: chrome.background(in: placement.frame), anchor: .center))
             // macOS passes mouse events through a window's fully transparent pixels to the app behind, so with no
             // background, scrolling between two rows would scroll that app instead. This fill is too faint to see,
             // but it makes every point of the panel its own.
@@ -35,9 +35,10 @@ struct DetailsPanelView: View {
                     .id(session.contentID)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
+            .padding(chrome.padding)
             .clipShape(shape)
         }
-        .padding(margin)
+        .padding(chrome.margins)
         // Its content sits straight on its background, never on cards: the text is chosen for that background.
         .environment(
             \.colorScheme, appearance.colorScheme(system: systemColorScheme, imageURL: imageURL, onCards: false)

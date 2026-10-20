@@ -64,11 +64,26 @@ struct AppearanceSettingsPane: View {
                 }
             }
 
+            if !editsDetails {
+                Section {
+                    TilePicker(
+                        values: PanelShape.allCases, selection: $store.configuration.appearance.shape, title: \.title
+                    ) { shape, _ in
+                        MiniatureTile(appearance: appearance.with { $0.shape = shape }, display: display)
+                    }
+                } header: {
+                    Text("Shape")
+                } footer: {
+                    Text(appearance.shape.explanation + " The details panel takes the same shape.")
+                        .settingsFootnote()
+                }
+            }
+
             if !editsDetails || details.usesCustomStyle {
                 let background = editsDetails ? detailsBackground : $store.configuration.appearance.background
                 Section {
                     TilePicker(values: BackgroundKind.allCases, selection: background.kind, title: \.title) { kind, _ in
-                        BackgroundTile(kind: kind, appearance: shown, display: display)
+                        MiniatureTile(appearance: shown.with { $0.background.kind = kind }, display: display)
                     }
                 } header: {
                     Text("Background")
@@ -119,14 +134,13 @@ private struct AppearancePreview: View {
         let desk = RoundedRectangle(cornerRadius: 12, style: .continuous)
         // The picture fills the space, so it's a background: as content it would size the view to its own aspect.
         GeometryReader { proxy in
+            let rect = AppearanceMiniature.frame(
+                in: CGSize(width: 126, height: proxy.size.height), margin: 7, shape: appearance.shape)
             AppearanceMiniature(
                 appearance: appearance, scale: 1,
-                cutout: Desk.cutout(
-                    of: CGRect(x: 7, y: 7, width: 112, height: proxy.size.height - 14),
-                    deskSize: proxy.size, display: display)
+                cutout: Desk.cutout(of: rect, deskSize: proxy.size, display: display)
             )
-            .frame(width: 112)
-            .padding(7)
+            .frame(width: rect.width, height: rect.height)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
         .background { Desk(display: display) }
@@ -137,23 +151,28 @@ private struct AppearancePreview: View {
     }
 }
 
-/// One background kind with its current settings, as a tile.
-private struct BackgroundTile: View {
-    let kind: BackgroundKind
+/// The panel with one option changed, as a tile.
+private struct MiniatureTile: View {
     let appearance: Appearance
     let display: Display?
 
     var body: some View {
-        var tileAppearance = appearance
-        tileAppearance.background.kind = kind
         let size = CGSize(width: 64, height: 92)
+        let rect = AppearanceMiniature.frame(in: size, margin: 6, shape: appearance.shape)
         return AppearanceMiniature(
-            appearance: tileAppearance, scale: 0.5,
-            cutout: Desk.cutout(of: CGRect(x: 6, y: 6, width: 52, height: 80), deskSize: size, display: display)
+            appearance: appearance, scale: 0.5, cutout: Desk.cutout(of: rect, deskSize: size, display: display)
         )
-        .padding(6)
+        .frame(width: rect.width, height: rect.height)
+        .frame(width: size.width, height: size.height, alignment: .leading)
         .background { Desk(display: display) }
-        .frame(width: 64, height: 92)
+    }
+}
+
+extension Appearance {
+    fileprivate func with(_ change: (inout Appearance) -> Void) -> Appearance {
+        var appearance = self
+        change(&appearance)
+        return appearance
     }
 }
 
@@ -185,9 +204,18 @@ private struct AppearanceMiniature: View {
     @Environment(DesktopPictures.self) private var desktopPictures
     @Environment(\.colorScheme) private var systemColorScheme
 
+    /// Where a miniature of a left panel goes in `size`: `margin` from every side, or joined to the left one as a notch.
+    /// Its height is the same either way, so a notch's shoulders show.
+    static func frame(in size: CGSize, margin: CGFloat, shape: PanelShape) -> CGRect {
+        let leading = shape == .notch ? 0 : margin
+        return CGRect(x: leading, y: margin, width: size.width - leading - margin, height: size.height - 2 * margin)
+    }
+
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 12 * scale, style: .continuous)
+        let shape = PanelOutline(
+            shape: appearance.shape, edge: .left, cornerRadius: 12 * scale, shoulder: 8 * scale)
         let cards = CardAppearance(appearance).forPreview
+        let shoulders = appearance.shape == .notch ? 8 * scale : 0
         ZStack(alignment: .top) {
             PanelBackground(
                 background: appearance.background, shape: shape, blendingMode: .withinWindow, cutout: cutout)
@@ -207,6 +235,7 @@ private struct AppearanceMiniature: View {
                 }
             }
             .padding(6 * scale)
+            .padding(.vertical, shoulders)
         }
         .environment(
             \.colorScheme,

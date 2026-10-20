@@ -61,6 +61,19 @@ extension PanelColumns {
     }
 }
 
+extension PanelShape {
+    var title: String { rawValue.capitalized }
+
+    var explanation: String {
+        switch self {
+        case .floating: "Rounded on every side and set slightly apart from the screen edge."
+        case .notch:
+            "Joined to the screen edge like the MacBook notch, curving into it at both ends. Looks most at home on a "
+                + "black color background."
+        }
+    }
+}
+
 extension BackgroundKind {
     var title: String {
         switch self {

@@ -7,7 +7,7 @@ import SwiftUI
 /// The panel's background.
 struct PanelBackground: View {
     let background: BackgroundSettings
-    let shape: RoundedRectangle
+    let shape: PanelOutline
     /// The panel blurs what's behind its window; previews blur what's behind them in their own window.
     var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
     /// Where the panel sits on its screen, so the desktop picture shows exactly the part behind it.
@@ -32,14 +32,14 @@ struct PanelBackground: View {
         }
     }
 
-    /// Clipped to the panel's shape with grain and a hairline edge on top.
+    /// Clipped to the panel's shape with grain and a hairline edge on top, left out along a notch's screen edge.
     private func framed(@ViewBuilder content: () -> some View) -> some View {
         ZStack {
             content()
             GrainOverlay(amount: background.grain)
         }
         .clipShape(shape)
-        .overlay(shape.strokeBorder(.white.opacity(0.08), lineWidth: 0.5))
+        .overlay(shape.open.strokeBorder(.white.opacity(0.08), lineWidth: 0.5))
     }
 }
 

@@ -2,11 +2,33 @@ import Foundation
 
 /// How the panel and its widget cards look. The same on every display.
 public struct Appearance: Codable, Hashable, Sendable {
+    public var shape: PanelShape = .floating
     public var background = BackgroundSettings()
     public var cards = CardSettings()
     public var text: TextAppearance = .automatic
 
     public init() {}
+
+    /// Missing options take their defaults, so settings saved before an option existed still load.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        shape = container.decodeLeniently(.shape, or: Appearance().shape)
+        background = try container.decode(BackgroundSettings.self, forKey: .background)
+        cards = try container.decode(CardSettings.self, forKey: .cards)
+        text = try container.decode(TextAppearance.self, forKey: .text)
+    }
+}
+
+// MARK: Shape
+
+/// How the panel meets its screen edge. The details panel takes the same shape.
+public enum PanelShape: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// Rounded on every side, set slightly apart from the edge.
+    case floating
+    /// Joined to the edge like the MacBook notch: flush with it, with curved shoulders flaring into it.
+    case notch
+
+    public var id: Self { self }
 }
 
 // MARK: Background

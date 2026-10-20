@@ -12,30 +12,29 @@ struct PanelRootView: View {
 
     var body: some View {
         let appearance = store.configuration.appearance
-        let isBar = layout.position.isBar
-        let shape = RoundedRectangle(cornerRadius: isBar ? 14 : 22, style: .continuous)
-        let margin = PanelMetrics.margin(isBar: isBar)
+        let chrome = PanelChrome(appearance.shape, edge: layout.position)
         let imageURL = appearance.background.image.url(desktopPictures: desktopPictures, displayID: layout.displayID)
         ZStack {
-            PanelBackground(background: appearance.background, shape: shape, cutout: cutout(margin: margin))
+            PanelBackground(background: appearance.background, shape: chrome.outline, cutout: cutout(chrome))
             PanelWidgets(configuration: store.configuration, layout: layout) { length in
-                onContentLengthChange(length + 2 * margin)
+                onContentLengthChange(length + chrome.lengthAroundContent)
             }
-            .clipShape(shape)
+            .padding(chrome.padding)
+            .clipShape(chrome.outline)
         }
-        .padding(margin)
+        .padding(chrome.margins)
         .environment(\.colorScheme, appearance.colorScheme(system: systemColorScheme, imageURL: imageURL))
         .environment(\.isPanelShown, layout.isOnScreen)
     }
 
     /// The desktop picture behind the background while the window fills its strip. A fitted window keeps its
     /// aligned end where the strip's is, so pinning the picture there lines it up at any length.
-    private func cutout(margin: CGFloat) -> DesktopCutout {
+    private func cutout(_ chrome: PanelChrome) -> DesktopCutout {
         let alignment = layout.length == .fit ? layout.alignment : .center
         return DesktopCutout(
             displayID: layout.displayID,
             screen: layout.screenFrame,
-            rect: layout.strip.insetBy(dx: margin, dy: margin),
+            rect: chrome.background(in: layout.strip),
             anchor: layout.position.isBar ? alignment.horizontalAlignment : alignment.verticalAlignment
         )
     }

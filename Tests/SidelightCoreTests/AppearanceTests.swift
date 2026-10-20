@@ -111,3 +111,21 @@ struct RGBAColorPrecisionTests {
         #expect(color.green == 1 && color.blue == 0)
     }
 }
+
+struct PanelShapeTests {
+    @Test func `appearance saved before shapes existed floats`() throws {
+        var appearance = Appearance()
+        appearance.shape = .notch
+        let data = try JSONEncoder().encode(appearance)
+        var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["shape"] as? String == "notch")
+        #expect(try JSONDecoder().decode(Appearance.self, from: data).shape == .notch)
+
+        object["shape"] = nil
+        let older = try JSONSerialization.data(withJSONObject: object)
+        #expect(try JSONDecoder().decode(Appearance.self, from: older).shape == .floating)
+        object["shape"] = "blob"
+        let newer = try JSONSerialization.data(withJSONObject: object)
+        #expect(try JSONDecoder().decode(Appearance.self, from: newer).shape == .floating)
+    }
+}
