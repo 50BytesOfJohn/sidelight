@@ -47,7 +47,8 @@ public struct RunwareRollingUsage: Equatable, Sendable {
 }
 
 /// One of the organization's API keys, as the account details describe it. Never the key, not even masked.
-public struct RunwareAPIKeySummary: Identifiable, Equatable, Sendable {
+/// Runware gives keys no ID here, and two can share a name and creation date: they're told apart by position.
+public struct RunwareAPIKeySummary: Equatable, Sendable {
     public let name: String
     public let isEnabled: Bool
     public let requests: Int?
@@ -63,9 +64,6 @@ public struct RunwareAPIKeySummary: Identifiable, Equatable, Sendable {
         self.createdAt = createdAt
         self.lastUsedAt = lastUsedAt
     }
-
-    /// Runware gives keys no ID in this answer.
-    public var id: String { name + (createdAt.map { "@\($0.timeIntervalSince1970)" } ?? "") }
 }
 
 /// What `getDetails` says about the organization. Its team (people's names and emails) is never read.

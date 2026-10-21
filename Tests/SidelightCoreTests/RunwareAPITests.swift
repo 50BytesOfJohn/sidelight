@@ -207,6 +207,9 @@ struct RunwareAPITests {
                 key: "rw_secret", query: RunwareModelQuery(search: "flux", category: "lora", offset: 50),
                 taskUUID: UUID(), userAgent: "Test"),
         ]
+        // Spelled out rather than read from the allowlist, so widening it to a paid task fails here.
+        let readOnly: Set = ["accountManagement", "modelSearch"]
+        #expect(RunwareAPI.readOnlyTaskTypes == readOnly)
         var uuids = Set<String>()
         for request in requests {
             #expect(request.httpMethod == "POST")
@@ -217,7 +220,7 @@ struct RunwareAPITests {
             #expect(!text.contains("rw_secret") && request.url?.absoluteString.contains("rw_secret") == false)
             let tasks = try body(request)
             #expect(tasks.count == 1)
-            #expect(RunwareAPI.readOnlyTaskTypes.contains(try #require(tasks[0]["taskType"] as? String)))
+            #expect(readOnly.contains(try #require(tasks[0]["taskType"] as? String)))
             uuids.insert(try #require(tasks[0]["taskUUID"] as? String))
         }
         #expect(uuids.count == 3)

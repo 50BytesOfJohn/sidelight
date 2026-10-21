@@ -119,8 +119,10 @@ final class RunwareAccount {
     private func sendPendingRefresh() {
         manualRequestWait.cancel()
         guard let includingActivity = pendingRefresh else { return }
+        // Sent once the first is ready: one waiting longer of its own (fetched moments ago) fetches when it may,
+        // rather than holding the other back.
         let delays = [details.refreshDelay, includingActivity ? activity.refreshDelay : nil].compactMap(\.self)
-        guard let delay = delays.max() else {
+        guard let delay = delays.min() else {
             pendingRefresh = nil
             return
         }
@@ -175,7 +177,7 @@ final class RunwareAccount {
             report(.connected)
             reportIdentity(value.organizationName)
         case .failure(let problem) where problem != details.problem:
-            Log.runware.notice("Can't fetch the account: \(String(describing: problem), privacy: .public)")
+            Log.runware.notice("Can't fetch the account: \(problem.logDescription, privacy: .public)")
         case .failure:
             break
         }
@@ -194,7 +196,7 @@ final class RunwareAccount {
                 read: { RunwareAPI.activity($0, taskUUID: uuid, window: window, fetchedAt: $1) })
         else { return nil }
         if case .failure(let problem) = answer.result, problem != activity.problem {
-            Log.runware.notice("Can't fetch usage activity: \(String(describing: problem), privacy: .public)")
+            Log.runware.notice("Can't fetch usage activity: \(problem.logDescription, privacy: .public)")
         }
         return answer.fetchResult
     }

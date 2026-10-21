@@ -26,6 +26,12 @@ public enum RunwareProblem: Error, Equatable, Sendable {
     case unreachable
     /// The account's key couldn't be read from the keychain just now.
     case keychain
+
+    /// The problem without Runware's own message, which may echo what was sent: safe for a public log.
+    public var logDescription: String {
+        if case .badRequest(let code, _) = self { return "badRequest(code: \(code ?? "nil"))" }
+        return String(describing: self)
+    }
 }
 
 /// What one day's usage is broken down by, in a usage activity request.

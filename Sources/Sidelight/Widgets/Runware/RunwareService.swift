@@ -47,6 +47,8 @@ final class RunwareService: DataService {
     @ObservationIgnored private let cliConfigFile: URL
     @ObservationIgnored private var isEnabled = false
     @ObservationIgnored private var watcher: FileWatcher?
+    /// ``watcher`` watches the CLI's config, rather than the folder its own folder will be made in.
+    @ObservationIgnored private var watchesCLIConfig = false
     @ObservationIgnored private let reload = CoalescedReload()
     /// A SHA-256 of the CLI's key as last read, never the key: another key means another organization, whose data the
     /// old one's must never show as.
@@ -71,19 +73,25 @@ final class RunwareService: DataService {
     func start() {
         guard !isEnabled else { return }
         isEnabled = true
-        // Signing in or out with the CLI is noticed as it happens. Without the folder yet, demand changes and Refresh
-        // look instead, and watch once it's there.
-        watcher = makeWatcher()
+        watch()
         apply()
     }
 
-    private func makeWatcher() -> FileWatcher? {
-        FileWatcher(file: cliConfigFile, onMainActor: { [weak self] in self?.lookAroundSoon() })
+    /// Signing in or out with the CLI is noticed as it happens: its config is watched, or until its folder is made
+    /// (the first `runware auth login` makes it), the folder that folder goes in.
+    private func watch() {
+        let folder = cliConfigFile.deletingLastPathComponent()
+        let folderExists = FileManager.default.fileExists(atPath: folder.path(percentEncoded: false))
+        guard watcher == nil || folderExists != watchesCLIConfig else { return }
+        watchesCLIConfig = folderExists
+        watcher = FileWatcher(
+            file: folderExists ? cliConfigFile : folder, onMainActor: { [weak self] in self?.lookAroundSoon() })
     }
 
     func stop() {
         isEnabled = false
         watcher = nil
+        watchesCLIConfig = false
         reload.cancel()
         apply()
     }
@@ -149,8 +157,8 @@ final class RunwareService: DataService {
     /// without one of their own use.
     private func lookAround() async {
         guard isEnabled else { return }
-        // The folder may have appeared since: the first `runware auth login` makes it.
-        if watcher == nil { watcher = makeWatcher() }
+        // The folder may have been made, or removed, since.
+        watch()
         let executable = ExecutableLocator.find("runware", in: RunwareCLIConfig.executableDirectories)
         let reading = await Self.readCLIConfig(cliConfigFile)
         guard !Task.isCancelled, isEnabled else { return }

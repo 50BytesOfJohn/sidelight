@@ -44,7 +44,7 @@ struct RunwareServiceTests {
         RunwareService(transport: transport, accounts: store.access, manualActionGap: .zero, cliConfigFile: cliConfig)
     }
 
-    @Test func `starting twice and two widgets on one account make one request`() async {
+    @Test func `starting twice makes one request`() async {
         let requests = OpenRouterRequestLog()
         let store = TestAccounts("rw_fixture")
         let service = service(store) { request in
@@ -209,6 +209,23 @@ struct RunwareServiceTests {
         #expect(await eventually { service.cliStatus == .signedOut })
         #expect(await eventually { cli.details.problem == .cliNotSignedIn })
         #expect(cli.details.value == nil)
+        service.stop()
+    }
+
+    @Test func `signing in with the CLI is noticed before its folder exists`() async throws {
+        let home = URL.temporaryDirectory.appending(path: "runware-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appending(path: ".runware", directoryHint: .isDirectory)
+        let service = service(TestAccounts(), cliConfig: folder.appending(path: "config.yaml")) { Self.healthy($0) }
+        service.demand = RunwareDemand(
+            accounts: [.runwareCLI: RunwareAccountDemand(details: .manual)], keptAccounts: [.runwareCLI])
+        service.start()
+        #expect(await eventually { service.cliStatus == .signedOut })
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("api_key: rw_later\n".utf8).write(to: folder.appending(path: "config.yaml"))
+        #expect(await eventually { service.cliIsSignedIn })
+        #expect(await eventually { service.account(.runwareCLI)?.details.value?.organizationName == "Acme" })
         service.stop()
     }
 

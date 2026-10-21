@@ -57,8 +57,8 @@ public struct RunwareModelQuery: Hashable, Sendable {
 
     /// Known values for ``category``, as Runware documents them.
     public static let categories = ["checkpoint", "lora", "lycoris", "vae", "embeddings"]
-    /// Known values for ``source``.
-    public static let sources = ["official", "community"]
+    /// Known values for ``source``: `featured`, not `official`, whatever older docs say.
+    public static let sources = ["featured", "community"]
     /// Known values for ``visibility``.
     public static let visibilities = ["public", "owned", "private", "favorite"]
 

@@ -393,7 +393,7 @@ private struct RunwareUsageTab: View {
     private func keys(_ details: RunwareAccountDetails) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             RunwareSectionTitle(title: "API keys")
-            ForEach(details.keysByLastUse) { key in
+            ForEach(Array(details.keysByLastUse.enumerated()), id: \.offset) { _, key in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Circle()
                         .fill(key.isEnabled ? Color.green : Color.secondary.opacity(0.5))
@@ -613,11 +613,10 @@ private struct RunwareModelsTab: View {
         .fixedSize()
     }
 
-    /// `Lora`, `Mine` for `owned`, `Featured` for `official`, `Favorites`.
+    /// `LoRA`, `Mine` for `owned`, `Favorites`; others capitalized.
     private static func title(of value: String) -> String {
         switch value {
         case "owned": "Mine"
-        case "official": "Featured"
         case "favorite": "Favorites"
         case "lora": "LoRA"
         case "vae": "VAE"
