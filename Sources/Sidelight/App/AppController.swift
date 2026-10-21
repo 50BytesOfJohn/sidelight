@@ -54,6 +54,7 @@ final class AppController {
             noodleComputer: NoodleComputerService(),
             railway: RailwayService(accounts: accountAccess),
             openRouter: OpenRouterService(transport: composition.openRouterTransport, accounts: accountAccess),
+            runware: RunwareService(transport: composition.runwareTransport, accounts: accountAccess),
             docker: DockerService(transport: composition.dockerTransport),
             appLauncher: AppLauncherService(source: composition.appLauncherSource ?? .workspace),
             stash: stash,
@@ -190,6 +191,7 @@ final class AppController {
     private struct Demand: Equatable {
         var services: ServiceDemand
         var openRouter: OpenRouterDemand
+        var runware: RunwareDemand
     }
 
     /// Runs each data service only while a widget that needs it is visible on some display, while the manager
@@ -229,20 +231,25 @@ final class AppController {
                     }
                     var openRouter = configuration.openRouterDemand(
                         panels: shown, previewsEveryWidget: previews, previewing: previewed)
+                    var runware = configuration.runwareDemand(panels: shown, signedIn: accounts.signedInAppSignIns)
                     var services = configuration.serviceDemand(
                         at: panels.map(\.panel.position), previewsEveryWidget: previews, previewing: previewed,
                         signedIn: accounts.signedInAppSignIns)
                     if !coordinator.isHidden, !coordinator.isDetailsUnseen, let details = coordinator.details {
                         openRouter.merge(details.openRouterDemand(in: configuration))
+                        runware.merge(details.runwareDemand(in: configuration))
                         services.docker.merge(details.dockerDemand())
                         services.appLauncher.merge(details.appLauncherDemand(in: configuration))
                     }
-                    guard let kinds else { return Demand(services: services, openRouter: openRouter) }
-                    return Demand(services: services.limited(to: kinds), openRouter: openRouter.limited(to: kinds))
+                    guard let kinds else { return Demand(services: services, openRouter: openRouter, runware: runware) }
+                    return Demand(
+                        services: services.limited(to: kinds), openRouter: openRouter.limited(to: kinds),
+                        runware: runware.limited(to: kinds))
                 }
                 for await demand in demand {
                     self?.runServices(for: demand.services)
                     self?.runOpenRouter(for: demand.openRouter)
+                    self?.runRunware(for: demand.runware)
                 }
             }
         )
@@ -253,6 +260,13 @@ final class AppController {
     private func runOpenRouter(for demand: OpenRouterDemand) {
         environment.openRouter.demand = demand
         environment.openRouter.setRunning(!demand.isEmpty)
+    }
+
+    /// One service for every Runware widget and its details panel. Only placed widgets count, so previews never read
+    /// a key or ask Runware anything. A shown widget without an account still runs it, to notice the CLI signing in.
+    private func runRunware(for demand: RunwareDemand) {
+        environment.runware.demand = demand
+        environment.runware.setRunning(demand.isShown)
     }
 
     private func runServices(for demand: ServiceDemand) {
@@ -292,6 +306,8 @@ final class AppController {
                 environment.railway.setRunning(isNeeded && demand.railway.isShown)
             // Theirs goes by the OpenRouter demand, which also counts the details panel.
             case .openRouter: break
+            // Theirs goes by the Runware demand, which also counts the details panel.
+            case .runware: break
             // The stash is read once and changes only when someone changes it: nothing to run.
             case .stash: break
             // Keeping the Mac awake goes on while its widget is hidden or unseen: that's when it matters.

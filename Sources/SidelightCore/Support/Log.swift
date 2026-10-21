@@ -25,6 +25,8 @@ public enum Log {
     public static let noodleComputer = Logger(subsystem: subsystem, category: "noodle-computer")
     public static let railway = Logger(subsystem: subsystem, category: "railway")
     public static let openRouter = Logger(subsystem: subsystem, category: "openrouter")
+    /// Organization names, model AIRs and key names only at the debug level.
+    public static let runware = Logger(subsystem: subsystem, category: "runware")
     public static let details = Logger(subsystem: subsystem, category: "details")
     /// Never logs what was stashed: only that something was, and why something wasn't.
     public static let stash = Logger(subsystem: subsystem, category: "stash")

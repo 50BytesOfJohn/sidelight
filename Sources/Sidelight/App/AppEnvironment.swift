@@ -25,6 +25,8 @@ struct AppEnvironment {
     let noodleComputer: NoodleComputerService
     let railway: RailwayService
     let openRouter: OpenRouterService
+    /// Runware accounts' balances, usage and models, for every Runware widget and the details panel.
+    let runware: RunwareService
     /// Containers in each Docker context shown, for every Docker widget and the details panel.
     let docker: DockerService
     /// Which apps are running, for every App Launcher widget and the details panel.
@@ -54,7 +56,7 @@ extension AppEnvironment {
     var dataServices: [any DataService] {
         [
             calendar, codex, claudeCode, cursor, nowPlaying, claudeSessions, codexSessions, cursorChats,
-            openCodeSessions, systemStats, noodleComputer, railway, openRouter, docker, appLauncher,
+            openCodeSessions, systemStats, noodleComputer, railway, openRouter, runware, docker, appLauncher,
         ]
     }
 
@@ -97,6 +99,7 @@ extension View {
             .environment(app.noodleComputer)
             .environment(app.railway)
             .environment(app.openRouter)
+            .environment(app.runware)
             .environment(app.docker)
             .environment(app.appLauncher)
             .environment(app.stash)

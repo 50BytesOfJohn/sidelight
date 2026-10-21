@@ -36,7 +36,7 @@ final class OpenRouterAccount {
     /// Bumped whenever the key changes: an answer fetched with the old key is dropped rather than shown.
     @ObservationIgnored private var keyGeneration = 0
     /// What OpenRouter said about asking with the current key, for every request made with it.
-    @ObservationIgnored private var pacing = AccountPacing()
+    @ObservationIgnored private var pacing = OpenRouterAccount.newPacing()
     @ObservationIgnored private var keyListTask: Task<Void, Never>?
     /// Bumped whenever loading keys stops: a page still loading then is dropped.
     @ObservationIgnored private var keyListGeneration = 0
@@ -292,6 +292,11 @@ final class OpenRouterAccount {
         if let status = problem.accountStatus { report(status) }
     }
 
+    /// OpenRouter rejected the key (401), or what it may read (403): asking again with it can't help.
+    private static func newPacing() -> AccountPacing<OpenRouterProblem> {
+        AccountPacing(rateLimited: .rateLimited) { $0 == .invalidKey || $0 == .notPermitted }
+    }
+
     // MARK: The management key
 
     /// The account's key was replaced or removed: everything the old one showed goes before the new one shows
@@ -299,7 +304,7 @@ final class OpenRouterAccount {
     /// again, with the new one.
     func keyChanged() {
         hasKey = nil
-        pacing = AccountPacing()
+        pacing = Self.newPacing()
         forgetKeyData()
         if keyPickers > 0 { loadNextKeyPage() }
     }
@@ -419,45 +424,6 @@ final class OpenRouterAccount {
         case .failure(let problem):
             keyList.problem = problem
         }
-    }
-}
-
-/// What OpenRouter said about asking with one key, whatever was asked: when it allows the next request, and whether
-/// it rejected the key; and when someone's click last sent requests. Forgotten when a key is saved.
-private struct AccountPacing {
-    /// OpenRouter asked not to be asked again before this.
-    private var notBefore: ContinuousClock.Instant?
-    /// OpenRouter rejected the key (401), or what it may read (403): asking again with it can't help.
-    private var rejection: OpenRouterProblem?
-    /// When someone's last refresh or page of keys was sent.
-    private var lastManualRequest: ContinuousClock.Instant?
-
-    /// How long until someone's next click may send requests, `gap` after their last one did.
-    func manualWait(gap: Duration) -> Duration {
-        guard let lastManualRequest else { return .zero }
-        return max(.zero, lastManualRequest + gap - .now)
-    }
-
-    mutating func manualRequestSent() {
-        lastManualRequest = .now
-    }
-
-    mutating func record(_ problem: OpenRouterProblem, retry: RetryAdvice, at now: Date) {
-        switch problem {
-        case .invalidKey, .notPermitted: rejection = problem
-        default: break
-        }
-        if case .notBefore(let date) = retry {
-            let instant = ContinuousClock.now + .seconds(max(0, date.timeIntervalSince(now)))
-            notBefore = max(notBefore ?? instant, instant)
-        }
-    }
-
-    /// Why a request mustn't be sent at `now`, and when one may be; `nil` to go ahead.
-    func hold(at now: Date) -> (problem: OpenRouterProblem, retry: RetryAdvice)? {
-        if let rejection { return (rejection, .onRequest) }
-        guard let notBefore, notBefore > .now else { return nil }
-        return (.rateLimited, .notBefore(now.addingTimeInterval((notBefore - .now).timeInterval)))
     }
 }
 

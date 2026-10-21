@@ -36,7 +36,7 @@ extension WidgetKind {
         case .awake: AwakeStyle.allCases.map(\.widgetStyle)
         case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system,
             .noodleComputer,
-            .railway, .agentSessions, .openRouter, .stash, .docker, .appLauncher:
+            .railway, .agentSessions, .openRouter, .stash, .docker, .appLauncher, .runware:
             []
         }
     }
@@ -52,7 +52,7 @@ extension WidgetSettings {
             case .awake(let settings): settings.style.rawValue
             case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .codexSessions,
                 .system,
-                .noodleComputer, .railway, .agentSessions, .openRouter, .stash, .docker, .appLauncher:
+                .noodleComputer, .railway, .agentSessions, .openRouter, .stash, .docker, .appLauncher, .runware:
                 nil
             }
         }
@@ -68,7 +68,7 @@ extension WidgetSettings {
                 self = .awake(settings)
             case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .codexSessions,
                 .system,
-                .noodleComputer, .railway, .agentSessions, .openRouter, .stash, .docker, .appLauncher:
+                .noodleComputer, .railway, .agentSessions, .openRouter, .stash, .docker, .appLauncher, .runware:
                 break
             }
         }

@@ -108,6 +108,7 @@ private struct DetailsContentView: View {
         case .stash(let browser): StashDetailsView(browser: browser)
         case .docker(let browser): DockerDetailsView(browser: browser)
         case .appLauncher(let browser): AppLauncherDetailsView(browser: browser)
+        case .runware(let browser): RunwareDetailsView(browser: browser)
         }
     }
 }

@@ -7,6 +7,7 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
     case claudeCode
     case codex
     case cursor
+    case runware
 
     public var id: Self { self }
 
@@ -18,13 +19,14 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
         case .claudeCode: "Claude Code"
         case .codex: "Codex"
         case .cursor: "Cursor"
+        case .runware: "Runware"
         }
     }
 
     /// Whether someone can add accounts with a key or token typed into Sidelight.
     public var acceptsKeys: Bool {
         switch self {
-        case .openRouter, .railway: true
+        case .openRouter, .railway, .runware: true
         case .claudeCode, .codex, .cursor: false
         }
     }
@@ -34,7 +36,7 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
     public var acceptsAppProfiles: Bool {
         switch self {
         case .claudeCode: true
-        case .openRouter, .railway, .codex, .cursor: false
+        case .openRouter, .railway, .codex, .cursor, .runware: false
         }
     }
 
@@ -49,6 +51,16 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
         case .claudeCode: Account(id: .claudeCodeApp, provider: self, name: "Claude Code", kind: .appSignIn)
         case .codex: Account(id: .codexApp, provider: self, name: "Codex", kind: .appSignIn)
         case .cursor: Account(id: .cursorApp, provider: self, name: "Cursor", kind: .appSignIn)
+        case .runware: Account(id: .runwareCLI, provider: self, name: "Runware CLI", kind: .appSignIn)
+        }
+    }
+
+    /// Whether its app sign-in, while signed in, is the default for widgets that name no account, ahead of a single
+    /// key account: its CLI is how most people sign in to it. A default someone chose always comes first.
+    public var prefersSignedInAppSignIn: Bool {
+        switch self {
+        case .railway, .runware: true
+        case .openRouter, .claudeCode, .codex, .cursor: false
         }
     }
 }
@@ -95,6 +107,7 @@ public struct AccountID: RawRepresentable, Codable, Hashable, Comparable, Sendab
     public static let claudeCodeApp = AccountID(rawValue: "claudeCode.app")
     public static let codexApp = AccountID(rawValue: "codex.app")
     public static let cursorApp = AccountID(rawValue: "cursor.app")
+    public static let runwareCLI = AccountID(rawValue: "runware.cli")
 }
 
 /// One identity at one provider.
@@ -187,14 +200,14 @@ extension AppConfiguration {
     }
 
     /// The account a widget at `provider` uses when it names none: the default someone chose; for Railway without
-    /// one, the Railway CLI while it's signed in; otherwise the provider's only key account; and a provider that
+    /// one, the provider's CLI while it's signed in, for providers that prefer it (Railway, Runware); otherwise the provider's only key account; and a provider that
     /// takes no keys uses its app sign-in, whatever app profiles it has. `signedIn` holds the app sign-ins signed in
     /// now.
     public func defaultAccount(for provider: AccountProvider, signedIn: Set<AccountID> = []) -> AccountResolution {
         if let id = defaultAccounts[provider], exists(id, at: provider) { return .account(id) }
         let keys = savedAccounts(of: provider)
         if let signIn = provider.appSignIn?.id {
-            if provider == .railway, signedIn.contains(signIn) { return .account(signIn) }
+            if provider.prefersSignedInAppSignIn, signedIn.contains(signIn) { return .account(signIn) }
             if !provider.acceptsKeys { return .account(signIn) }
         }
         switch keys.count {
@@ -279,6 +292,7 @@ extension WidgetSettings {
         switch self {
         case .openRouter(let settings): settings.allBalances.map { (.openRouter, $0.options.account) }
         case .railway(let settings): [(.railway, settings.account)]
+        case .runware(let settings): [(.runware, settings.account)]
         case .claudeCode(let settings): [(.claudeCode, settings.account)]
         case .aiUsage(let settings): settings.accountReferences(shownOnly: false)
         case .clock, .codex, .cursor, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system,
@@ -304,6 +318,9 @@ extension WidgetSettings {
         case .claudeCode(var settings) where settings.account == id:
             settings.account = nil
             self = .claudeCode(settings)
+        case .runware(var settings) where settings.account == id:
+            settings.account = nil
+            self = .runware(settings)
         case .aiUsage(var settings):
             let didForget = settings.forgetAccount(id)
             self = .aiUsage(settings)

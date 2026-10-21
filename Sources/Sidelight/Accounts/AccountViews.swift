@@ -9,6 +9,7 @@ extension AccountProvider {
         case .claudeCode: "asterisk"
         case .codex: "chevron.left.forwardslash.chevron.right"
         case .cursor: "cursorarrow.rays"
+        case .runware: "photo.stack"
         }
     }
 
@@ -19,6 +20,7 @@ extension AccountProvider {
         case .claudeCode: .orange
         case .codex: .teal
         case .cursor: .gray
+        case .runware: .pink
         }
     }
 
@@ -27,6 +29,7 @@ extension AccountProvider {
         switch self {
         case .openRouter: "OpenRouter management key"
         case .railway: "Account or workspace token"
+        case .runware: "Runware API key"
         case .claudeCode, .codex, .cursor: "Key"
         }
     }
@@ -39,6 +42,8 @@ extension AccountProvider {
                 + "Sidelight only ever reads with it. The model catalogue needs no key."
         case .railway:
             "An account or workspace token sees what the account sees. Project tokens can't list projects."
+        case .runware:
+            "Sidelight reads the organization's balance, usage and models with it, and never runs a generation."
         case .claudeCode, .codex, .cursor:
             ""
         }
@@ -50,6 +55,7 @@ extension AccountProvider {
         case .openRouter:
             ("Create a management key", URL(string: "https://openrouter.ai/settings/management-keys")!)
         case .railway: ("Create a token", URL(string: "https://railway.com/account/tokens")!)
+        case .runware: ("Create an API key", URL(string: "https://my.runware.ai/keys")!)
         case .claudeCode, .codex, .cursor: nil
         }
     }
@@ -59,6 +65,7 @@ extension AccountProvider {
         switch self {
         case .openRouter: ""
         case .railway: "Managed by the Railway CLI"
+        case .runware: "Managed by the Runware CLI"
         case .claudeCode: "Managed by Claude Code"
         case .codex: "Managed by Codex"
         case .cursor: "Managed by Cursor"
@@ -70,6 +77,9 @@ extension AccountProvider {
         switch self {
         case .openRouter: "Replace its key in Settings, under Accounts."
         case .railway: "Run railway login, or add a token in Settings, under Accounts."
+        case .runware:
+            "Run runware auth login, or add an API key in Settings, under Accounts. A key set only in RUNWARE_API_KEY "
+                + "isn't visible to Sidelight: add it here instead."
         case .claudeCode: "Sign in again in Settings, under Accounts, or run claude and sign in."
         case .codex: "Run codex and sign in."
         case .cursor: "Open Cursor and sign in."
@@ -126,6 +136,7 @@ struct AccountKeySheet: View {
     @Environment(AccountStore.self) private var accounts
     @Environment(OpenRouterService.self) private var openRouter
     @Environment(RailwayService.self) private var railway
+    @Environment(RunwareService.self) private var runware
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var key = ""
@@ -237,6 +248,8 @@ struct AccountKeySheet: View {
             return await openRouter.checkKey(key).map { "\($0.title). \($0.advice)" }
         case .railway:
             return await railway.checkToken(key).map { "\($0.title). \($0.advice)" }
+        case .runware:
+            return await runware.checkKey(key).map { "\($0.title). \($0.advice)" }
         case .claudeCode, .codex, .cursor:
             return "\(provider.title) signs in on its own."
         }
