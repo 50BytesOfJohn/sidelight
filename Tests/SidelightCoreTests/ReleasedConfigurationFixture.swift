@@ -214,6 +214,7 @@ struct ReleasedConfigurationFixture {
     private static func base() -> AppConfiguration {
         func color(_ hex: String) -> RGBAColor { RGBAColor(hex: hex)! }
         var c = AppConfiguration()
+        c.appearance.shape = .notch
         c.panel = PanelDefaults(
             position: .right, width: .percent(22.5), length: .fit, alignment: .end, shownOn: .all)
         c.windowAvoidance = .clip
