@@ -14,6 +14,8 @@ enum DetailsRequest: Hashable {
     case docker(context: DockerContextChoice)
     /// Every app, for the launcher `widget`, starting with `scope`.
     case appLauncher(widget: WidgetInstance.ID, scope: LauncherScope)
+    /// A Runware account's usage, history and models, starting on `tab`.
+    case runware(account: AccountID, tab: RunwareDetailsTab)
 }
 
 /// What the details panel shows, with the state it keeps while open: search text, choices, what's expanded. Nothing
@@ -23,6 +25,7 @@ enum DetailsContent {
     case stash(StashBrowser)
     case docker(DockerBrowser)
     case appLauncher(AppLauncherBrowser)
+    case runware(RunwareBrowser)
 
     init(_ request: DetailsRequest, stash: StashStore) {
         switch request {
@@ -34,6 +37,8 @@ enum DetailsContent {
             self = .docker(DockerBrowser(context: context))
         case .appLauncher(let widget, let scope):
             self = .appLauncher(AppLauncherBrowser(widgetID: widget, scope: scope))
+        case .runware(let account, let tab):
+            self = .runware(RunwareBrowser(account: account, tab: tab))
         }
     }
 
@@ -44,6 +49,7 @@ enum DetailsContent {
         case .stash: "Stash"
         case .docker: "Docker"
         case .appLauncher: "Apps"
+        case .runware: "Runware"
         }
     }
 
@@ -54,6 +60,7 @@ enum DetailsContent {
         case .stash: .stash
         case .docker: .docker
         case .appLauncher: .appLauncher
+        case .runware: .runware
         }
     }
 
@@ -72,7 +79,12 @@ enum DetailsContent {
             guard browser.widgetID == widget else { return false }
             browser.scope = scope
             return true
-        case (.openRouterModels, _), (.stash, _), (.docker, _), (.appLauncher, _):
+        // The same account again keeps the search, and shows the tab asked for.
+        case (.runware(let browser), .runware(let account, let tab)):
+            guard browser.account == account else { return false }
+            browser.tab = tab
+            return true
+        case (.openRouterModels, _), (.stash, _), (.docker, _), (.appLauncher, _), (.runware, _):
             return false
         }
     }
@@ -85,6 +97,7 @@ enum DetailsContent {
         case .stash(let browser): browser.handlesKey(event)
         case .docker: false
         case .appLauncher(let browser): browser.handlesKey(event)
+        case .runware: false
         }
     }
 }
@@ -134,9 +147,23 @@ final class DetailsSession {
                 return OpenRouterDemand()
             }
             return OpenRouterDemand(catalogue: settings.sync)
-        case .stash, .docker, .appLauncher:
+        case .stash, .docker, .appLauncher, .runware:
             return OpenRouterDemand()
         }
+    }
+
+    /// The account the content shows, details and activity both, as often as the widget that opened it refreshes.
+    func runwareDemand(in configuration: AppConfiguration) -> RunwareDemand {
+        guard case .runware(let browser) = content else { return RunwareDemand() }
+        let cadence: RefreshCadence =
+            if case .runware(let settings) = configuration.widget(widgetID)?.settings {
+                settings.refresh
+            } else {
+                RunwareSettings().refresh
+            }
+        return RunwareDemand(
+            accounts: [browser.account: RunwareAccountDemand(details: cadence, activity: cadence)],
+            keptAccounts: [browser.account], isShown: true)
     }
 
     /// The Docker context the content shows, with its containers' CPU and memory, while it's on screen.

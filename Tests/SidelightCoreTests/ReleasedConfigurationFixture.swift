@@ -35,8 +35,12 @@ struct ReleasedConfigurationFixture {
         let claude = Account(
             id: AccountID(rawValue: Self.id(704).uuidString), provider: .claudeCode, name: "Work Claude",
             kind: .appProfile, folder: "/Users/example/.claude-work")
-        c.accounts = [work, personal, token, claude]
-        c.defaultAccounts = [.openRouter: work.id, .railway: .railwayCLI, .claudeCode: claude.id]
+        let studio = Account(
+            id: AccountID(rawValue: Self.id(705).uuidString), provider: .runware, name: "Studio", kind: .key)
+        c.accounts = [work, personal, token, claude, studio]
+        c.defaultAccounts = [
+            .openRouter: work.id, .railway: .railwayCLI, .claudeCode: claude.id, .runware: .runwareCLI,
+        ]
         var railway = RailwaySettings(
             account: token.id, refreshMinutes: 15,
             blocks: BlockLayout(entries: [
@@ -105,6 +109,10 @@ struct ReleasedConfigurationFixture {
             for: OpenRouterPreset.balanceID)
         credits.blocks.add(.balance(Self.id(503)))
         credits.setBalanceOptions(.init(title: "Personal", account: personal.id), for: Self.id(503))
+        var runware = RunwareSettings(account: studio.id, refresh: .minutes(15), preset: .everything)
+        runware.balance = RunwareBalanceOptions(title: "Studio", showsFreeCredits: false)
+        runware.chart = RunwareChartOptions(days: 30, metric: .requests)
+        runware.models = RunwareModelsOptions(rowCount: 5)
         c.details = DetailsPanelSettings(usesCustomStyle: true, customBackground: c.appearance.background)
         c.details.closeHotkey = Hotkey(keyCode: 49, modifiers: [.control, .command], key: "Space")
         c.stash.captureHotkey = Hotkey(keyCode: 1, modifiers: [.control, .shift], key: "S")
@@ -185,6 +193,8 @@ struct ReleasedConfigurationFixture {
                                 iconSize: 40, spacing: .roomy, columns: 5, rows: 2, barCount: 6, showsNames: true,
                                 showsRunningIndicator: false, showsRunningApps: true, showsAllAppsTile: false))),
                     Self.widget(26, .appLauncher(AppLauncherSettings()), bar: false),
+                    Self.widget(27, .runware(runware), bar: false),
+                    Self.widget(28, .runware(RunwareSettings()), side: false),
                 ], share: 0.5, alignment: .start),
         ]
         let data = try c.json()

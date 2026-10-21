@@ -15,6 +15,7 @@ struct WidgetBuilderWindow: View {
                 case .codexSessions(let settings): builder(id, current: settings, embed: WidgetSettings.codexSessions)
                 case .openRouter(let settings): builder(id, current: settings, embed: WidgetSettings.openRouter)
                 case .aiUsage(let settings): builder(id, current: settings, embed: WidgetSettings.aiUsage)
+                case .runware(let settings): builder(id, current: settings, embed: WidgetSettings.runware)
                 case .clock, .codex, .claudeCode, .cursor, .calendar, .nowPlaying, .claudeSessions, .system,
                     .noodleComputer, .agentSessions, .stash, .awake, .docker, .appLauncher:
                     removed

@@ -32,6 +32,8 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case docker
     /// Apps one click away, like the Dock, with which are running.
     case appLauncher
+    /// Runware organization balance, usage and models. Built from blocks.
+    case runware
 
     public var id: Self { self }
 
@@ -415,6 +417,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case awake(AwakeSettings)
     case docker(DockerSettings)
     case appLauncher(AppLauncherSettings)
+    case runware(RunwareSettings)
 
     public var kind: WidgetKind {
         switch self {
@@ -436,6 +439,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .awake: .awake
         case .docker: .docker
         case .appLauncher: .appLauncher
+        case .runware: .runware
         }
     }
 
@@ -459,6 +463,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .awake: .awake(AwakeSettings())
         case .docker: .docker(DockerSettings())
         case .appLauncher: .appLauncher(AppLauncherSettings())
+        case .runware: .runware(RunwareSettings())
         }
     }
 }

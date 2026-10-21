@@ -8,6 +8,7 @@ import os
 struct AppComposition {
     var configurationFile = ConfigurationStore.defaultFileURL
     var openRouterTransport: OpenRouterService.Transport = { try await HTTP.send($0) }
+    var runwareTransport: RunwareService.Transport = { try await HTTP.send($0) }
     /// How Docker widgets run `docker`; `nil` finds the CLI where it's installed.
     var dockerTransport: DockerService.Transport?
     /// Where App Launcher widgets learn which apps run; `nil` asks `NSWorkspace`.
@@ -37,6 +38,8 @@ struct AppComposition {
     /// - `-SidelightOpenRouterURL <http://127.0.0.1:port/…>`: OpenRouter requests go to a server on this Mac instead.
     ///   Only `http` or `https` on a loopback address is accepted; anything else, or a request that can't be sent
     ///   there, fails rather than reach OpenRouter.
+    /// - `-SidelightRunwareURL <http://127.0.0.1:port/…>`: Runware requests go to a server on this Mac instead, on
+    ///   the same terms.
     /// - `-SidelightDockerCLI <path>`: Docker widgets run this instead of `docker`, such as a script that fakes it.
     /// - `-SidelightServiceKinds <kind,kind,…>`: only these kinds of widget's data services run, such as
     ///   `openRouter,railway` (see ``WidgetKind``). Names it doesn't know run nothing.
@@ -54,7 +57,10 @@ struct AppComposition {
             composition.accountSecrets = .keychain(service: service)
         }
         if let text = arguments.string(forKey: "SidelightOpenRouterURL") {
-            composition.openRouterTransport = loopbackTransport(text)
+            composition.openRouterTransport = loopbackTransport(text, api: OpenRouterAPI.baseURL, name: "OpenRouter")
+        }
+        if let text = arguments.string(forKey: "SidelightRunwareURL") {
+            composition.runwareTransport = loopbackTransport(text, api: RunwareAPI.endpoint, name: "Runware")
         }
         if let path = arguments.string(forKey: "SidelightDockerCLI") {
             Log.app.notice("Docker widgets run \(path, privacy: .public)")
@@ -73,18 +79,21 @@ struct AppComposition {
 
 #if DEBUG
 extension AppComposition {
-    /// Sends OpenRouter requests to the server at `text` on this Mac instead. Fails every request when `text` isn't
-    /// a loopback URL: asked to stay on this Mac, nothing goes to OpenRouter instead.
-    private static func loopbackTransport(_ text: String) -> OpenRouterService.Transport {
-        guard let server = LoopbackServer(text) else {
+    /// Sends `name`'s requests, to its API at `api`, to the server at `text` on this Mac instead. Fails every
+    /// request when `text` isn't a loopback URL: asked to stay on this Mac, nothing goes to the provider instead.
+    private static func loopbackTransport(
+        _ text: String, api: URL, name: String
+    ) -> @Sendable (URLRequest) async throws -> HTTP.Response {
+        guard let server = LoopbackServer(text, api: api) else {
             Log.app.error(
-                "Not sending OpenRouter requests: \(text, privacy: .public) isn't an http(s) URL on this Mac")
+                "Not sending \(name, privacy: .public) requests: \(text, privacy: .public) isn't an http(s) URL on this Mac"
+            )
             return { _ in throw URLError(.unsupportedURL) }
         }
-        Log.app.notice("Sending OpenRouter requests to \(server.base.absoluteString, privacy: .public)")
+        Log.app.notice("Sending \(name, privacy: .public) requests to \(server.base.absoluteString, privacy: .public)")
         return { request in
             guard let redirected = server.redirected(request) else {
-                Log.app.error("Not sending an OpenRouter request that can't go to the server on this Mac")
+                Log.app.error("Not sending a \(name, privacy: .public) request that can't go to the server on this Mac")
                 throw URLError(.unsupportedURL)
             }
             return try await HTTP.send(redirected, delegate: LoopbackRedirects())
@@ -107,15 +116,18 @@ extension AppComposition {
     }
 }
 
-/// A server on this Mac that OpenRouter requests go to instead, at ``base``: `http` or `https` on a loopback
+/// A server on this Mac that a provider's requests go to instead, at ``base``: `http` or `https` on a loopback
 /// address, with nothing but a path.
 private nonisolated struct LoopbackServer: Sendable {
-    /// Where OpenRouter's API is, on the server: always ends in `/`.
+    /// Where the provider's API is, on the server: always ends in `/`.
     let base: URL
+    /// Where the provider's API really is.
+    let api: URL
 
     private static let hosts: Set<String> = ["127.0.0.1", "localhost", "::1", "[::1]"]
 
-    init?(_ text: String) {
+    init?(_ text: String, api: URL) {
+        self.api = api
         guard var components = URLComponents(string: text), Self.isLoopback(components),
             components.user == nil, components.password == nil, components.query == nil, components.fragment == nil
         else { return nil }
@@ -131,12 +143,12 @@ private nonisolated struct LoopbackServer: Sendable {
         return hosts.contains(host)
     }
 
-    /// `request` sent here instead: its path under OpenRouter's API moved under ``base``, its query, method,
-    /// headers and body kept. `nil` for a request that isn't to OpenRouter's API, or that can't be sent here.
+    /// `request` sent here instead: its path under the provider's API moved under ``base``, its query, method,
+    /// headers and body kept. `nil` for a request that isn't to the provider's API, or that can't be sent here.
     func redirected(_ request: URLRequest) -> URLRequest? {
         guard let url = request.url,
             let original = URLComponents(url: url, resolvingAgainstBaseURL: false),
-            let api = URLComponents(url: OpenRouterAPI.baseURL, resolvingAgainstBaseURL: false),
+            let api = URLComponents(url: self.api, resolvingAgainstBaseURL: false),
             original.scheme == api.scheme, original.host == api.host, original.port == api.port,
             original.percentEncodedPath.hasPrefix(api.percentEncodedPath),
             var target = URLComponents(url: base, resolvingAgainstBaseURL: false)

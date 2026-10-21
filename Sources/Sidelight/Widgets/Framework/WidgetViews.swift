@@ -26,6 +26,7 @@ struct WidgetContent: View {
         case .awake(let settings): AwakeWidgetView(settings: settings, layout: layout)
         case .docker(let settings): DockerWidgetView(settings: settings, layout: layout)
         case .appLauncher(let settings): AppLauncherWidgetView(settings: settings, layout: layout)
+        case .runware(let settings): RunwareWidgetView(settings: settings, layout: layout)
         }
     }
 }
@@ -60,6 +61,7 @@ struct WidgetSettingsEditor: View {
         case .docker(let settings): DockerSettingsEditor(settings: binding(settings, WidgetSettings.docker))
         case .appLauncher(let settings):
             AppLauncherSettingsEditor(settings: binding(settings, WidgetSettings.appLauncher))
+        case .runware(let settings): RunwareSettingsEditor(settings: binding(settings, WidgetSettings.runware))
         case .nowPlaying: Text("Nothing to set").foregroundStyle(.secondary)
         }
     }
