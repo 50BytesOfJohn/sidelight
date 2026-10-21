@@ -17,7 +17,7 @@ struct WidgetBuilderWindow: View {
                 case .aiUsage(let settings): builder(id, current: settings, embed: WidgetSettings.aiUsage)
                 case .runware(let settings): builder(id, current: settings, embed: WidgetSettings.runware)
                 case .clock, .codex, .claudeCode, .cursor, .calendar, .nowPlaying, .claudeSessions, .system,
-                    .noodleComputer, .agentSessions, .stash, .awake, .docker, .appLauncher:
+                    .noodleComputer, .agentSessions, .stash, .awake, .docker, .appLauncher, .battery:
                     removed
                 }
             } else {

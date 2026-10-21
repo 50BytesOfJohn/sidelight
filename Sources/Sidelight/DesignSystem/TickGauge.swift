@@ -17,11 +17,15 @@ struct TickGauge: View {
     /// The empty center's share of the diameter.
     var innerFraction: CGFloat = 0.66
     var showsRemaining = false
+    /// Lights the ticks in this color instead of the usage color, and without the hot glow: a gauge whose high
+    /// values are good news, like a battery's charge.
+    var tint: Color?
+    @Environment(\.accessibilityReduceMotion) private var reducesMotion
 
-    private var isHot: Bool { percent >= Color.usageWarningThreshold }
+    private var isHot: Bool { tint == nil && percent >= Color.usageWarningThreshold }
 
     var body: some View {
-        let color = Color.usage(percent: percent)
+        let color = tint ?? Color.usage(percent: percent)
         let shown = showsRemaining ? 100 - percent : percent
         let litTicks = min(max(shown / 100, 0), 1) * Double(ticks)
         let tickLength = diameter * (1 - innerFraction) / 2
@@ -50,7 +54,7 @@ struct TickGauge: View {
             }
         }
         .frame(width: diameter, height: diameter)
-        .animation(Motion.gentle, value: percent)
+        .animation(reducesMotion ? nil : Motion.gentle, value: percent)
         .accessibilityElement()
         .accessibilityValue("\(Int(shown.rounded())) percent\(showsRemaining ? " left" : "")")
     }

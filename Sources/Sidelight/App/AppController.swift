@@ -59,6 +59,7 @@ final class AppController {
             appLauncher: AppLauncherService(source: composition.appLauncherSource ?? .workspace),
             stash: stash,
             stashCapture: StashCapture(store: stash, configuration: configurationStore),
+            battery: BatteryService(source: composition.batterySource),
             awake: AwakeSession(),
             details: DetailsPresenter(),
             hotkeys: HotkeyCenter(),
@@ -312,6 +313,10 @@ final class AppController {
             case .stash: break
             // Keeping the Mac awake goes on while its widget is hidden or unseen: that's when it matters.
             case .awake: break
+            // Battery readings need no key and cost next to nothing, so the gallery's previews show the real charge.
+            case .battery:
+                environment.battery.readsPower = demand.battery.readsPower
+                environment.battery.setRunning(isNeeded)
             // Only placed widgets and the details panel count, so the gallery's preview never runs `docker`.
             case .docker:
                 environment.docker.demand = demand.docker

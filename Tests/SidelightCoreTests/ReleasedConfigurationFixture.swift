@@ -113,6 +113,11 @@ struct ReleasedConfigurationFixture {
         runware.balance = RunwareBalanceOptions(title: "Studio", showsFreeCredits: false)
         runware.chart = RunwareChartOptions(days: 30, metric: .requests)
         runware.models = RunwareModelsOptions(rowCount: 5)
+        var battery = BatterySettings(style: .pixel, showsTimeRemaining: false, showsPower: true)
+        battery.glyph = GlyphBatteryOptions(showsPercent: false)
+        battery.ring = RingBatteryOptions(gauge: .ticks)
+        battery.cell = CellBatteryOptions(finish: .flat)
+        battery.pixel = PixelBatteryOptions(color: .amber, showsUnlitPixels: false, glows: false)
         c.details = DetailsPanelSettings(usesCustomStyle: true, customBackground: c.appearance.background)
         c.details.closeHotkey = Hotkey(keyCode: 49, modifiers: [.control, .command], key: "Space")
         c.stash.captureHotkey = Hotkey(keyCode: 1, modifiers: [.control, .shift], key: "S")
@@ -195,6 +200,8 @@ struct ReleasedConfigurationFixture {
                     Self.widget(26, .appLauncher(AppLauncherSettings()), bar: false),
                     Self.widget(27, .runware(runware), bar: false),
                     Self.widget(28, .runware(RunwareSettings()), side: false),
+                    Self.widget(29, .battery(battery), bar: false),
+                    Self.widget(30, .battery(BatterySettings(style: .glyph)), side: false),
                 ], share: 0.5, alignment: .start),
         ]
         let data = try c.json()

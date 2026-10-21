@@ -34,6 +34,7 @@ extension WidgetKind {
         switch self {
         case .clock: ClockStyle.allCases.map(\.widgetStyle)
         case .awake: AwakeStyle.allCases.map(\.widgetStyle)
+        case .battery: BatteryStyle.allCases.map(\.widgetStyle)
         case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system,
             .noodleComputer,
             .railway, .agentSessions, .openRouter, .stash, .docker, .appLauncher, .runware:
@@ -50,6 +51,7 @@ extension WidgetSettings {
             switch self {
             case .clock(let settings): settings.style.rawValue
             case .awake(let settings): settings.style.rawValue
+            case .battery(let settings): settings.style.rawValue
             case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .codexSessions,
                 .system,
                 .noodleComputer, .railway, .agentSessions, .openRouter, .stash, .docker, .appLauncher, .runware:
@@ -66,6 +68,10 @@ extension WidgetSettings {
                 guard let style = newValue.flatMap(AwakeStyle.init(rawValue:)) else { return }
                 settings.style = style
                 self = .awake(settings)
+            case .battery(var settings):
+                guard let style = newValue.flatMap(BatteryStyle.init(rawValue:)) else { return }
+                settings.style = style
+                self = .battery(settings)
             case .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .claudeSessions, .codexSessions,
                 .system,
                 .noodleComputer, .railway, .agentSessions, .openRouter, .stash, .docker, .appLauncher, .runware:

@@ -27,11 +27,15 @@ struct PercentGauge: View {
     var labelWidth: CGFloat = 24
     /// The number's color; the primary one when `nil`.
     var labelColor: Color?
+    /// The ticks' color, when it isn't the usage color (see ``TickGauge/tint``).
+    var tint: Color?
+    @Environment(\.accessibilityReduceMotion) private var reducesMotion
 
     var body: some View {
         let shown = shown ?? percent
         TickGauge(
-            percent: percent, elapsedFraction: elapsedFraction, diameter: diameter, showsRemaining: showsRemaining
+            percent: percent, elapsedFraction: elapsedFraction, diameter: diameter, showsRemaining: showsRemaining,
+            tint: tint
         )
         .overlay {
             Text(isReset ? "–" : "\(Int(shown.rounded()))")
@@ -42,7 +46,7 @@ struct PercentGauge: View {
                 .frame(maxWidth: labelWidth)
                 .foregroundStyle(labelColor.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
                 .contentTransition(.numericText(value: shown))
-                .animation(Motion.gentle, value: shown)
+                .animation(reducesMotion ? nil : Motion.gentle, value: shown)
         }
     }
 }

@@ -265,7 +265,7 @@ struct PixelFontTests {
     }
 
     @Test func `covers digits and capital letters`() {
-        let required = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ :.,-/"
+        let required = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ :.,-/%"
         #expect(required.allSatisfy { PixelFont.glyphs[$0] != nil })
     }
 

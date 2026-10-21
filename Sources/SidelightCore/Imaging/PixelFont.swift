@@ -19,6 +19,13 @@ public struct PixelLine: Equatable, Sendable {
     /// The dots of each character cell that stay dark, for displays that show them faintly.
     public let unlit: [PixelPoint]
 
+    /// A drawing rather than text: `lit` and `unlit` dots on a grid `columns` wide and ``PixelFont/height`` tall.
+    public init(columns: Int, lit: [PixelPoint], unlit: [PixelPoint]) {
+        self.columns = columns
+        self.lit = lit
+        self.unlit = unlit
+    }
+
     public init(_ text: String) {
         var lit: [PixelPoint] = []
         var unlit: [PixelPoint] = []
@@ -114,6 +121,15 @@ public enum PixelFont {
             ".#...",
             "#....",
             "#....",
+        ],
+        "%": [
+            "##..#",
+            "##..#",
+            "...#.",
+            "..#..",
+            ".#...",
+            "#..##",
+            "#..##",
         ],
         "0": [
             ".###.",

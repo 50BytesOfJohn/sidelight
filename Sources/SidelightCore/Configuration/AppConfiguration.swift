@@ -89,7 +89,8 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
                     var demand = appLauncherDemand(of: widgets)
                     demand.isShown = true
                     return demand
-                }())
+                }(),
+                battery: BatteryDemand(widgets: widgets))
         }
         let shown = Set(visibleWidgets(at: positions).map(\.id)).union(previewing)
         let visible = widgets.filter { shown.contains($0.id) }
@@ -98,7 +99,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
             railway: railwayDemand(of: visible, signedIn: signedIn),
             claudeCode: claudeCodeDemand(of: visible, signedIn: signedIn),
             sessions: ServiceDemand.sessionProviders(of: visible), docker: dockerDemand(of: visible),
-            appLauncher: appLauncherDemand(of: visible))
+            appLauncher: appLauncherDemand(of: visible), battery: BatteryDemand(widgets: visible))
     }
 
     /// What the widgets among `widgets` that show Claude usage need, merged for each Claude account they use: where
@@ -233,12 +234,14 @@ public struct ServiceDemand: Equatable, Sendable {
     public var docker: DockerDemand
     /// Whether a launcher is shown, and the apps they pin.
     public var appLauncher: AppLauncherDemand
+    /// What battery widgets shown need read besides the charge.
+    public var battery: BatteryDemand
 
     public init(
         kinds: Set<WidgetKind>, placedKinds: Set<WidgetKind>? = nil, usage: UsageServiceDemand,
         railway: RailwayDemand = RailwayDemand(), claudeCode: [AccountID: ClaudeCodeNeeds] = [:],
         sessions: Set<AgentProvider>? = nil, docker: DockerDemand = DockerDemand(),
-        appLauncher: AppLauncherDemand = AppLauncherDemand()
+        appLauncher: AppLauncherDemand = AppLauncherDemand(), battery: BatteryDemand = BatteryDemand()
     ) {
         self.kinds = kinds
         self.placedKinds = placedKinds ?? kinds
@@ -248,6 +251,7 @@ public struct ServiceDemand: Equatable, Sendable {
         self.sessions = sessions ?? Self.sessionProviders(of: kinds)
         self.docker = docker
         self.appLauncher = appLauncher
+        self.battery = battery
     }
 
     /// Only what widgets of `kinds` need: services that only other kinds of widget use don't run, previews
@@ -278,6 +282,7 @@ public struct ServiceDemand: Equatable, Sendable {
         if !kinds.contains(.railway) { demand.railway = RailwayDemand() }
         if !kinds.contains(.docker) { demand.docker = DockerDemand() }
         if !kinds.contains(.appLauncher) { demand.appLauncher = AppLauncherDemand() }
+        if !kinds.contains(.battery) { demand.battery = BatteryDemand() }
         if !demand.usage.providers.contains(.claudeCode) { demand.claudeCode = [:] }
         return demand
     }
@@ -291,7 +296,7 @@ public struct ServiceDemand: Equatable, Sendable {
             case .codexSessions: providers.insert(.codex)
             case .agentSessions(let settings): providers.formUnion(settings.providers)
             case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .system, .noodleComputer,
-                .railway, .openRouter, .stash, .awake, .docker, .appLauncher, .runware:
+                .railway, .openRouter, .stash, .awake, .docker, .appLauncher, .runware, .battery:
                 break
             }
         }
@@ -334,7 +339,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 providers.formUnion(settings.shownProviders)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
             case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway,
-                .agentSessions, .openRouter, .stash, .awake, .docker, .appLauncher, .runware:
+                .agentSessions, .openRouter, .stash, .awake, .docker, .appLauncher, .runware, .battery:
                 break
             }
         }

@@ -103,8 +103,11 @@ struct WidgetCard: View {
 extension WidgetSettings {
     /// Styles that are a single line naming their own widget, which regular and compact cards draw without a title.
     var isSlim: Bool {
-        if case .awake(let settings) = self { return settings.style == .slim }
-        return false
+        switch self {
+        case .awake(let settings): settings.style == .slim
+        case .battery(let settings): settings.style == .glyph
+        default: false
+        }
     }
 }
 

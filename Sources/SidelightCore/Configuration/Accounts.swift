@@ -296,7 +296,7 @@ extension WidgetSettings {
         case .claudeCode(let settings): [(.claudeCode, settings.account)]
         case .aiUsage(let settings): settings.accountReferences(shownOnly: false)
         case .clock, .codex, .cursor, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system,
-            .noodleComputer, .agentSessions, .stash, .awake, .docker, .appLauncher:
+            .noodleComputer, .agentSessions, .stash, .awake, .docker, .appLauncher, .battery:
             []
         }
     }
