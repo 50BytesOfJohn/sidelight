@@ -110,7 +110,7 @@ extension WidgetSettings {
         case .aiUsage(let settings): settings
         case .runware(let settings): settings
         case .clock, .codex, .claudeCode, .cursor, .calendar, .nowPlaying, .claudeSessions, .system, .noodleComputer,
-            .agentSessions, .stash, .awake, .docker, .appLauncher:
+            .agentSessions, .stash, .awake, .docker, .appLauncher, .battery:
             nil
         }
     }

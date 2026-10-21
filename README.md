@@ -66,6 +66,7 @@ the same widget more than once with different settings.
 | App Launcher | Your apps, one click away, with a dot on the running ones    |                                                         |
 | Stash        | Prompts and snippets saved with a shortcut, ready to paste into an agent | Accessibility access, to stash selected text |
 | Awake        | A switch that keeps your Mac from sleeping                   |                                                         |
+| Battery      | Charge, whether it's charging, and time left                 | A Mac with a battery                                    |
 
 Some widgets open a full-height details panel in place of the side panel when you click them, for example to
 browse every OpenRouter model or see a container's CPU and memory.

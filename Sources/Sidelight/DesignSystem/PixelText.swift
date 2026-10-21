@@ -11,7 +11,12 @@ struct PixelText: View {
     /// - Parameter pixelSize: Side of one dot in points; a text is seven dots tall. Keep it a multiple of 0.5 so
     ///   dots land on whole Retina pixels.
     init(_ text: String, pixelSize: CGFloat, showsUnlitPixels: Bool = false, glows: Bool = false) {
-        line = PixelLine(text)
+        self.init(line: PixelLine(text), pixelSize: pixelSize, showsUnlitPixels: showsUnlitPixels, glows: glows)
+    }
+
+    /// A drawing in dots, such as ``PixelLine/batteryCell(percent:segments:)``, drawn as text is.
+    init(line: PixelLine, pixelSize: CGFloat, showsUnlitPixels: Bool = false, glows: Bool = false) {
+        self.line = line
         self.pixelSize = pixelSize
         self.showsUnlitPixels = showsUnlitPixels
         self.glows = glows

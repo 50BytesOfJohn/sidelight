@@ -35,6 +35,8 @@ struct AppEnvironment {
     let stash: StashStore
     /// Stashes the selection or the clipboard, on a shortcut or a button.
     let stashCapture: StashCapture
+    /// The Mac's battery, for every Battery widget.
+    let battery: BatteryService
     /// Keeps the Mac awake, for every Awake widget. Not a data service: it runs whether or not a widget shows.
     let awake: AwakeSession
     /// How widgets open the details panel in place of their panel.
@@ -56,7 +58,7 @@ extension AppEnvironment {
     var dataServices: [any DataService] {
         [
             calendar, codex, claudeCode, cursor, nowPlaying, claudeSessions, codexSessions, cursorChats,
-            openCodeSessions, systemStats, noodleComputer, railway, openRouter, runware, docker, appLauncher,
+            openCodeSessions, systemStats, noodleComputer, railway, openRouter, runware, docker, appLauncher, battery,
         ]
     }
 
@@ -104,6 +106,7 @@ extension View {
             .environment(app.appLauncher)
             .environment(app.stash)
             .environment(app.stashCapture)
+            .environment(app.battery)
             .environment(app.awake)
             .environment(app.details)
             .environment(app.hotkeys)

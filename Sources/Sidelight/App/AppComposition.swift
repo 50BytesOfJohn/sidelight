@@ -13,6 +13,8 @@ struct AppComposition {
     var dockerTransport: DockerService.Transport?
     /// Where App Launcher widgets learn which apps run; `nil` asks `NSWorkspace`.
     var appLauncherSource: AppLauncherService.Source?
+    /// Where Battery widgets read the battery.
+    var batterySource: BatteryService.Source = .system
     /// Where key accounts' secrets are kept.
     var accountSecrets = AccountSecrets.keychain
     /// Which apps' windows window avoidance may move, besides being regular or accessory apps other than Sidelight.
@@ -41,6 +43,7 @@ struct AppComposition {
     /// - `-SidelightRunwareURL <http://127.0.0.1:port/…>`: Runware requests go to a server on this Mac instead, on
     ///   the same terms.
     /// - `-SidelightDockerCLI <path>`: Docker widgets run this instead of `docker`, such as a script that fakes it.
+    /// - `-SidelightBatterySample YES`: Battery widgets show an example battery, as on a Mac without one.
     /// - `-SidelightServiceKinds <kind,kind,…>`: only these kinds of widget's data services run, such as
     ///   `openRouter,railway` (see ``WidgetKind``). Names it doesn't know run nothing.
     static var launch: AppComposition {
@@ -65,6 +68,10 @@ struct AppComposition {
         if let path = arguments.string(forKey: "SidelightDockerCLI") {
             Log.app.notice("Docker widgets run \(path, privacy: .public)")
             composition.dockerTransport = .cli(URL(filePath: path, directoryHint: .notDirectory))
+        }
+        if arguments.bool(forKey: "SidelightBatterySample") {
+            Log.app.notice("Battery widgets show an example battery")
+            composition.batterySource = .sample()
         }
         if let text = arguments.string(forKey: "SidelightServiceKinds") {
             composition.serviceKinds = serviceKinds(text)
