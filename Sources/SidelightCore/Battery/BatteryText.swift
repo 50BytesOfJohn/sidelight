@@ -83,10 +83,13 @@ public enum BatteryText {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// What VoiceOver reads: `76 percent, on battery, 3 hours 12 minutes left, Low Power Mode`.
-    public static func accessibilityValue(_ reading: BatteryReading, showsPower: Bool) -> String {
+    /// What VoiceOver reads: `76 percent, on battery, 3 hours 12 minutes left, Low Power Mode`. The time is left out
+    /// when the widget doesn't show it.
+    public static func accessibilityValue(
+        _ reading: BatteryReading, showsTimeRemaining: Bool, showsPower: Bool
+    ) -> String {
         var parts = ["\(reading.percent) percent", status(reading).lowercased()]
-        switch reading.timeRemaining {
+        switch showsTimeRemaining ? reading.timeRemaining : nil {
         case nil: break
         case .calculating: parts.append("calculating time")
         case .minutes(let minutes):

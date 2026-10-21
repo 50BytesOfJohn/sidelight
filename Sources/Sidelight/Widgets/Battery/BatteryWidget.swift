@@ -133,7 +133,10 @@ struct BatteryWidgetView: View {
             face(reading)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Battery")
-                .accessibilityValue(BatteryText.accessibilityValue(reading, showsPower: settings.showsPower))
+                .accessibilityValue(
+                    BatteryText.accessibilityValue(
+                        reading, showsTimeRemaining: settings.showsTimeRemaining, showsPower: settings.showsPower)
+                )
                 .help(layout.isGlanceable ? help(reading) : "")
         } else if battery.snapshot == .noBattery {
             WidgetMessage(

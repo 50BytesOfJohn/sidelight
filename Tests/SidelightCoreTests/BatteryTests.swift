@@ -169,7 +169,7 @@ struct BatteryTextTests {
         let reading = BatteryReading(
             percent: 40, isOnACPower: true, isCharging: true, timeRemaining: .minutes(65), isLowPowerMode: true)
         #expect(
-            BatteryText.accessibilityValue(reading, showsPower: false)
+            BatteryText.accessibilityValue(reading, showsTimeRemaining: true, showsPower: false)
                 == "40 percent, charging, 1 hour, 5 minutes until full, Low Power Mode")
     }
 }

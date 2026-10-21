@@ -29,6 +29,7 @@ struct PercentGauge: View {
     var labelColor: Color?
     /// The ticks' color, when it isn't the usage color (see ``TickGauge/tint``).
     var tint: Color?
+    @Environment(\.accessibilityReduceMotion) private var reducesMotion
 
     var body: some View {
         let shown = shown ?? percent
@@ -45,7 +46,7 @@ struct PercentGauge: View {
                 .frame(maxWidth: labelWidth)
                 .foregroundStyle(labelColor.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
                 .contentTransition(.numericText(value: shown))
-                .animation(Motion.gentle, value: shown)
+                .animation(reducesMotion ? nil : Motion.gentle, value: shown)
         }
     }
 }

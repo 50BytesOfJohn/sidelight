@@ -20,6 +20,7 @@ struct TickGauge: View {
     /// Lights the ticks in this color instead of the usage color, and without the hot glow: a gauge whose high
     /// values are good news, like a battery's charge.
     var tint: Color?
+    @Environment(\.accessibilityReduceMotion) private var reducesMotion
 
     private var isHot: Bool { tint == nil && percent >= Color.usageWarningThreshold }
 
@@ -53,7 +54,7 @@ struct TickGauge: View {
             }
         }
         .frame(width: diameter, height: diameter)
-        .animation(Motion.gentle, value: percent)
+        .animation(reducesMotion ? nil : Motion.gentle, value: percent)
         .accessibilityElement()
         .accessibilityValue("\(Int(shown.rounded())) percent\(showsRemaining ? " left" : "")")
     }
