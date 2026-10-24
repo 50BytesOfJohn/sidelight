@@ -60,7 +60,7 @@ final class AppController {
             stash: stash,
             stashCapture: StashCapture(store: stash, configuration: configurationStore),
             battery: BatteryService(source: composition.batterySource),
-            awake: AwakeSession(),
+            awake: AwakeSession(file: AwakeSessionFile(url: composition.awakeFile)),
             details: DetailsPresenter(),
             hotkeys: HotkeyCenter(),
             accessibility: accessibility,
@@ -117,6 +117,8 @@ final class AppController {
         MainMenu.install(windows: windows)
         statusItem = StatusItemController(environment: environment, panels: panels, windows: windows)
 
+        // Before the configuration is applied, so a configuration without an Awake widget stops it again.
+        environment.awake.restore()
         observeConfiguration()
         observeServiceDemand()
     }
@@ -130,7 +132,8 @@ final class AppController {
         panels.stop()
         store.flush()
         environment.stash.flush()
-        environment.awake.stop()
+        // Kept for the next launch, which picks it up again.
+        environment.awake.suspend()
         for service in environment.dataServices { service.stop() }
     }
 

@@ -9,7 +9,7 @@ extension WidgetMetadata {
         summary: "Keeps your Mac from sleeping",
         details:
             "Stops the Mac sleeping on its own for a while or until you stop it. Closing the lid or choosing Sleep "
-            + "still sleeps it and ends this, as does quitting Sidelight."
+            + "still sleeps it, and it's kept awake again on waking. It carries on after Sidelight relaunches."
     )
 }
 
@@ -385,8 +385,8 @@ struct AwakeSettingsEditor: View {
             InfoLabel(
                 "Keep display on",
                 info: "Every Awake widget shares this. Off lets the screen dim and lock as usual while the Mac stays "
-                    + "awake. Closing the lid or choosing Sleep still sleeps the Mac, and quitting Sidelight ends "
-                    + "keeping it awake.")
+                    + "awake. Closing the lid or choosing Sleep still sleeps the Mac, and while Sidelight is quit "
+                    + "it sleeps as usual.")
         }
     }
 }

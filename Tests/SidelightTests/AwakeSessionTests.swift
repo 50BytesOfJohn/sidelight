@@ -122,11 +122,84 @@ struct AwakeSessionTests {
         #expect(assertions.held.isEmpty)
     }
 
-    @Test func `sleeping ends the session`() async {
+    @Test func `sleeping keeps the session, and waking holds it for the time left`() throws {
+        let session = session()
+        session.start(.minutes(30), now: now)
+        session.resumeAfterWake(now: now.addingTimeInterval(10 * 60))
+        #expect(session.state.ends == now.addingTimeInterval(30 * 60))
+        #expect(assertions.held.count == 1)
+        #expect(try #require(assertions.held.first).timeout == 21 * 60)
+    }
+
+    @Test func `waking after a timed session ran out stops it`() {
+        let session = session()
+        session.start(.minutes(15), now: now)
+        session.resumeAfterWake(now: now.addingTimeInterval(20 * 60))
+        #expect(session.state == .off && assertions.held.isEmpty)
+    }
+
+    @Test func `waking keeps an indefinite session as it is`() async {
         let session = session()
         session.start(.indefinitely, now: now)
-        workspace.post(name: NSWorkspace.willSleepNotification, object: nil)
-        #expect(await eventually { session.state == .off })
-        #expect(assertions.held.isEmpty)
+        workspace.post(name: NSWorkspace.didWakeNotification, object: nil)
+        #expect(session.state == .indefinite && assertions.held.count == 1)
+    }
+
+    // MARK: Between launches
+
+    func file() -> AwakeSessionFile {
+        AwakeSessionFile(
+            url: FileManager.default.temporaryDirectory.appending(path: "AwakeSessionTests-\(UUID())/session.json"))
+    }
+
+    func session(saving file: AwakeSessionFile) -> AwakeSession {
+        AwakeSession(makeAssertion: assertions.make, workspace: workspace, file: file)
+    }
+
+    @Test func `a session carries on after a relaunch`() throws {
+        let file = file()
+        let first = session(saving: file)
+        first.start(.minutes(30), now: now)
+        first.suspend()
+        #expect(assertions.held.isEmpty && first.state.isActive)
+
+        let next = session(saving: file)
+        next.restore(now: now.addingTimeInterval(5 * 60))
+        #expect(next.state == .timed(started: now, ends: now.addingTimeInterval(30 * 60)))
+        #expect(try #require(assertions.held.first).timeout == 26 * 60)
+    }
+
+    @Test func `an indefinite session carries on after a relaunch`() {
+        let file = file()
+        session(saving: file).start(.indefinitely, now: now)
+        let next = session(saving: file)
+        next.restore(now: now.addingTimeInterval(3 * 24 * 3600))
+        #expect(next.state == .indefinite && assertions.held.count == 1)
+    }
+
+    @Test func `a session that ended meanwhile, or was stopped, isn't restored`() {
+        let file = file()
+        session(saving: file).start(.minutes(15), now: now)
+        let late = session(saving: file)
+        late.restore(now: now.addingTimeInterval(20 * 60))
+        #expect(late.state == .off && file.load() == .off)
+
+        let stopped = session(saving: file)
+        stopped.start(.indefinitely, now: now)
+        stopped.stop()
+        let next = session(saving: file)
+        next.restore(now: now)
+        #expect(next.state == .off && assertions.held.isEmpty)
+    }
+
+    @Test func `a missing or unreadable saved session is off`() throws {
+        let file = file()
+        #expect(file.load() == .off)
+        try FileManager.default.createDirectory(
+            at: file.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: file.url)
+        let session = session(saving: file)
+        session.restore(now: now)
+        #expect(session.state == .off)
     }
 }

@@ -30,8 +30,36 @@ final class PowerAssertion {
     }
 }
 
-/// Keeps the Mac awake for a while or until stopped, for every Awake widget. Held in memory only: nothing keeps the
-/// Mac awake after Sidelight quits or relaunches. Sleeping anyway (the lid, the Apple menu) ends it.
+/// Where the running session is kept between launches: a few bytes, written only as one starts or stops.
+struct AwakeSessionFile {
+    let url: URL
+
+    /// The saved session, or off when there's none or it can't be read.
+    func load() -> AwakeState {
+        do {
+            return try JSONDecoder().decode(AwakeState.self, from: Data(contentsOf: url))
+        } catch CocoaError.fileReadNoSuchFile {
+            return .off
+        } catch {
+            Log.awake.error("Can't read the saved Awake session: \(error)")
+            return .off
+        }
+    }
+
+    func save(_ state: AwakeState) {
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(state).write(to: url, options: .atomic)
+        } catch {
+            Log.awake.error("Can't save the Awake session: \(error)")
+        }
+    }
+}
+
+/// Keeps the Mac awake for a while or until stopped, for every Awake widget. The session is saved, so it carries on
+/// after Sidelight relaunches, and it outlasts sleep: closing the lid or choosing Sleep sleeps the Mac anyway, and
+/// on waking it's kept awake again for whatever time is left.
 @Observable
 final class AwakeSession {
     /// Makes the assertion that keeps the Mac awake, the display too when asked: an object that holds it until
@@ -50,16 +78,33 @@ final class AwakeSession {
 
     @ObservationIgnored private let makeAssertion: MakeAssertion
     @ObservationIgnored private let workspace: NotificationCenter
+    @ObservationIgnored private let file: AwakeSessionFile?
     @ObservationIgnored private var assertion: AnyObject?
     @ObservationIgnored private let expiry = DelayedTask()
-    @ObservationIgnored private var sleepObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var wakeObserver: (any NSObjectProtocol)?
 
+    /// `file` keeps the session between launches; `nil` keeps it in memory only.
     init(
         makeAssertion: @escaping MakeAssertion = { PowerAssertion(keepsDisplayOn: $0, timeout: $1) },
-        workspace: NotificationCenter = NSWorkspace.shared.notificationCenter
+        workspace: NotificationCenter = NSWorkspace.shared.notificationCenter,
+        file: AwakeSessionFile? = nil
     ) {
         self.makeAssertion = makeAssertion
         self.workspace = workspace
+        self.file = file
+    }
+
+    /// Picks up the session saved by the last launch, if it's still running: an indefinite one, or a timed one
+    /// that hasn't ended meanwhile.
+    func restore(now: Date = .now) {
+        guard !state.isActive, let saved = file?.load(), saved.isActive else { return }
+        let resumed = saved.resumed(at: now)
+        if resumed.isActive {
+            Log.awake.notice("Resuming the Awake session from the last launch")
+            begin(resumed, now: now)
+        } else {
+            file?.save(.off)
+        }
     }
 
     /// Starts a fresh session of `choice`, in place of any running one.
@@ -74,12 +119,23 @@ final class AwakeSession {
 
     /// Lets the Mac sleep as usual again. Safe to call when nothing is running.
     func stop() {
+        letGo()
+        guard state != .off else { return }
+        state = .off
+        file?.save(.off)
+    }
+
+    /// Lets go of the Mac as Sidelight quits, keeping the saved session for the next launch to pick up.
+    func suspend() {
+        letGo()
+    }
+
+    private func letGo() {
         assertion = nil
         displayHeld = false
         expiry.cancel()
-        if let sleepObserver { workspace.removeObserver(sleepObserver) }
-        sleepObserver = nil
-        if state != .off { state = .off }
+        if let wakeObserver { workspace.removeObserver(wakeObserver) }
+        wakeObserver = nil
     }
 
     private func begin(_ newState: AwakeState, now: Date) {
@@ -89,13 +145,16 @@ final class AwakeSession {
         guard let assertion = makeAssertion(keepsDisplayOn, remaining.map { $0 + 60 }) else { return }
         self.assertion = assertion
         displayHeld = keepsDisplayOn
-        state = newState
+        if state != newState {
+            state = newState
+            file?.save(newState)
+        }
         if let remaining {
             expiry.schedule(after: .seconds(remaining), tolerance: .seconds(1)) { [weak self] in self?.stop() }
         } else {
             expiry.cancel()
         }
-        watchForSleep()
+        watchForWake()
     }
 
     /// A new assertion of the kind ``keepsDisplayOn`` asks for, until the same end. The old one stays if macOS
@@ -106,12 +165,23 @@ final class AwakeSession {
         displayHeld = keepsDisplayOn
     }
 
-    /// Sleeping anyway ends the session, so the Mac doesn't wake to it still running, or kept awake by surprise.
-    private func watchForSleep() {
-        guard sleepObserver == nil else { return }
-        sleepObserver = workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) {
+    /// Carries on after the Mac wakes: a timed session that ran out while it slept stops, and one that didn't is
+    /// held again for the time left, as the expiry and the assertion's own timeout may have counted the sleep
+    /// differently.
+    func resumeAfterWake(now: Date = .now) {
+        guard state.isActive else { return }
+        if state.resumed(at: now).isActive {
+            if state.ends != nil { begin(state, now: now) }
+        } else {
+            stop()
+        }
+    }
+
+    private func watchForWake() {
+        guard wakeObserver == nil else { return }
+        wakeObserver = workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) {
             [weak self] _ in
-            MainActor.assumeIsolated { self?.stop() }
+            MainActor.assumeIsolated { self?.resumeAfterWake() }
         }
     }
 }
