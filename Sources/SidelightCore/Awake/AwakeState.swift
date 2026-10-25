@@ -77,3 +77,46 @@ public enum AwakeState: Hashable, Sendable {
         }
     }
 }
+
+// MARK: - Saving
+
+extension AwakeState: Codable {
+    private enum CodingKeys: String, CodingKey { case mode, started, ends }
+    private enum Mode: String, Codable { case off, timed, indefinite }
+
+    /// Anything unreadable, such as a mode only a newer version knows, is off: the Mac then sleeps as usual, which is
+    /// never a surprise.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch container.decodeLeniently(.mode, or: Mode.off) {
+        case .off: self = .off
+        case .indefinite: self = .indefinite
+        case .timed:
+            if let started = try? container.decode(Date.self, forKey: .started),
+                let ends = try? container.decode(Date.self, forKey: .ends)
+            {
+                self = .timed(started: started, ends: ends)
+            } else {
+                self = .off
+            }
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .off: try container.encode(Mode.off, forKey: .mode)
+        case .indefinite: try container.encode(Mode.indefinite, forKey: .mode)
+        case .timed(let started, let ends):
+            try container.encode(Mode.timed, forKey: .mode)
+            try container.encode(started, forKey: .started)
+            try container.encode(ends, forKey: .ends)
+        }
+    }
+
+    /// What's left of this session at `now`, as after a relaunch or a sleep: a timed one that has ended is off.
+    public func resumed(at now: Date) -> AwakeState {
+        guard let ends, ends <= now else { return self }
+        return .off
+    }
+}

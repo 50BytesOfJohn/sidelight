@@ -63,6 +63,29 @@ struct AwakeStateTests {
     }
 }
 
+struct AwakeStateSavingTests {
+    @Test(arguments: [
+        AwakeState.off, .indefinite,
+        .timed(started: AwakeStateTests.at(seconds: 20), ends: AwakeStateTests.at(minutes: 16)),
+    ])
+    func `a session round-trips`(state: AwakeState) throws {
+        #expect(try JSONDecoder().decode(AwakeState.self, from: JSONEncoder().encode(state)) == state)
+    }
+
+    @Test func `an unknown or incomplete saved session is off`() throws {
+        for json in ["{}", #"{"mode": "hyperdrive"}"#, #"{"mode": "timed", "ends": 5}"#] {
+            #expect(try JSONDecoder().decode(AwakeState.self, from: Data(json.utf8)) == .off)
+        }
+    }
+
+    @Test func `a timed session resumes until its end, then is off`() {
+        let state = AwakeState.timed(started: AwakeStateTests.ten, ends: AwakeStateTests.at(minutes: 10))
+        #expect(state.resumed(at: AwakeStateTests.at(minutes: 9)) == state)
+        #expect(state.resumed(at: AwakeStateTests.at(minutes: 10)) == .off)
+        #expect(AwakeState.indefinite.resumed(at: .distantFuture) == .indefinite)
+    }
+}
+
 struct AwakeConfigurationTests {
     @Test func `options missing or unreadable take their defaults`() throws {
         for json in ["{}", #"{"keepsDisplayOn": "yes"}"#] {

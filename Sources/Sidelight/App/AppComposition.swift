@@ -31,6 +31,12 @@ struct AppComposition {
         configurationFile.deletingLastPathComponent().appending(path: "stash/items.json", directoryHint: .notDirectory)
     }
 
+    /// Where the running Awake session is kept between launches, beside the stash for the same reasons.
+    var awakeFile: URL {
+        configurationFile.deletingLastPathComponent().appending(
+            path: "awake/session.json", directoryHint: .notDirectory)
+    }
+
     /// What this launch runs on: ``standard``, except in a debug build launched with any of these arguments, for
     /// trying the app out in isolation.
     ///
