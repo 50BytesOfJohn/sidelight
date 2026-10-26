@@ -183,7 +183,8 @@ struct ReleasedConfigurationFixture {
                     Self.widget(22, .awake(AwakeSettings()), side: false),
                     Self.widget(
                         23,
-                        .docker(DockerSettings(context: "orbstack", showsStopped: true, rowCount: 8, showsPorts: false))),
+                        .docker(DockerSettings(context: "orbstack", showsStopped: true, rowCount: 8, showsPorts: false))
+                    ),
                     Self.widget(24, .docker(DockerSettings()), bar: false),
                     Self.widget(
                         25,
