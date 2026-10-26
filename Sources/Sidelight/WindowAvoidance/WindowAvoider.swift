@@ -261,7 +261,9 @@ final class WindowAvoider {
         let onScreen = OnScreenWindows.current()
 
         var visited: [ManagedWindow] = []
-        var counts: [WindowMoveReason: Int] = [:]
+        // The windows on each display whose strip changed, decided together: windows side by side move as one.
+        var windowsByDisplay: [Display.ID: [(window: ManagedWindow, frame: CGRect, baselines: WindowBaselines?)]] =
+            [:]
         // Every regular app, and the accessory apps being watched: no other app's windows were ever moved.
         let applications = NSWorkspace.shared.runningApplications.filter {
             isWatchedEagerly($0) || (observers[$0.processIdentifier] != nil && isEligible($0))
@@ -288,24 +290,34 @@ final class WindowAvoider {
                     continue
                 }
                 visited.append(window)
+                windowsByDisplay[display.id, default: []].append(
+                    (window, frame, placer.avoidanceBaselines(of: window, on: display)))
+            }
+        }
 
-                let id = display.id
-                let baselines = placer.avoidanceBaselines(of: window, on: display)
-                let from = before[id].map { $0.reservation(primaryScreenHeight: screenHeight) }
-                let to = after[id].map { $0.reservation(primaryScreenHeight: screenHeight) }
-                let decision = ReservationTransition.decide(
-                    window: frame, baselines: baselines, from: from, to: to, visibleFrame: display.visibleFrame,
-                    displayFrame: display.frame, mode: mode,
-                    isPlacedOnPurpose: placer.isPlacedOnPurpose(window, at: frame))
+        var counts: [WindowMoveReason: Int] = [:]
+        for display in areas {
+            let id = display.id
+            guard let windows = windowsByDisplay[id] else { continue }
+            let from = before[id].map { $0.reservation(primaryScreenHeight: screenHeight) }
+            let to = after[id].map { $0.reservation(primaryScreenHeight: screenHeight) }
+            let decisions = ReservationTransition.decide(
+                windows.map {
+                    ReservationTransition.Candidate(
+                        frame: $0.frame, baselines: $0.baselines,
+                        isPlacedOnPurpose: placer.isPlacedOnPurpose($0.window, at: $0.frame))
+                },
+                from: from, to: to, visibleFrame: display.visibleFrame, displayFrame: display.frame, mode: mode)
 
+            for (entry, decision) in zip(windows, decisions) {
                 switch decision {
                 case .leave(let baselines):
-                    placer.setAvoidanceBaselines(baselines, of: window, at: frame, on: display)
+                    placer.setAvoidanceBaselines(baselines, of: entry.window, at: entry.frame, on: display)
                 case .move(let move):
                     let axis = move.reason == .follow ? before[id]?.edge : after[id]?.edge
                     perform(
-                        move, on: window, from: frame, axis: axis ?? .left, clearOf: to, on: display,
-                        previous: baselines)
+                        move, on: entry.window, from: entry.frame, axis: axis ?? .left, clearOf: to, on: display,
+                        previous: entry.baselines)
                     counts[move.reason, default: 0] += 1
                 }
             }

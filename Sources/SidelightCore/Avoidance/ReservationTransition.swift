@@ -19,6 +19,10 @@ import CoreGraphics
 /// - Only the details panel opening gives windows a way back to before it. Moving it during its session (its panel
 ///   changed sides) keeps the ways back windows already had, and gives none to the others it pushes: they can still
 ///   follow its edge when it closes.
+/// - In *smart* mode a window snapped to the inner edge of the strip it already had clips as the strip grows, as one
+///   snapped to the screen's edge does: that edge is where the screen ends for it. And windows side by side with one
+///   that's pushed or follows an edge move with it, as a group, so a grid stays a grid (see
+///   ``decide(_:from:to:visibleFrame:displayFrame:mode:)``).
 ///
 /// All rects use Accessibility coordinates, as ``AvoidanceGeometry`` does.
 public enum ReservationTransition {
@@ -75,11 +79,7 @@ public enum ReservationTransition {
         visibleFrame: CGRect, displayFrame: CGRect, mode: WindowAvoidanceMode, isPlacedOnPurpose: Bool = false
     ) -> Decision {
         guard mode != .off else { return .leave(nil) }
-        // Remembered, and nobody has moved it since: still avoidance's to put back. A deliberate placement never is,
-        // however much avoidance remembers of where the window used to be.
-        let ours =
-            isPlacedOnPurpose
-            ? nil : baselines.flatMap { WindowFrames.isUnchanged(window, since: $0.accepted) ? $0 : nil }
+        let ours = ours(window, baselines: baselines, isPlacedOnPurpose: isPlacedOnPurpose)
 
         guard let new else {
             // Everything released: back to before any panel moved it.
@@ -97,29 +97,56 @@ public enum ReservationTransition {
             return decision
         }
 
-        // Where the window would be without the old strip, when the new one frees it: from there, it moves once.
-        var start = window
-        var kept = ours ?? WindowBaselines(accepted: window)
-        // The details panel moving during its session (its panel changed sides) gives no window a way back to before
-        // the session: one without it was opened or moved during the session, and was never anywhere before it.
-        let isSameSession = old?.role == .details && new.role == .details
-        if let old, let ours, let before = ours[old.role], freesOldStrip(from: old, to: new) {
-            start = before
-            if !isSameSession { kept[new.role] = kept[new.role] ?? before }
-        } else if !isSameSession {
-            kept[new.role] = kept[new.role] ?? window
-        }
+        let (start, kept) = pushStart(window: window, ours: ours, from: old, to: new)
 
         // The new strip pushes what it covers; what it doesn't cover stays.
         let plan = AvoidanceGeometry.plan(
-            window: start, panel: new.frame, visibleFrame: visibleFrame, edge: new.edge, mode: mode,
-            clearance: new.clearance)
+            window: start, panel: new.frame, visibleFrame: visibleFrame, edge: new.edge,
+            mode: pushMode(start, from: old, to: new, mode: mode), clearance: new.clearance)
         let target = plan?.frame ?? start
         guard !WindowFrames.isUnchanged(target, since: window) else { return .leave(ours) }
         return .move(
             Move(
                 reason: plan == nil ? .restore : .push, frame: target, fallback: plan?.shiftFallback, main: kept.main,
                 details: kept.details))
+    }
+
+    /// What avoidance remembers of a window at `window` that's still its to put back: remembered, and nobody has
+    /// moved it since. A deliberate placement never is, however much avoidance remembers of where the window used
+    /// to be.
+    static func ours(_ window: CGRect, baselines: WindowBaselines?, isPlacedOnPurpose: Bool) -> WindowBaselines? {
+        isPlacedOnPurpose
+            ? nil : baselines.flatMap { WindowFrames.isUnchanged(window, since: $0.accepted) ? $0 : nil }
+    }
+
+    /// Where a window at `window` starts from as `new` takes over from `old`, and the baselines it keeps if it moves:
+    /// where it would be without the old strip, when the new one frees it, so it moves once.
+    static func pushStart(
+        window: CGRect, ours: WindowBaselines?, from old: Reservation?, to new: Reservation
+    ) -> (start: CGRect, kept: WindowBaselines) {
+        var kept = ours ?? WindowBaselines(accepted: window)
+        // The details panel moving during its session (its panel changed sides) gives no window a way back to before
+        // the session: one without it was opened or moved during the session, and was never anywhere before it.
+        let isSameSession = old?.role == .details && new.role == .details
+        if let old, let ours, let before = ours[old.role], freesOldStrip(from: old, to: new) {
+            if !isSameSession { kept[new.role] = kept[new.role] ?? before }
+            return (before, kept)
+        }
+        if !isSameSession { kept[new.role] = kept[new.role] ?? window }
+        return (window, kept)
+    }
+
+    /// The mode `new` pushes a window starting at `start` with. *Smart* clips a window snapped to the screen's edge;
+    /// one snapped to the inner edge of the strip on that edge is just as snapped, since that edge is where the screen
+    /// ends for it. Without this a tile beside the side panel would be shifted whole as the details panel opens, on
+    /// top of its neighbour.
+    static func pushMode(
+        _ start: CGRect, from old: Reservation?, to new: Reservation, mode: WindowAvoidanceMode
+    ) -> WindowAvoidanceMode {
+        guard mode == .smart, let old, old.edge == new.edge else { return mode }
+        let boundary = AvoidanceGeometry.canonical(old.frame, edge: old.edge).maxX
+        return contactGap(of: start, edge: new.edge, boundary: boundary, clearance: old.clearance) == nil
+            ? mode : .clip
     }
 
     /// Whether going from `old` to `new` gives back the space `old` took, so windows it moved can come back: a strip on
@@ -239,15 +266,20 @@ public enum ReservationTransition {
 
         // A returning bar's strip stays clear, as avoidance would keep it.
         guard next.edge.isBar else { return (plan, nil) }
-        func clear(_ frame: CGRect) -> CGRect {
-            AvoidanceGeometry.plan(
-                window: frame, panel: next.frame, visibleFrame: visibleFrame, edge: next.edge, mode: mode,
-                clearance: next.clearance)?.frame ?? frame
-        }
         let unclipped = plan.frame
-        plan.frame = clear(plan.frame)
-        plan.shiftFallback = plan.shiftFallback.map(clear)
+        plan.frame = clear(plan.frame, of: next, visibleFrame: visibleFrame, mode: mode)
+        plan.shiftFallback = plan.shiftFallback.map { clear($0, of: next, visibleFrame: visibleFrame, mode: mode) }
         return (plan, plan.frame == unclipped ? nil : unclipped)
+    }
+
+    /// `frame` kept clear of a returning bar, as avoidance would keep it; unchanged for a side panel.
+    static func clear(
+        _ frame: CGRect, of next: Reservation, visibleFrame: CGRect, mode: WindowAvoidanceMode
+    ) -> CGRect {
+        guard next.edge.isBar else { return frame }
+        return AvoidanceGeometry.plan(
+            window: frame, panel: next.frame, visibleFrame: visibleFrame, edge: next.edge, mode: mode,
+            clearance: next.clearance)?.frame ?? frame
     }
 
     /// The near edge of `frame` against a panel on `edge`, in that edge's canonical space.
