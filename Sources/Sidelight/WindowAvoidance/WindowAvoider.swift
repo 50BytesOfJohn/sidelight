@@ -35,8 +35,9 @@ struct PanelRegion: Equatable {
 /// so it usually asks no app anything.
 ///
 /// It remembers where each window was before it moved it, so when a strip is released (the panels hide, or the
-/// details panel gives way to the side panel again) windows nobody touched since go back. See
-/// ``ReservationTransition`` for exactly what moves. That memory, and every frame it writes, belong to
+/// details panel gives way to the side panel again) windows nobody touched since go back. Windows snapped to a strip
+/// follow its edge as it closes, narrows or hides, and windows side by side move together, so a tiled layout stays
+/// intact. See ``ReservationTransition`` for exactly what moves. That memory, and every frame it writes, belong to
 /// ``WindowPlacer``: avoidance decides when and where, the placer how, and its registry says whether a window is
 /// still avoidance's to put back or someone placed it on purpose.
 ///
@@ -71,6 +72,9 @@ final class WindowAvoider {
             if mode == .off { deactivate() } else { activate(promptingForAccess: false) }
         }
     }
+    /// The window manager's screen-edge padding, `0` while it's off: where a window snapped to a panel goes as the
+    /// panels hide, so showing them again counts it as snapped.
+    @ObservationIgnored var screenPadding: CGFloat = 0
     /// The strips to keep clear; empty while the panels are hidden.
     @ObservationIgnored var occupiedRegions: () -> [PanelRegion] = { [] }
 
@@ -307,7 +311,8 @@ final class WindowAvoider {
                         frame: $0.frame, baselines: $0.baselines,
                         isPlacedOnPurpose: placer.isPlacedOnPurpose($0.window, at: $0.frame))
                 },
-                from: from, to: to, visibleFrame: display.visibleFrame, displayFrame: display.frame, mode: mode)
+                from: from, to: to, visibleFrame: display.visibleFrame, displayFrame: display.frame, mode: mode,
+                screenPadding: screenPadding)
 
             for (entry, decision) in zip(windows, decisions) {
                 switch decision {

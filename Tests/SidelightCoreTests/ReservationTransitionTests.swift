@@ -288,12 +288,17 @@ struct DeliberatePlacementTests {
     }
 
     /// A tile that happens to land where avoidance had pushed the window: hiding the panels used to put it back,
-    /// which is why the manager had to delete avoidance's row after every press.
-    @Test func `hiding the panels leaves a tile where it is, however much avoidance remembers`() {
+    /// which is why the manager had to delete avoidance's row after every press. It follows the panel's edge out to
+    /// the screen's instead, as any window snapped to the panel does.
+    @Test func `hiding the panels never sends a tile back, however much avoidance remembers`() {
         let tile = CGRect(x: 208, y: 0, width: 616, height: 900)
         let remembered = WindowBaselines(main: CGRect(x: 0, y: 100, width: 600, height: 400), accepted: tile)
-        #expect(decision(tile, remembered, from: main, to: nil, onPurpose: false) != .leave(nil))
-        #expect(decision(tile, remembered, from: main, to: nil, onPurpose: true) == .leave(nil))
+        #expect(
+            decision(tile, remembered, from: main, to: nil, onPurpose: false)
+                == .move(.init(reason: .restore, frame: remembered.main!)))
+        #expect(
+            decision(tile, remembered, from: main, to: nil, onPurpose: true)
+                == .move(.init(reason: .follow, frame: CGRect(x: 0, y: 0, width: 824, height: 900))))
     }
 
     /// Keeping clear is unconditional, and the way back it leaves is to the tile, not to where the window was
@@ -316,16 +321,30 @@ struct DeliberatePlacementTests {
                 == .move(.init(reason: .restore, frame: tile)))
     }
 
-    /// Following a closing details panel's edge is a way of putting a window back, so it isn't avoidance's to do to
-    /// a window someone placed. The returning strip still pushes it if it covers it.
-    @Test func `a tile doesn't follow a closing details panel's edge`() {
+    /// Following an edge isn't putting a window back: a tile beside the details panel stays beside the panel as it
+    /// closes, as any snapped window does, and nothing is remembered to send it anywhere later.
+    @Test(arguments: [true, false])
+    func `a tile follows a closing details panel's edge like any snapped window`(onPurpose: Bool) {
         let snapped = CGRect(x: 368, y: 0, width: 600, height: 900)
-        #expect(decision(snapped, from: details, to: main, onPurpose: true) == .leave(nil))
-        // Without the intent it follows the edge back, as a snapped window does.
-        guard case .move(let move) = decision(snapped, from: details, to: main, onPurpose: false) else {
+        guard case .move(let move) = decision(snapped, from: details, to: main, onPurpose: onPurpose) else {
             Issue.record("a snapped window follows the edge back")
             return
         }
-        #expect(move.reason == .follow)
+        #expect(move.reason == .follow && move.frame == CGRect(x: 208, y: 0, width: 760, height: 900))
+        #expect(move.baselines(accepted: move.frame) == nil)
+    }
+
+    /// The side panel narrowing takes a tile snapped to it along, keeping its far edge.
+    @Test func `a tile follows the side panel's edge as it narrows`() {
+        let narrow = Reservation(frame: CGRect(x: 0, y: 0, width: 100, height: 900), edge: .left, role: .main)
+        let tile = CGRect(x: 208, y: 0, width: 616, height: 900)
+        guard case .move(let move) = decision(tile, from: main, to: narrow, onPurpose: true) else {
+            Issue.record("a snapped tile follows the narrowing panel")
+            return
+        }
+        #expect(move.reason == .follow && move.frame == CGRect(x: 108, y: 0, width: 716, height: 900))
+        #expect(move.baselines(accepted: move.frame) == nil)
+        // A window apart from the panel stays where it is.
+        #expect(decision(tile.offsetBy(dx: 100, dy: 0), from: main, to: narrow, onPurpose: true) == .leave(nil))
     }
 }

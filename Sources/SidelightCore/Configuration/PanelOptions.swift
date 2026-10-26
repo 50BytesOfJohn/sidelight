@@ -39,7 +39,7 @@ public enum WindowAvoidanceMode: String, Codable, CaseIterable, Identifiable, Se
     case shift
     /// Overlapping windows keep their far edge and shrink by the overlap.
     case clip
-    /// Clip windows snapped against the screen edge, shift free-floating ones.
+    /// Clip windows snapped against the screen edge, shift free-floating ones; windows side by side move as one.
     case smart
 
     public var id: Self { self }

@@ -24,10 +24,11 @@ struct LayoutReflowTests {
 
     private func decide(
         _ windows: [ReservationTransition.Candidate], from: Reservation?, to: Reservation?,
-        mode: WindowAvoidanceMode = .smart
+        mode: WindowAvoidanceMode = .smart, padding: CGFloat = 0
     ) -> [ReservationTransition.Decision] {
         ReservationTransition.decide(
-            windows, from: from, to: to, visibleFrame: screen, displayFrame: screen, mode: mode)
+            windows, from: from, to: to, visibleFrame: screen, displayFrame: screen, mode: mode,
+            screenPadding: padding)
     }
 
     /// Where each window ends up, and what avoidance remembers of it, as if every app took what it was asked for.
@@ -160,5 +161,63 @@ struct LayoutReflowTests {
         #expect(!ReservationTransition.areSideBySide(window, window.offsetBy(dx: 140, dy: 0)))
         #expect(!ReservationTransition.areSideBySide(window, window.offsetBy(dx: 100, dy: 99)))
         #expect(!ReservationTransition.areSideBySide(window, window.offsetBy(dx: 50, dy: 0)))
+    }
+
+    @Test(arguments: [CGFloat(0), 8])
+    func `hiding the panel takes a grid of tiles out to the screen's edge, and showing it brings it back`(
+        padding: CGFloat
+    ) {
+        let tiles = grid()
+        let start = tiles.map { ReservationTransition.Candidate(frame: $0, isPlacedOnPurpose: true) }
+
+        let hidden = apply(decide(start, from: main, to: nil, padding: padding), to: start)
+        let frames = hidden.map(\.frame)
+        expectNoOverlaps(frames)
+        #expect(frames[0].minX == padding && frames[2].minX == padding)
+        #expect(frames[1].maxX == 1440 && frames[3].maxX == 1440)
+        #expect(frames[1].minX == frames[3].minX && frames[0].maxX == frames[2].maxX)
+        #expect(frames[1].minX - frames[0].maxX == 8)
+        #expect(zip(frames, tiles).allSatisfy { $0.minY == $1.minY && $0.height == $1.height })
+
+        let shown = apply(decide(hidden, from: nil, to: main, padding: padding), to: hidden)
+        #expect(shown.map(\.frame) == tiles)
+        // And out again exactly where it was, however many times.
+        let hiddenAgain = apply(decide(shown, from: main, to: nil, padding: padding), to: shown)
+        #expect(hiddenAgain.map(\.frame) == frames)
+    }
+
+    @Test func `a lone tile beside the panel follows it out and back`() {
+        let tile = ReservationTransition.Candidate(
+            frame: CGRect(x: 208, y: 0, width: 616, height: 900), isPlacedOnPurpose: true)
+        let hidden = apply(decide([tile], from: main, to: nil, padding: 8), to: [tile])
+        #expect(hidden[0].frame == CGRect(x: 8, y: 0, width: 816, height: 900))
+        let shown = apply(decide(hidden, from: nil, to: main, padding: 8), to: hidden)
+        #expect(shown[0].frame == tile.frame)
+    }
+
+    @Test func `a window touching the panel follows it right to the screen's edge`() {
+        let window = ReservationTransition.Candidate(frame: CGRect(x: 200, y: 100, width: 600, height: 500))
+        let hidden = apply(decide([window], from: main, to: nil, padding: 8), to: [window])
+        #expect(hidden[0].frame == CGRect(x: 0, y: 100, width: 800, height: 500))
+    }
+
+    @Test func `hiding leaves windows not snapped to the panel, and every window in shift mode`() {
+        let apart = ReservationTransition.Candidate(frame: CGRect(x: 400, y: 0, width: 600, height: 900))
+        #expect(decide([apart], from: main, to: nil) == [.leave(nil)])
+        let snapped = ReservationTransition.Candidate(frame: CGRect(x: 208, y: 0, width: 600, height: 900))
+        #expect(decide([snapped], from: main, to: nil, mode: .shift) == [.leave(nil)])
+    }
+
+    @Test func `a grid follows the side panel as it narrows and widens again`() {
+        let narrow = Reservation(frame: CGRect(x: 0, y: 0, width: 100, height: 900), edge: .left, role: .main)
+        let tiles = grid()
+        let start = tiles.map { ReservationTransition.Candidate(frame: $0, isPlacedOnPurpose: true) }
+        let narrowed = apply(decide(start, from: main, to: narrow), to: start)
+        let frames = narrowed.map(\.frame)
+        expectNoOverlaps(frames)
+        #expect(frames[0].minX == 108 && frames[1].maxX == 1440)
+        #expect(frames[1].minX == frames[3].minX && frames[1].minX - frames[0].maxX == 8)
+        let widened = apply(decide(narrowed, from: narrow, to: main), to: narrowed)
+        #expect(widened.map(\.frame) == tiles)
     }
 }

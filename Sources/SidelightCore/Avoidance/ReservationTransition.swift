@@ -9,10 +9,17 @@ import CoreGraphics
 /// - A window nobody moved since Sidelight last did goes back where it was before that panel moved it: before the
 ///   details panel when it closes, before any panel when everything hides. One that was moved or resized since is
 ///   the user's, and stays.
-/// - Except: a window whose near edge touches the closing details panel's inner edge (or sits the usual gap away)
-///   follows it back, to the returning side panel's edge, or the screen's edge for a bar, even if it changed. It
-///   keeps its far edge and its height. A window Sidelight itself pushed against the details panel only follows
-///   when it was snapped to the returning edge before; otherwise it just goes back.
+/// - Except: a window snapped to a strip whose edge moves back towards the screen's edge follows it, even if it
+///   changed, and tiles too: the tile was beside the panel, and is beside the panel's new edge now. It keeps its far
+///   edge and its height. Snapped means its near edge touches the strip's inner edge, or sits the usual gap away.
+///   - The details panel closing: it follows back to the returning side panel's edge, or the screen's edge for a
+///     bar. A window Sidelight itself pushed against the details panel only follows when it was snapped to the
+///     returning edge before; otherwise it just goes back.
+///   - The side panel or bar narrowing: it follows to the new edge.
+///   - Everything hiding, in *smart* and *clip* mode: it follows out to the screen's edge (the window manager's
+///     screen-edge padding away, if it sat the usual gap from the strip). Showing the strip again squeezes it back,
+///     since *smart* counts a window that close to the screen's edge as snapped. Not in *shift* mode, which would
+///     only push the widened window out whole when the strip comes back.
 /// - A strip that replaces one on another edge (a bar giving way to a details panel on the left), or the same panel
 ///   resizing, frees the old strip as it takes the new one: a window the old strip moved and nobody touched since
 ///   starts from where it was before, so it moves once, straight to its place.
@@ -66,30 +73,41 @@ public enum ReservationTransition {
     ///
     /// *Keep clear* applies to every window: a strip growing into a window pushes it whatever put it there. *Put it
     /// back* applies only to a window avoidance moved itself, which is what `isPlacedOnPurpose` rules out — a
-    /// window manager tile isn't avoidance's to undo, so hiding the panels leaves it where it is, and following a
-    /// closing details panel's edge isn't its to decide either.
+    /// window manager tile isn't avoidance's to undo, so nothing sends it back where it was before the manager placed
+    /// it. *Follow the edge* applies to every window snapped to it: a tile beside the panel stays beside it.
     ///
     /// - Parameters:
     ///   - baselines: What avoidance remembers of the window; `nil` if it never moved it.
     ///   - visibleFrame: The display's visible frame.
     ///   - displayFrame: The display's whole frame. A window that isn't entirely on it never follows an edge.
     ///   - isPlacedOnPurpose: Whether the window is still exactly where a deliberate placement left it.
+    ///   - screenPadding: The window manager's screen-edge padding: where a window snapped to a strip goes when the
+    ///     strip hides, and how far from the screen's edge a window still counts as snapped when it shows.
     public static func decide(
         window: CGRect, baselines: WindowBaselines?, from old: Reservation?, to new: Reservation?,
-        visibleFrame: CGRect, displayFrame: CGRect, mode: WindowAvoidanceMode, isPlacedOnPurpose: Bool = false
+        visibleFrame: CGRect, displayFrame: CGRect, mode: WindowAvoidanceMode, isPlacedOnPurpose: Bool = false,
+        screenPadding: CGFloat = 0
     ) -> Decision {
         guard mode != .off else { return .leave(nil) }
         let ours = ours(window, baselines: baselines, isPlacedOnPurpose: isPlacedOnPurpose)
 
         guard let new else {
             // Everything released: back to before any panel moved it.
-            guard let ours, let target = ours.earliest, !WindowFrames.isUnchanged(target, since: window) else {
-                return .leave(nil)
+            if let ours, let target = ours.earliest {
+                return WindowFrames.isUnchanged(target, since: window)
+                    ? .leave(nil) : .move(Move(reason: .restore, frame: target))
             }
-            return .move(Move(reason: .restore, frame: target))
+            // Or, snapped to the strip, out to the screen's edge with it.
+            guard let old,
+                let plan = hidingPlan(
+                    window: window, strip: old, visibleFrame: visibleFrame, displayFrame: displayFrame, mode: mode,
+                    screenPadding: screenPadding),
+                !WindowFrames.isUnchanged(plan.frame, since: window)
+            else { return .leave(nil) }
+            return .move(Move(reason: .follow, frame: plan.frame))
         }
 
-        if !isPlacedOnPurpose, let old, old.role == .details, new.role == .main,
+        if let old, old.role == .details, new.role == .main,
             let decision = closingDetails(
                 window: window, ours: ours, details: old, next: new, visibleFrame: visibleFrame,
                 displayFrame: displayFrame, mode: mode)
@@ -97,12 +115,25 @@ public enum ReservationTransition {
             return decision
         }
 
+        // The side panel or bar narrowing: a window snapped to it follows its edge. One it pushed and nobody touched
+        // since starts over from before instead (below), which comes to the same.
+        if let old, ours?[old.role] == nil, isNarrowing(from: old, to: new),
+            let follow = followPlan(
+                window: window, strip: old, next: new, visibleFrame: visibleFrame, displayFrame: displayFrame,
+                mode: mode)
+        {
+            guard !WindowFrames.isUnchanged(follow.plan.frame, since: window) else { return .leave(ours) }
+            return .move(Move(reason: .follow, frame: follow.plan.frame, fallback: follow.plan.shiftFallback))
+        }
+
         let (start, kept) = pushStart(window: window, ours: ours, from: old, to: new)
 
         // The new strip pushes what it covers; what it doesn't cover stays.
         let plan = AvoidanceGeometry.plan(
             window: start, panel: new.frame, visibleFrame: visibleFrame, edge: new.edge,
-            mode: pushMode(start, from: old, to: new, mode: mode), clearance: new.clearance)
+            mode: pushMode(
+                start, from: old, to: new, visibleFrame: visibleFrame, mode: mode, screenPadding: screenPadding),
+            clearance: new.clearance)
         let target = plan?.frame ?? start
         guard !WindowFrames.isUnchanged(target, since: window) else { return .leave(ours) }
         return .move(
@@ -136,17 +167,56 @@ public enum ReservationTransition {
         return (window, kept)
     }
 
-    /// The mode `new` pushes a window starting at `start` with. *Smart* clips a window snapped to the screen's edge;
-    /// one snapped to the inner edge of the strip on that edge is just as snapped, since that edge is where the screen
-    /// ends for it. Without this a tile beside the side panel would be shifted whole as the details panel opens, on
-    /// top of its neighbour.
+    /// The mode `new` pushes a window starting at `start` with. *Smart* clips a window snapped to the screen's edge,
+    /// and a window the window manager's padding away from it is just as snapped. So is one snapped to the inner edge
+    /// of the strip already on that edge, since that edge is where the screen ends for it. Without this a tile would
+    /// be shifted whole as the panel shows or the details panel opens, on top of its neighbour.
     static func pushMode(
-        _ start: CGRect, from old: Reservation?, to new: Reservation, mode: WindowAvoidanceMode
+        _ start: CGRect, from old: Reservation?, to new: Reservation, visibleFrame: CGRect,
+        mode: WindowAvoidanceMode, screenPadding: CGFloat
     ) -> WindowAvoidanceMode {
-        guard mode == .smart, let old, old.edge == new.edge else { return mode }
-        let boundary = AvoidanceGeometry.canonical(old.frame, edge: old.edge).maxX
-        return contactGap(of: start, edge: new.edge, boundary: boundary, clearance: old.clearance) == nil
-            ? mode : .clip
+        guard mode == .smart else { return mode }
+        let gap =
+            if let old, old.edge == new.edge {
+                contactGap(
+                    of: start, edge: new.edge, boundary: AvoidanceGeometry.canonical(old.frame, edge: old.edge).maxX,
+                    clearance: old.clearance)
+            } else {
+                contactGap(
+                    of: start, edge: new.edge, boundary: AvoidanceGeometry.canonical(visibleFrame, edge: new.edge).minX,
+                    clearance: screenPadding)
+            }
+        return gap == nil ? mode : .clip
+    }
+
+    /// Where a window snapped to `strip` goes as the strip hides, keeping its far edge and its height: out to the
+    /// screen's edge if it touched the strip, or `screenPadding` from it if it sat the usual gap away. `nil` for a
+    /// window that isn't snapped to it, or isn't entirely on the display, or in a mode that doesn't resize windows
+    /// (*shift* would only push it out again whole when the strip comes back).
+    static func hidingPlan(
+        window: CGRect, strip: Reservation, visibleFrame: CGRect, displayFrame: CGRect, mode: WindowAvoidanceMode,
+        screenPadding: CGFloat
+    ) -> AvoidancePlan? {
+        let edge = strip.edge
+        guard mode == .smart || mode == .clip,
+            displayFrame.insetBy(dx: -tolerance, dy: -tolerance).contains(window)
+        else { return nil }
+        let canonicalWindow = AvoidanceGeometry.canonical(window, edge: edge)
+        let panel = AvoidanceGeometry.canonical(strip.frame, edge: edge)
+        guard canonicalWindow.minY < panel.maxY, canonicalWindow.maxY > panel.minY,
+            let contact = contactGap(of: window, edge: edge, boundary: panel.maxX, clearance: strip.clearance)
+        else { return nil }
+        let near = AvoidanceGeometry.canonical(visibleFrame, edge: edge).minX + (contact == 0 ? 0 : screenPadding)
+        let grown = CGRect(
+            x: near, y: canonicalWindow.minY, width: canonicalWindow.maxX - near, height: canonicalWindow.height)
+        return AvoidancePlan(action: .clip, frame: AvoidanceGeometry.restored(grown, edge: edge))
+    }
+
+    /// Whether `new` is the side panel or bar `old` was, narrower: its inner edge moves back towards the screen's.
+    static func isNarrowing(from old: Reservation, to new: Reservation) -> Bool {
+        old.role == .main && new.role == .main && old.edge == new.edge
+            && AvoidanceGeometry.canonical(new.frame, edge: new.edge).maxX
+                < AvoidanceGeometry.canonical(old.frame, edge: old.edge).maxX - tolerance
     }
 
     /// Whether going from `old` to `new` gives back the space `old` took, so windows it moved can come back: a strip on
@@ -162,7 +232,7 @@ public enum ReservationTransition {
         window: CGRect, ours: WindowBaselines?, details: Reservation, next: Reservation, visibleFrame: CGRect,
         displayFrame: CGRect, mode: WindowAvoidanceMode
     ) -> Decision? {
-        let boundary = returningBoundary(details: details, next: next, visibleFrame: visibleFrame)
+        let boundary = returningBoundary(strip: details, next: next, visibleFrame: visibleFrame)
         // Where it was before the details panel moved it, if nobody touched it since.
         let before = ours?.details
         // A window Sidelight pushed against the details panel touches it because of that push, not because someone
@@ -173,7 +243,7 @@ public enum ReservationTransition {
         let follow =
             before == nil || snappedBefore != nil
             ? followPlan(
-                window: window, details: details, next: next, visibleFrame: visibleFrame, displayFrame: displayFrame,
+                window: window, strip: details, next: next, visibleFrame: visibleFrame, displayFrame: displayFrame,
                 mode: mode, gap: snappedBefore)
             : nil
 
@@ -200,10 +270,11 @@ public enum ReservationTransition {
         return .move(Move(reason: .restore, frame: target, fallback: plan?.shiftFallback, main: main))
     }
 
-    /// Where the returning strip's inner edge is, in the canonical space of the details panel's edge: the returning
-    /// side panel's edge, or the screen's visible edge when a bar returns.
-    static func returningBoundary(details: Reservation, next: Reservation, visibleFrame: CGRect) -> CGFloat {
-        let edge = details.edge
+    /// Where the inner edge of `next`, taking over from `strip`, is in the canonical space of `strip`'s edge: the side
+    /// panel's or bar's edge on that side, or the screen's visible edge when a bar returns in place of the details
+    /// panel.
+    static func returningBoundary(strip: Reservation, next: Reservation, visibleFrame: CGRect) -> CGFloat {
+        let edge = strip.edge
         let returnsSidePanel = next.role == .main && next.edge == edge
         return returnsSidePanel
             ? AvoidanceGeometry.canonical(next.frame, edge: edge).maxX
@@ -222,8 +293,8 @@ public enum ReservationTransition {
         return nil
     }
 
-    /// Where a window snapped to the details panel's inner edge goes as the panel closes; `nil` for a window that
-    /// isn't snapped to it.
+    /// Where a window snapped to `strip`'s inner edge goes as `next` takes over, its edge further back: the details
+    /// panel closing, or the side panel or bar narrowing. `nil` for a window that isn't snapped to it.
     ///
     /// Snapped means its near edge is on the boundary, or the usual avoidance gap away, within ``tolerance``, and it
     /// overlaps the panel's height. It keeps that gap (or `gap`, the one it had before the details panel pushed it)
@@ -232,21 +303,19 @@ public enum ReservationTransition {
     /// A returning bar's strip is kept clear too: `barBaseline` is then where the window would be without the bar,
     /// for putting it back when everything hides.
     static func followPlan(
-        window: CGRect, details: Reservation, next: Reservation, visibleFrame: CGRect, displayFrame: CGRect,
+        window: CGRect, strip: Reservation, next: Reservation, visibleFrame: CGRect, displayFrame: CGRect,
         mode: WindowAvoidanceMode, gap preservedGap: CGFloat? = nil
     ) -> (plan: AvoidancePlan, barBaseline: CGRect?)? {
-        let edge = details.edge
-        guard !edge.isBar,
-            displayFrame.insetBy(dx: -tolerance, dy: -tolerance).contains(window)
-        else { return nil }
+        let edge = strip.edge
+        guard displayFrame.insetBy(dx: -tolerance, dy: -tolerance).contains(window) else { return nil }
         let canonicalWindow = AvoidanceGeometry.canonical(window, edge: edge)
-        let panel = AvoidanceGeometry.canonical(details.frame, edge: edge)
+        let panel = AvoidanceGeometry.canonical(strip.frame, edge: edge)
         let visible = AvoidanceGeometry.canonical(visibleFrame, edge: edge)
         guard canonicalWindow.minY < panel.maxY, canonicalWindow.maxY > panel.minY,
-            let contact = contactGap(of: window, edge: edge, boundary: panel.maxX, clearance: details.clearance)
+            let contact = contactGap(of: window, edge: edge, boundary: panel.maxX, clearance: strip.clearance)
         else { return nil }
 
-        let boundary = returningBoundary(details: details, next: next, visibleFrame: visibleFrame)
+        let boundary = returningBoundary(strip: strip, next: next, visibleFrame: visibleFrame)
         let near = boundary + (preservedGap ?? contact)
         let shifted = CGRect(
             x: near, y: canonicalWindow.minY, width: max(0, min(canonicalWindow.width, visible.maxX - near)),

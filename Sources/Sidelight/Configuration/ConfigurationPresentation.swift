@@ -138,7 +138,9 @@ extension WindowAvoidanceMode {
         case .off: "Windows are never moved."
         case .shift: "Overlapping windows are moved away from the panel, keeping their size."
         case .clip: "Overlapping windows keep their far edge and shrink by the overlap."
-        case .smart: "Clip windows snapped or maximized against the edge, shift free-floating ones."
+        case .smart:
+            "Clip windows snapped or maximized against the edge, shift free-floating ones. Windows side by side "
+                + "move together, so a tiled layout stays intact."
         }
     }
 }

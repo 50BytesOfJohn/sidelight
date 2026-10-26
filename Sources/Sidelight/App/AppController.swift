@@ -155,6 +155,8 @@ final class AppController {
     private func apply(_ configuration: AppConfiguration, displays: [Display]) {
         panels.apply(configuration, displays: displays)
         environment.windowAvoider.mode = configuration.windowAvoidance
+        let windowManager = configuration.windowManager
+        environment.windowAvoider.screenPadding = windowManager.isEnabled ? CGFloat(windowManager.padding) : 0
         environment.windowManager.apply(configuration.windowManager)
         environment.hotkeys.register(configuration.hotkey, for: .togglePanels)
         registerStashHotkeys(for: configuration)

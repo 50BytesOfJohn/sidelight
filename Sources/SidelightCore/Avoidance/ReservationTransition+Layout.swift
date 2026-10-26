@@ -3,11 +3,12 @@ import CoreGraphics
 /// Windows side by side move together.
 ///
 /// One window at a time, a layout falls apart as a strip's edge moves: the details panel opening clips the column of
-/// a 2×2 grid beside it and leaves the other column where it was, and closing again only brings back what touches its
-/// edge. So in *smart* mode, windows that sit side by side along the strip's axis — touching, or the window manager's
-/// gap apart, and level with each other — form a group, and the group moves as one: every edge in it is stretched
-/// between the strip's new edge and the group's far end, which stays put. Columns stay columns, neighbours stay
-/// neighbours, and closing the details panel stretches them back.
+/// a 2×2 grid beside it and leaves the other column where it was, and closing again (or hiding the panels) only
+/// brings back what touches its edge. So in *smart* mode, windows that sit side by side along the strip's axis —
+/// touching, or the window manager's gap apart, and level with each other — form a group, and the group moves as
+/// one: every edge in it is stretched between the strip's new edge and the group's far end, which stays put. Columns
+/// stay columns, neighbours stay neighbours; closing the details panel stretches them back, hiding the panels
+/// stretches them out to the screen's edge, and showing them squeezes them in again.
 ///
 /// Nothing is remembered for this: the group is found from where the windows are when the edge moves.
 extension ReservationTransition {
@@ -31,29 +32,36 @@ extension ReservationTransition {
     static var neighbourGap: CGFloat { CGFloat(WindowLayout.spacingRange.upperBound) + tolerance }
 
     /// What to do with each of `windows`, every window on one display, as its reservation changes from `old` to
-    /// `new`: what ``decide(window:baselines:from:to:visibleFrame:displayFrame:mode:isPlacedOnPurpose:)`` says for
-    /// each, except that in *smart* mode windows side by side with one the strip moves move with it (see above).
-    /// In the same order as `windows`.
+    /// `new`: what ``decide(window:baselines:from:to:visibleFrame:displayFrame:mode:isPlacedOnPurpose:screenPadding:)``
+    /// says for each, except that in *smart* mode windows side by side with one the strip moves move with it (see
+    /// above). In the same order as `windows`.
     public static func decide(
         _ windows: [Candidate], from old: Reservation?, to new: Reservation?, visibleFrame: CGRect,
-        displayFrame: CGRect, mode: WindowAvoidanceMode
+        displayFrame: CGRect, mode: WindowAvoidanceMode, screenPadding: CGFloat = 0
     ) -> [Decision] {
         var decisions = windows.map {
             decide(
                 window: $0.frame, baselines: $0.baselines, from: old, to: new, visibleFrame: visibleFrame,
-                displayFrame: displayFrame, mode: mode, isPlacedOnPurpose: $0.isPlacedOnPurpose)
+                displayFrame: displayFrame, mode: mode, isPlacedOnPurpose: $0.isPlacedOnPurpose,
+                screenPadding: screenPadding)
         }
-        guard mode == .smart, let new else { return decisions }
-        if let old, old.role == .details, new.role == .main {
+        guard mode == .smart else { return decisions }
+        if let old, follows(from: old, to: new) {
             followTogether(
-                windows, decisions: &decisions, details: old, next: new, visibleFrame: visibleFrame,
-                displayFrame: displayFrame, mode: mode)
-        } else {
+                windows, decisions: &decisions, from: old, to: new, visibleFrame: visibleFrame,
+                displayFrame: displayFrame, mode: mode, screenPadding: screenPadding)
+        } else if let new {
             pushTogether(
                 windows, decisions: &decisions, from: old, to: new, visibleFrame: visibleFrame,
                 displayFrame: displayFrame)
         }
         return decisions
+    }
+
+    /// Whether windows snapped to `old` follow its edge as `new` takes over: it closes, hides or narrows.
+    private static func follows(from old: Reservation, to new: Reservation?) -> Bool {
+        guard let new else { return true }
+        return (old.role == .details && new.role == .main) || isNarrowing(from: old, to: new)
     }
 
     /// The strip `new` pushes windows: those beside a pushed one are squeezed along with it, between the strip's
@@ -101,40 +109,51 @@ extension ReservationTransition {
         }
     }
 
-    /// The details panel closes: windows beside one that follows its edge back are stretched along with it, between
-    /// the returning edge and the group's far end.
+    /// `strip` gives way to `next`, the side panel or bar coming back as the details panel closes or the same one
+    /// narrower, or to nothing as the panels hide: windows beside one that follows its edge are stretched along with
+    /// it, between the edge it follows to and the group's far end.
     private static func followTogether(
-        _ windows: [Candidate], decisions: inout [Decision], details: Reservation, next: Reservation,
-        visibleFrame: CGRect, displayFrame: CGRect, mode: WindowAvoidanceMode
+        _ windows: [Candidate], decisions: inout [Decision], from strip: Reservation, to next: Reservation?,
+        visibleFrame: CGRect, displayFrame: CGRect, mode: WindowAvoidanceMode, screenPadding: CGFloat
     ) {
-        let edge = details.edge
+        let edge = strip.edge
         let frames = windows.map { AvoidanceGeometry.canonical($0.frame, edge: edge) }
         let isOnDisplay = windows.map { isEntirely($0.frame, on: displayFrame) }
         let following = decisions.indices.filter { decisions[$0].reason == .follow }
-        let detailsEdge = AvoidanceGeometry.canonical(details.frame, edge: edge).maxX
-        let returningEdge = returningBoundary(details: details, next: next, visibleFrame: visibleFrame)
+        let stripEdge = AvoidanceGeometry.canonical(strip.frame, edge: edge).maxX
 
         for group in groups(of: following, among: frames, eligible: isOnDisplay) {
-            // The group keeps the gap it had to the details panel.
-            let start = group.map { frames[$0].minX }.min() ?? detailsEdge
-            guard let stretch = Stretch(group.map { frames[$0] }, to: returningEdge + max(0, start - detailsEdge))
-            else { continue }
+            let start = group.map { frames[$0].minX }.min() ?? stripEdge
+            // Back beside the returning strip, with the gap the group had; or out at the screen's edge, at the window
+            // manager's padding if it sat the usual gap from the strip.
+            let near =
+                if let next {
+                    returningBoundary(strip: strip, next: next, visibleFrame: visibleFrame)
+                        + max(0, start - stripEdge)
+                } else {
+                    AvoidanceGeometry.canonical(visibleFrame, edge: edge).minX
+                        + (start - stripEdge <= tolerance ? 0 : screenPadding)
+                }
+            guard let stretch = Stretch(group.map { frames[$0] }, to: near) else { continue }
             let ours = group.map { index in
                 let window = windows[index]
                 return Self.ours(window.frame, baselines: window.baselines, isPlacedOnPurpose: window.isPlacedOnPurpose)
             }
             // A group the details panel pushed and nobody touched since goes back exactly where it was before it:
-            // stretching there and back again would be a point out here and there.
-            let before = ours.allSatisfy { $0?.details != nil } ? ours.map { $0?.details } : nil
+            // stretching there and back again would be a point out here and there. (Hiding puts back what it can one
+            // window at a time, so a group follows only when someone in it isn't avoidance's to put back.)
+            let before =
+                strip.role == .details && next != nil && ours.allSatisfy { $0?.details != nil }
+                ? ours.map { $0?.details } : nil
             for (position, index) in group.enumerated() {
                 let window = windows[index]
                 let stretched =
                     before?[position]
                     ?? AvoidanceGeometry.restored(stretch.apply(frames[index]), edge: edge)
-                let target = clear(stretched, of: next, visibleFrame: visibleFrame, mode: mode)
+                let target = next.map { clear(stretched, of: $0, visibleFrame: visibleFrame, mode: mode) } ?? stretched
                 // Where hiding everything puts it: back before any panel moved it, or, for a window a returning bar
-                // pushes now, where it would be without the bar.
-                let main = ours[position]?.main ?? (target == stretched ? nil : stretched)
+                // pushes now, where it would be without the bar. Once everything's hidden, nowhere.
+                let main = next == nil ? nil : ours[position]?.main ?? (target == stretched ? nil : stretched)
                 guard !WindowFrames.isUnchanged(target, since: window.frame) else {
                     decisions[index] = .leave(main.map { WindowBaselines(main: $0, accepted: window.frame) })
                     continue
