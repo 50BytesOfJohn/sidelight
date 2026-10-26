@@ -11,11 +11,14 @@ public struct DockerSettings: Codable, Hashable, Sendable {
     public var showsStopped = false
     /// Groups listed in the regular layout; compact lists issues only.
     public var rowCount = 5
+    /// Published ports under each group in the regular layout.
+    public var showsPorts = true
 
-    public init(context: String? = nil, showsStopped: Bool = false, rowCount: Int = 5) {
+    public init(context: String? = nil, showsStopped: Bool = false, rowCount: Int = 5, showsPorts: Bool = true) {
         self.context = context
         self.showsStopped = showsStopped
         self.rowCount = rowCount
+        self.showsPorts = showsPorts
     }
 
     /// Missing options take their defaults, a context that can't be read follows the current one, and a hand-edited
@@ -27,6 +30,7 @@ public struct DockerSettings: Codable, Hashable, Sendable {
             .flatMap { $0.isEmpty ? nil : $0 }
         showsStopped = container.decodeLeniently(.showsStopped, or: defaults.showsStopped)
         rowCount = container.decodeLeniently(.rowCount, or: defaults.rowCount).clamped(to: Self.rowCountRange)
+        showsPorts = container.decodeLeniently(.showsPorts, or: defaults.showsPorts)
     }
 
     public var contextChoice: DockerContextChoice { context.map { .named($0) } ?? .current }

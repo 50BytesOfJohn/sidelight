@@ -113,43 +113,66 @@ struct DockerHeadline: View {
     }
 }
 
-/// Published ports as small chips: a click opens `http://localhost:PORT`, the menu copies it.
+/// Published ports as small chips on one line: as many as fit, then `+N`. A click opens `http://localhost:PORT`, the
+/// menu copies it.
 struct DockerPortChips: View {
     let ports: [DockerPort]
-    var limit = 4
+    var limit = 8
+    /// `:8080→80` rather than `:8080`. The host port is the one you open; the container's is in the tooltip anyway.
+    var showsContainerPort = false
     /// Previews show the ports but open nothing.
     var isEnabled = true
     var size: CGFloat = 10
 
     var body: some View {
+        // The longest row that fits the width; a chip never wraps onto a second line.
+        ViewThatFits(in: .horizontal) {
+            ForEach(Array(stride(from: min(ports.count, limit), through: 1, by: -1)), id: \.self) { count in
+                row(count)
+            }
+        }
+    }
+
+    private func row(_ count: Int) -> some View {
         HStack(spacing: 4) {
-            ForEach(ports.prefix(limit), id: \.self) { port in
+            ForEach(ports.prefix(count), id: \.self) { port in
                 chip(port)
             }
-            if ports.count > limit {
-                Text("+\(ports.count - limit)")
+            if ports.count > count {
+                Text("+\(ports.count - count)")
                     .font(.system(size: size, weight: .medium))
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .fixedSize()
+                    .help(ports.dropFirst(count).map(\.label).joined(separator: "  "))
             }
         }
     }
 
     private func chip(_ port: DockerPort) -> some View {
         let opens = isEnabled && port.browserURL != nil
+        let mapping = port.hostPort == port.containerPort ? "" : " → container port \(port.containerPort)"
         return Button {
             if let url = port.browserURL { NSWorkspace.shared.open(url) }
         } label: {
-            Text(port.label)
-                .font(.system(size: size, weight: .medium, design: .monospaced))
+            Text(showsContainerPort ? port.label : ":\(port.hostPort)")
+                .font(.system(size: size, weight: .medium))
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 5)
-                .padding(.vertical, 1)
-                .background(Capsule().fill(Color.primary.opacity(0.08)))
+                .padding(.vertical, 1.5)
+                .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Color.primary.opacity(0.07)))
                 .foregroundStyle(opens ? .primary : .secondary)
-                .contentShape(Capsule())
+                .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(!opens)
-        .help(opens ? "Open localhost:\(port.hostPort) in your browser" : "\(port.transport.uppercased()) port")
+        .help(
+            opens
+                ? "Open localhost:\(port.hostPort) in your browser\(mapping)"
+                : "\(port.transport.uppercased()) port\(mapping)"
+        )
         .contextMenu {
             Button("Copy localhost:\(port.hostPort)", systemImage: "doc.on.doc") {
                 DockerFormat.copy("localhost:\(port.hostPort)")
@@ -190,6 +213,7 @@ struct DockerContainerMenu: View {
 /// issues or else its ports.
 struct DockerGroupRow: View {
     let group: DockerGroup
+    var showsPorts = true
     var opensPorts = true
     let open: (() -> Void)?
 
@@ -237,7 +261,7 @@ struct DockerGroupRow: View {
                 .foregroundStyle(.orange)
                 .lineLimit(1)
                 .padding(.leading, 13)
-            } else if !group.ports.isEmpty {
+            } else if showsPorts, !group.ports.isEmpty {
                 DockerPortChips(ports: group.ports, isEnabled: opensPorts)
                     .padding(.leading, 13)
             }
@@ -266,7 +290,7 @@ struct DockerContainerRow: View {
             .accessibilityHint(isExpanded ? "Hides the details" : "Shows the details")
             if condition.isRunning, !container.ports.isEmpty || DockerFormat.usage(stats) != nil {
                 HStack(spacing: 6) {
-                    DockerPortChips(ports: container.ports, limit: 6)
+                    DockerPortChips(ports: container.ports, showsContainerPort: true)
                     Spacer(minLength: 4)
                     if let usage = DockerFormat.usage(stats) {
                         Text(usage)

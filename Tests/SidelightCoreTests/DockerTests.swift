@@ -362,14 +362,16 @@ struct DockerSettingsTests {
 
     @Test func `hand-edited values are kept in range or dropped`() throws {
         let settings = try JSONDecoder().decode(
-            DockerSettings.self, from: Data(#"{"rowCount": 99, "context": 7, "showsStopped": "yes"}"#.utf8))
+            DockerSettings.self,
+            from: Data(#"{"rowCount": 99, "context": 7, "showsStopped": "yes", "showsPorts": 0}"#.utf8))
         #expect(settings.rowCount == 10)
         #expect(settings.context == nil)
         #expect(!settings.showsStopped)
+        #expect(settings.showsPorts)
     }
 
     @Test func `round trips`() throws {
-        let settings = DockerSettings(context: "orbstack", showsStopped: true, rowCount: 8)
+        let settings = DockerSettings(context: "orbstack", showsStopped: true, rowCount: 8, showsPorts: false)
         let decoded = try JSONDecoder().decode(DockerSettings.self, from: JSONEncoder().encode(settings))
         #expect(decoded == settings)
         #expect(decoded.contextChoice == .named("orbstack"))

@@ -17,7 +17,8 @@ extension WidgetMetadata {
 extension DockerSettings {
     var summary: String {
         let context = context.map { DockerContext(name: $0).displayName } ?? "Current context"
-        return showsStopped ? "\(context), stopped too" : context
+        return [Optional(context), showsStopped ? "stopped too" : nil, showsPorts ? nil : "no ports"].compactMap(\.self)
+            .joined(separator: ", ")
     }
 }
 
@@ -153,9 +154,9 @@ struct DockerWidgetView: View {
         return { [details] in details.open(request, from: placement) }
     }
 
-    /// The context's name, when there's more than one it could be.
+    /// The context's name, only when the widget is pinned to one: following the current context needs no label.
     private var contextName: String? {
-        guard service.contexts.count > 1 || settings.context != nil else { return nil }
+        guard settings.context != nil else { return nil }
         return service.displayName(for: settings.contextChoice)
     }
 
@@ -274,10 +275,12 @@ struct DockerWidgetView: View {
                 }
                 .foregroundStyle(.secondary)
             } else {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: settings.showsPorts ? 6 : 2) {
                     ForEach(groups) { group in
-                        DockerGroupRow(group: group, opensPorts: !isPreview, open: open)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        DockerGroupRow(
+                            group: group, showsPorts: settings.showsPorts, opensPorts: !isPreview, open: open
+                        )
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 }
                 .animation(Motion.gentle, value: groups.map(\.id))
@@ -338,6 +341,10 @@ struct DockerSettingsEditor: View {
             }
         }
         Toggle("Show stopped containers", isOn: $settings.showsStopped)
+        VStack(alignment: .leading, spacing: 2) {
+            Toggle("Show ports", isOn: $settings.showsPorts)
+            SettingsCaption("Published ports under each project. Click one to open it in your browser.")
+        }
         VStack(alignment: .leading, spacing: 2) {
             Stepper(
                 "Projects listed: \(settings.rowCount)", value: $settings.rowCount, in: DockerSettings.rowCountRange)
