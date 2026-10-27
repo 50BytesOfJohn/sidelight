@@ -50,3 +50,14 @@ extension AccountStatus {
         return fetched != nil ? .connected : nil
     }
 }
+
+extension OpenCodeFetchProblem {
+    public var accountStatus: AccountStatus {
+        switch self {
+        case .notSignedIn: .needsSignIn
+        case .signInExpired: .expired
+        case .rejected where isSignInRejection: .expired
+        case .rejected, .unreachable, .unreadable, .unreadableSignIn, .keychainUnavailable: .failed(title)
+        }
+    }
+}

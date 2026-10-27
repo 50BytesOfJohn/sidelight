@@ -10,6 +10,7 @@ extension AccountProvider {
         case .codex: "chevron.left.forwardslash.chevron.right"
         case .cursor: "cursorarrow.rays"
         case .runware: "photo.stack"
+        case .openCode: "terminal"
         }
     }
 
@@ -21,6 +22,7 @@ extension AccountProvider {
         case .codex: .teal
         case .cursor: .gray
         case .runware: .pink
+        case .openCode: .blue
         }
     }
 
@@ -30,6 +32,7 @@ extension AccountProvider {
         case .openRouter: "OpenRouter management key"
         case .railway: "Account or workspace token"
         case .runware: "Runware API key"
+        case .openCode: "OpenCode API key"
         case .claudeCode, .codex, .cursor: "Key"
         }
     }
@@ -44,6 +47,9 @@ extension AccountProvider {
             "An account or workspace token sees what the account sees. Project tokens can't list projects."
         case .runware:
             "Sidelight reads the organization's balance, usage and models with it, and never runs a generation."
+        case .openCode:
+            "An API key from the OpenCode Console, or OpenCode Go's. Sidelight reads its workspace's Go limits and "
+                + "budgets with it, and never runs a model."
         case .claudeCode, .codex, .cursor:
             ""
         }
@@ -56,6 +62,7 @@ extension AccountProvider {
             ("Create a management key", URL(string: "https://openrouter.ai/settings/management-keys")!)
         case .railway: ("Create a token", URL(string: "https://railway.com/account/tokens")!)
         case .runware: ("Create an API key", URL(string: "https://my.runware.ai/keys")!)
+        case .openCode: ("Create an API key", URL(string: "https://opencode.ai/console")!)
         case .claudeCode, .codex, .cursor: nil
         }
     }
@@ -66,6 +73,7 @@ extension AccountProvider {
         case .openRouter: ""
         case .railway: "Managed by the Railway CLI"
         case .runware: "Managed by the Runware CLI"
+        case .openCode: "Managed by OpenCode"
         case .claudeCode: "Managed by Claude Code"
         case .codex: "Managed by Codex"
         case .cursor: "Managed by Cursor"
@@ -83,6 +91,7 @@ extension AccountProvider {
         case .claudeCode: "Sign in again in Settings, under Accounts, or run claude and sign in."
         case .codex: "Run codex and sign in."
         case .cursor: "Open Cursor and sign in."
+        case .openCode: "Run opencode auth login, or add an API key in Settings, under Accounts."
         }
     }
 }
@@ -137,6 +146,7 @@ struct AccountKeySheet: View {
     @Environment(OpenRouterService.self) private var openRouter
     @Environment(RailwayService.self) private var railway
     @Environment(RunwareService.self) private var runware
+    @Environment(OpenCodeUsageService.self) private var openCode
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var key = ""
@@ -250,6 +260,10 @@ struct AccountKeySheet: View {
             return await railway.checkToken(key).map { "\($0.title). \($0.advice)" }
         case .runware:
             return await runware.checkKey(key).map { "\($0.title). \($0.advice)" }
+        case .openCode:
+            return await openCode.checkKey(key).map {
+                $0 == .rejected(status: 401) ? "OpenCode didn't accept the key." : "\($0.title). \($0.advice)"
+            }
         case .claudeCode, .codex, .cursor:
             return "\(provider.title) signs in on its own."
         }

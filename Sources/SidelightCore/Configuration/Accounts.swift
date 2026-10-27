@@ -8,6 +8,7 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
     case codex
     case cursor
     case runware
+    case openCode
 
     public var id: Self { self }
 
@@ -20,13 +21,14 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
         case .codex: "Codex"
         case .cursor: "Cursor"
         case .runware: "Runware"
+        case .openCode: "OpenCode"
         }
     }
 
     /// Whether someone can add accounts with a key or token typed into Sidelight.
     public var acceptsKeys: Bool {
         switch self {
-        case .openRouter, .railway, .runware: true
+        case .openRouter, .railway, .runware, .openCode: true
         case .claudeCode, .codex, .cursor: false
         }
     }
@@ -36,7 +38,7 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
     public var acceptsAppProfiles: Bool {
         switch self {
         case .claudeCode: true
-        case .openRouter, .railway, .codex, .cursor, .runware: false
+        case .openRouter, .railway, .codex, .cursor, .runware, .openCode: false
         }
     }
 
@@ -52,6 +54,7 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
         case .codex: Account(id: .codexApp, provider: self, name: "Codex", kind: .appSignIn)
         case .cursor: Account(id: .cursorApp, provider: self, name: "Cursor", kind: .appSignIn)
         case .runware: Account(id: .runwareCLI, provider: self, name: "Runware CLI", kind: .appSignIn)
+        case .openCode: Account(id: .openCodeCLI, provider: self, name: "OpenCode", kind: .appSignIn)
         }
     }
 
@@ -59,7 +62,7 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
     /// key account: its CLI is how most people sign in to it. A default someone chose always comes first.
     public var prefersSignedInAppSignIn: Bool {
         switch self {
-        case .railway, .runware: true
+        case .railway, .runware, .openCode: true
         case .openRouter, .claudeCode, .codex, .cursor: false
         }
     }
@@ -108,6 +111,7 @@ public struct AccountID: RawRepresentable, Codable, Hashable, Comparable, Sendab
     public static let codexApp = AccountID(rawValue: "codex.app")
     public static let cursorApp = AccountID(rawValue: "cursor.app")
     public static let runwareCLI = AccountID(rawValue: "runware.cli")
+    public static let openCodeCLI = AccountID(rawValue: "openCode.cli")
 }
 
 /// One identity at one provider.
@@ -200,7 +204,7 @@ extension AppConfiguration {
     }
 
     /// The account a widget at `provider` uses when it names none: the default someone chose; for Railway without
-    /// one, the provider's CLI while it's signed in, for providers that prefer it (Railway, Runware); otherwise the provider's only key account; and a provider that
+    /// one, the provider's CLI while it's signed in, for providers that prefer it (Railway, Runware, OpenCode); otherwise the provider's only key account; and a provider that
     /// takes no keys uses its app sign-in, whatever app profiles it has. `signedIn` holds the app sign-ins signed in
     /// now.
     public func defaultAccount(for provider: AccountProvider, signedIn: Set<AccountID> = []) -> AccountResolution {

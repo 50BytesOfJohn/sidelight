@@ -18,6 +18,7 @@ extension AIUsageProvider {
         case .codex: "Your ChatGPT plan's limits, as Codex reports them."
         case .claudeCode: "A Claude account's session and weekly limits. Add one per account."
         case .cursor: "Your Cursor plan's included usage over the billing cycle."
+        case .openCode: "OpenCode Go's 5-hour, weekly and monthly limits, and Console budgets. Add one per account."
         }
     }
 }
@@ -102,6 +103,8 @@ extension AIUsageBlockVariant {
             "A meter for each limit Codex reports, shortest window first, always in that order."
         case (.eachLimit, .cursor):
             "A meter for each of your plan's usage pools, always in the same order."
+        case (.eachLimit, .openCode):
+            "A meter for Go's 5 hours, week and month, then one for each budget, always in that order."
         }
     }
 }
@@ -117,8 +120,8 @@ struct AIUsageSettingsEditor: View {
     }
 }
 
-/// How limits read, and when Claude and Cursor usage is fetched, for every block. Each Claude account fetches once,
-/// however many blocks or widgets show it, so it's one choice for the whole widget.
+/// How limits read, and when Claude, Cursor and OpenCode usage is fetched, for every block. Each Claude or OpenCode
+/// account fetches once, however many blocks or widgets show it, so it's one choice for the whole widget.
 private struct AIUsageWidgetOptions: View {
     @Binding var settings: AIUsageSettings
 
@@ -149,6 +152,9 @@ private struct AIUsageWidgetOptions: View {
         }
         if has(.cursor) {
             CursorFetchPicker(isOn: $settings.refreshesCursor, minutes: $settings.cursorRefreshMinutes)
+        }
+        if has(.openCode) {
+            OpenCodeFetchPicker(isOn: $settings.refreshesOpenCode, minutes: $settings.openCodeRefreshMinutes)
         }
     }
 
@@ -190,6 +196,13 @@ private struct AIUsageBlockOptionsEditor: View {
                 CursorFetchStatus()
             } else {
                 SettingsCaption("Cursor keeps no usage on this Mac. Turn on Fetch usage from Cursor in the widget.")
+            }
+        case .openCode:
+            if settings.refreshesOpenCode {
+                OpenCodeFetchStatus(account: settings.options(block).account)
+            } else {
+                SettingsCaption(
+                    "OpenCode keeps no usage on this Mac. Turn on Fetch usage from OpenCode in the widget.")
             }
         }
     }

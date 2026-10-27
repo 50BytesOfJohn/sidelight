@@ -14,6 +14,8 @@ struct AppEnvironment {
     let codex: CodexService
     let claudeCode: ClaudeCodeService
     let cursor: CursorService
+    /// OpenCode Console workspaces' limits, for AI Usage widgets showing OpenCode.
+    let openCodeUsage: OpenCodeUsageService
     let nowPlaying: NowPlayingService
     let claudeSessions: ClaudeSessionsService
     let codexSessions: CodexSessionsService
@@ -57,7 +59,7 @@ extension AppEnvironment {
     /// Every service that runs only while a widget needs it.
     var dataServices: [any DataService] {
         [
-            calendar, codex, claudeCode, cursor, nowPlaying, claudeSessions, codexSessions, cursorChats,
+            calendar, codex, claudeCode, cursor, openCodeUsage, nowPlaying, claudeSessions, codexSessions, cursorChats,
             openCodeSessions, systemStats, noodleComputer, railway, openRouter, runware, docker, appLauncher, battery,
         ]
     }
@@ -67,6 +69,7 @@ extension AppEnvironment {
         case .codex: codex
         case .claudeCode: claudeCode
         case .cursor: cursor
+        case .openCode: openCodeUsage
         }
     }
 
@@ -91,6 +94,7 @@ extension View {
             .environment(app.codex)
             .environment(app.claudeCode)
             .environment(app.cursor)
+            .environment(app.openCodeUsage)
             .environment(app.nowPlaying)
             .environment(app.claudeSessions)
             .environment(app.codexSessions)

@@ -325,7 +325,7 @@ struct UsageServiceDemandTests {
             .serviceDemand(at: [], previewsEveryWidget: true)
         #expect(demand.kinds == Set(WidgetKind.allCases))
         #expect(
-            demand.usage == UsageServiceDemand(providers: [.codex, .claudeCode, .cursor], cursorRefreshMinutes: 30))
+            demand.usage == UsageServiceDemand(providers: Set(AIUsageProvider.allCases), cursorRefreshMinutes: 30))
     }
 
     @Test func `other kinds still drive their own services`() {

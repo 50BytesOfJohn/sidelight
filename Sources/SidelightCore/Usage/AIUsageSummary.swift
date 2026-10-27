@@ -360,3 +360,115 @@ extension AIUsageSummary {
         }
     }
 }
+
+// MARK: - OpenCode
+
+extension AIUsageSummary {
+    /// An OpenCode Console workspace's OpenCode Go allowance (5 hours, a week and the subscription month, each a share
+    /// of the same monthly dollar limit) and its spending budgets, for whatever uses the workspace: OpenCode on any
+    /// device, and anything else with its keys.
+    ///
+    /// - Parameters:
+    ///   - isConnected: This widget opted in to fetching from OpenCode. Without it, it shows nothing OpenCode sent.
+    ///   - isStale: The service's own judgement: a fetch failed since, or it's long overdue.
+    public static func openCode(
+        isConnected: Bool, usage: OpenCodeUsage?, problem: OpenCodeFetchProblem?, isStale: Bool, now: Date
+    ) -> AIUsageSummary {
+        var summary = AIUsageSummary(provider: .openCode, status: .loading("Fetching OpenCode usage…"))
+        guard isConnected else {
+            summary.status = .setup(
+                title: "Not connected", detail: "Turn on Fetch usage from OpenCode in this widget's settings.")
+            return summary
+        }
+        guard let usage else {
+            if let problem {
+                summary.status =
+                    problem.needsSignIn
+                    ? .setup(title: problem.title, detail: problem.advice)
+                    : .failed(title: problem.title, detail: problem.advice)
+            }
+            return summary
+        }
+
+        summary.plan = usage.go != nil ? "Go" : nil
+        summary.capturedAt = usage.fetchedAt
+        summary.freshness = isStale ? .stale : .live
+        summary.source = "opencode.ai"
+        let go = (usage.go ?? []).map { window in
+            AIUsageLimit(
+                id: "openCode.go.\(window.kind.rawValue)", title: window.kind.title,
+                shortTitle: window.kind.shortTitle, window: window.window, segments: window.kind.segments,
+                isBillingCycle: window.kind == .monthly, explanation: window.kind.explanation)
+        }
+        let budgets = usage.budgets.map { budget in
+            AIUsageLimit(
+                id: "openCode.budget.\(budget.id)", title: budget.title, shortTitle: "$",
+                window: RateLimitWindow(usedPercent: budget.usedPercent, resetsAt: budget.resetsAt), segments: 4,
+                isBillingCycle: true, explanation: budget.explanation)
+        }
+        summary.limits = go + budgets
+        if summary.limits.isEmpty {
+            summary.status = .noLimits(
+                title: "No Go plan or budgets", detail: "Pay-as-you-go Zen usage has no limits to show.")
+        } else {
+            summary.status = .limits
+        }
+
+        if isStale, let problem {
+            summary.notice = Notice("\(problem.title). \(problem.advice)", severity: .warning)
+        } else if usage.isGoLimited, !go.contains(where: { $0.isUsedUp && !$0.hasReset(at: now) }) {
+            summary.notice = Notice("Go usage limit reached", severity: .critical)
+        }
+        return summary
+    }
+}
+
+extension OpenCodeGoWindow.Kind {
+    public var title: String {
+        switch self {
+        case .rolling: "5-hour"
+        case .weekly: "Weekly"
+        case .monthly: "Monthly"
+        }
+    }
+
+    public var shortTitle: String {
+        switch self {
+        case .rolling: "5h"
+        case .weekly: "wk"
+        case .monthly: "mo"
+        }
+    }
+
+    /// An hour of 5 hours, a day of a week, a week of a month.
+    var segments: Int {
+        switch self {
+        case .rolling: 5
+        case .weekly: 7
+        case .monthly: 4
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .rolling: "OpenCode Go, over a rolling 5 hours: 20% of the monthly limit."
+        case .weekly: "OpenCode Go, over the week: 50% of the monthly limit."
+        case .monthly: "OpenCode Go, over the subscription month."
+        }
+    }
+}
+
+extension OpenCodeBudget {
+    /// `Budget`, or `Budget · GLM-5.3, Kimi K3` for one that covers some models.
+    var title: String {
+        guard !models.isEmpty else { return "Budget" }
+        let names = models.prefix(2).joined(separator: ", ")
+        return "Budget · \(names)\(models.count > 2 ? " +\(models.count - 2)" : "")"
+    }
+
+    /// `$3.20 of $20.00 spent`.
+    var explanation: String {
+        let format = FloatingPointFormatStyle<Double>.Currency(code: "USD").precision(.fractionLength(2))
+        return "Console budget: \(spent.formatted(format)) of \(limit.formatted(format)) spent."
+    }
+}

@@ -2,7 +2,7 @@ import Foundation
 
 /// A coding agent whose plan usage the AI Usage widget shows. Each reads the same service as its own widget.
 public enum AIUsageProvider: String, Codable, CaseIterable, Identifiable, Sendable {
-    case codex, claudeCode, cursor
+    case codex, claudeCode, cursor, openCode
 
     public var id: Self { self }
 
@@ -12,11 +12,12 @@ public enum AIUsageProvider: String, Codable, CaseIterable, Identifiable, Sendab
         case .codex: .codex
         case .claudeCode: .claudeCode
         case .cursor: .cursor
+        case .openCode: .openCode
         }
     }
 
-    /// Whether a block can show another account than the default one. Claude Code keeps more than one signed in;
-    /// Codex and Cursor read the one their app is signed in to.
+    /// Whether a block can show another account than the default one. Claude Code keeps more than one signed in, and
+    /// OpenCode takes keys besides its CLI's sign-in; Codex and Cursor read the one their app is signed in to.
     public var hasAccounts: Bool { accountProvider.canAddAccounts }
 }
 
@@ -57,6 +58,8 @@ public struct AIUsageBlock: WidgetBlockKind, Identifiable {
     public static let claudeCode = AIUsageBlock(
         .claudeCode, uuid: UUID(uuidString: "6F1C2D3E-7A8B-4C9D-8E0F-A1B2C3D40002")!)
     public static let cursor = AIUsageBlock(.cursor, uuid: UUID(uuidString: "6F1C2D3E-7A8B-4C9D-8E0F-A1B2C3D40003")!)
+    public static let openCode = AIUsageBlock(
+        .openCode, uuid: UUID(uuidString: "6F1C2D3E-7A8B-4C9D-8E0F-A1B2C3D40004")!)
 }
 
 /// How one block lays out its agent's limits.
@@ -116,8 +119,8 @@ public enum AIUsagePreset: String, CaseIterable, Identifiable, Sendable {
 }
 
 /// The AI Usage widget: agents' limits side by side, built from blocks, one per agent and account. How limits read
-/// and when they're fetched belong to the widget, shared by its blocks. Fetching from Anthropic or Cursor is its own
-/// opt-in, separate from the Claude Code and Cursor widgets', so it works without them.
+/// and when they're fetched belong to the widget, shared by its blocks. Fetching from Anthropic, Cursor or OpenCode is
+/// its own opt-in, separate from the Claude Code and Cursor widgets', so it works without them.
 public struct AIUsageSettings: Codable, Hashable, Sendable {
     public var blocks = BlockLayout<AIUsageBlock>(shown: AIUsagePreset.everyAgent.blocks)
     /// Each block's options, by its raw value; a block without any has the defaults.
@@ -135,12 +138,20 @@ public struct AIUsageSettings: Codable, Hashable, Sendable {
     /// keeps no usage on this Mac, so its blocks ask to be connected until this is on.
     public var refreshesCursor = false
     public var cursorRefreshMinutes = 15
+    /// Ask OpenCode's Console for every shown OpenCode account's limits every ``openCodeRefreshMinutes``. OpenCode keeps
+    /// no usage on this Mac, so its blocks ask to be connected until this is on.
+    public var refreshesOpenCode = false
+    public var openCodeRefreshMinutes = 5
+
+    /// Go's shortest window is 5 hours, so a few minutes is plenty.
+    public static let openCodeRefreshMinuteChoices = [2, 5, 15, 30]
 
     /// `blocks` shown in that order, each with its `options`.
     public init(
         blocks: [AIUsageBlock] = AIUsagePreset.everyAgent.blocks, options: [AIUsageBlock: AIUsageBlockOptions] = [:],
         reading: UsageReading = .used, showsOtherLimits: Bool = true, refreshesClaudeFromAnthropic: Bool = false,
-        claudeRefreshMinutes: Int = 5, refreshesCursor: Bool = false, cursorRefreshMinutes: Int = 15
+        claudeRefreshMinutes: Int = 5, refreshesCursor: Bool = false, cursorRefreshMinutes: Int = 15,
+        refreshesOpenCode: Bool = false, openCodeRefreshMinutes: Int = 5
     ) {
         self.blocks = BlockLayout(shown: blocks)
         self.reading = reading
@@ -149,6 +160,8 @@ public struct AIUsageSettings: Codable, Hashable, Sendable {
         self.claudeRefreshMinutes = claudeRefreshMinutes
         self.refreshesCursor = refreshesCursor
         self.cursorRefreshMinutes = cursorRefreshMinutes
+        self.refreshesOpenCode = refreshesOpenCode
+        self.openCodeRefreshMinutes = openCodeRefreshMinutes
         for (block, options) in options { setOptions(options, for: block) }
     }
 
@@ -173,6 +186,9 @@ public struct AIUsageSettings: Codable, Hashable, Sendable {
         refreshesCursor = try container.decode(.refreshesCursor, or: defaults.refreshesCursor)
         cursorRefreshMinutes = try container.decode(.cursorRefreshMinutes, or: defaults.cursorRefreshMinutes).clamped(
             to: UsageRefresh.minuteRange)
+        refreshesOpenCode = try container.decode(.refreshesOpenCode, or: defaults.refreshesOpenCode)
+        openCodeRefreshMinutes = try container.decode(.openCodeRefreshMinutes, or: defaults.openCodeRefreshMinutes)
+            .clamped(to: UsageRefresh.minuteRange)
     }
 
     // MARK: Blocks
@@ -226,6 +242,11 @@ public struct AIUsageSettings: Codable, Hashable, Sendable {
     /// The Cursor refresh interval in minutes, when this widget shows a Cursor block and opted in.
     public var cursorRefreshMinutesIfOptedIn: Int? {
         shownProviders.contains(.cursor) && refreshesCursor ? cursorRefreshMinutes : nil
+    }
+
+    /// The OpenCode refresh interval in minutes, when this widget shows an OpenCode block and opted in.
+    public var openCodeRefreshMinutesIfOptedIn: Int? {
+        shownProviders.contains(.openCode) && refreshesOpenCode ? openCodeRefreshMinutes : nil
     }
 
     // MARK: Accounts

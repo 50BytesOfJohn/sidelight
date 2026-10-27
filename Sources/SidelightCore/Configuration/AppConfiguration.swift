@@ -81,6 +81,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
             return ServiceDemand(
                 kinds: Set(WidgetKind.allCases), placedKinds: placed, usage: usage,
                 railway: railwayDemand(of: widgets, signedIn: signedIn), claudeCode: claudeCode,
+                openCode: openCodeDemand(of: widgets, signedIn: signedIn),
                 sessions: Set(AgentProvider.allCases),
                 // As for Railway, only placed widgets count: the gallery alone never runs the CLI or wakes Docker.
                 docker: dockerDemand(of: widgets),
@@ -98,6 +99,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
             kinds: Set(visible.map(\.kind)), placedKinds: placed, usage: UsageServiceDemand(widgets: visible),
             railway: railwayDemand(of: visible, signedIn: signedIn),
             claudeCode: claudeCodeDemand(of: visible, signedIn: signedIn),
+            openCode: openCodeDemand(of: visible, signedIn: signedIn),
             sessions: ServiceDemand.sessionProviders(of: visible), docker: dockerDemand(of: visible),
             appLauncher: appLauncherDemand(of: visible), battery: BatteryDemand(widgets: visible))
     }
@@ -129,6 +131,25 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
                 else { continue }
                 let needs = ClaudeCodeNeeds(profile: profile, refreshMinutes: minutes)
                 demand[id] = demand[id].map { $0.merged(with: needs) } ?? needs
+            }
+        }
+        return demand
+    }
+
+    /// The OpenCode accounts that AI Usage widgets among `widgets` show and opted in to fetching, each with how often
+    /// to ask OpenCode for it in minutes, the shortest interval of those widgets.
+    public func openCodeDemand(
+        of widgets: some Sequence<WidgetInstance>, signedIn: Set<AccountID> = []
+    ) -> [AccountID: Int] {
+        var demand: [AccountID: Int] = [:]
+        for widget in widgets {
+            guard case .aiUsage(let settings) = widget.settings,
+                let minutes = settings.openCodeRefreshMinutesIfOptedIn
+            else { continue }
+            for reference in settings.accountReferences(shownOnly: true) where reference.provider == .openCode {
+                guard let id = resolveAccount(reference.account, at: .openCode, signedIn: signedIn).accountID
+                else { continue }
+                demand[id] = min(demand[id] ?? minutes, minutes)
             }
         }
         return demand
@@ -226,6 +247,8 @@ public struct ServiceDemand: Equatable, Sendable {
     public var railway: RailwayDemand
     /// What widgets showing Claude usage need, by the Claude account they use.
     public var claudeCode: [AccountID: ClaudeCodeNeeds]
+    /// The OpenCode accounts AI Usage widgets fetch, each with how often in minutes.
+    public var openCode: [AccountID: Int]
     /// The agents whose sessions are listed: each session service runs once for its own widget and every Agent
     /// sessions widget showing that agent.
     public var sessions: Set<AgentProvider>
@@ -240,7 +263,7 @@ public struct ServiceDemand: Equatable, Sendable {
     public init(
         kinds: Set<WidgetKind>, placedKinds: Set<WidgetKind>? = nil, usage: UsageServiceDemand,
         railway: RailwayDemand = RailwayDemand(), claudeCode: [AccountID: ClaudeCodeNeeds] = [:],
-        sessions: Set<AgentProvider>? = nil, docker: DockerDemand = DockerDemand(),
+        openCode: [AccountID: Int] = [:], sessions: Set<AgentProvider>? = nil, docker: DockerDemand = DockerDemand(),
         appLauncher: AppLauncherDemand = AppLauncherDemand(), battery: BatteryDemand = BatteryDemand()
     ) {
         self.kinds = kinds
@@ -248,6 +271,7 @@ public struct ServiceDemand: Equatable, Sendable {
         self.usage = usage
         self.railway = railway
         self.claudeCode = claudeCode
+        self.openCode = openCode
         self.sessions = sessions ?? Self.sessionProviders(of: kinds)
         self.docker = docker
         self.appLauncher = appLauncher
@@ -255,20 +279,21 @@ public struct ServiceDemand: Equatable, Sendable {
     }
 
     /// Only what widgets of `kinds` need: services that only other kinds of widget use don't run, previews
-    /// included. Codex, Claude Code and Cursor usage run for their own widgets and AI Usage; Claude Code and Codex
+    /// included. Codex, Claude Code and Cursor usage run for their own widgets and AI Usage, OpenCode's for AI Usage; Claude Code and Codex
     /// sessions for their own widgets and Agent sessions, which alone lists Cursor's and OpenCode's.
     public func limited(to kinds: Set<WidgetKind>) -> ServiceDemand {
         var demand = self
         demand.kinds.formIntersection(kinds)
         demand.placedKinds.formIntersection(kinds)
         demand.usage.providers = usage.providers.filter { provider in
-            let kind: WidgetKind =
+            let kind: WidgetKind? =
                 switch provider {
                 case .codex: .codex
                 case .claudeCode: .claudeCode
                 case .cursor: .cursor
+                case .openCode: nil
                 }
-            return kinds.contains(kind) || kinds.contains(.aiUsage)
+            return kinds.contains(.aiUsage) || (kind.map { kinds.contains($0) } ?? false)
         }
         demand.sessions = sessions.filter { provider in
             let kind: WidgetKind? =
@@ -284,6 +309,7 @@ public struct ServiceDemand: Equatable, Sendable {
         if !kinds.contains(.appLauncher) { demand.appLauncher = AppLauncherDemand() }
         if !kinds.contains(.battery) { demand.battery = BatteryDemand() }
         if !demand.usage.providers.contains(.claudeCode) { demand.claudeCode = [:] }
+        if !demand.usage.providers.contains(.openCode) { demand.openCode = [:] }
         return demand
     }
 

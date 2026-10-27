@@ -38,7 +38,7 @@ the same widget more than once with different settings.
 
 | Widget               | Shows                                                         | Needs                                                      |
 | -------------------- | ------------------------------------------------------------- | ---------------------------------------------------------- |
-| AI Usage             | Codex, Claude Code and Cursor limits side by side in one card | Whatever each agent it shows needs (below)                 |
+| AI Usage             | Codex, Claude Code, Cursor and OpenCode limits side by side in one card | Whatever each agent it shows needs (below); for OpenCode, `opencode auth login` or an API key |
 | Claude Code          | Your plan's 5-hour and weekly limits, for one or more accounts | A Pro or Max plan, connected through Claude Code's status line |
 | Codex                | Plan limits and token use                                     | The `codex` CLI (`brew install codex`), signed in          |
 | Cursor               | Included usage this billing cycle                             | The Cursor app or `cursor-agent`, signed in                |
@@ -100,8 +100,8 @@ slowly drifting gradient, is off until you turn it on.
 ## Your data
 
 Sidelight reads usage and sessions from the tools already on your Mac: their CLIs, local files and sign-ins. It
-has no account of its own and no analytics. Fetching Cursor's usage from its dashboard and refreshing Claude
-limits from Anthropic are both off until you turn them on.
+has no account of its own and no analytics. Fetching Cursor's usage from its dashboard, OpenCode's limits from its
+Console and refreshing Claude limits from Anthropic are all off until you turn them on.
 
 Your settings live in `~/Library/Application Support/Sidelight/config.json`. Edits to the file apply
 immediately, and updates keep it working.

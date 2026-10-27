@@ -7,25 +7,24 @@ extension WidgetMetadata {
         title: "AI Usage",
         systemImage: "gauge.with.dots.needle.67percent",
         tint: .indigo,
-        summary: "Codex, Claude and Cursor limits together",
+        summary: "Codex, Claude, Cursor and OpenCode limits together",
         details: "Each agent's limit closest to running out, or a meter for each of its limits, as that agent "
             + "reports them, and when they reset. Agents measure different things over different windows, so "
             + "Sidelight doesn't add them up. Built from blocks: one per agent, or one per account to watch several "
-            + "Claude accounts, each with its own look."
+            + "Claude or OpenCode accounts, each with its own look."
     )
 }
 
 extension AIUsageProvider {
-    /// The provider's own widget supplies its display name.
-    var kind: WidgetKind {
+    /// The provider's own widget supplies its display name; OpenCode has no widget of its own.
+    var title: String {
         switch self {
-        case .codex: .codex
-        case .claudeCode: .claudeCode
-        case .cursor: .cursor
+        case .codex: WidgetKind.codex.metadata.title
+        case .claudeCode: WidgetKind.claudeCode.metadata.title
+        case .cursor: WidgetKind.cursor.metadata.title
+        case .openCode: "OpenCode"
         }
     }
-
-    var title: String { kind.metadata.title }
 
     /// The same agent, as the sessions widgets know it.
     var agent: AgentProvider {
@@ -33,6 +32,7 @@ extension AIUsageProvider {
         case .codex: .codex
         case .claudeCode: .claudeCode
         case .cursor: .cursor
+        case .openCode: .openCode
         }
     }
 
@@ -42,6 +42,7 @@ extension AIUsageProvider {
         case .codex: "Codex"
         case .claudeCode: "Claude"
         case .cursor: "Cursor"
+        case .openCode: "OpenCode"
         }
     }
 }
@@ -75,7 +76,7 @@ struct AIUsageRow: Identifiable {
     var fullTitle: String { label.map { "\($0), \(provider.title)" } ?? provider.title }
 }
 
-/// Reads the shared Codex, Claude Code and Cursor services (never its own copies) for the blocks it shows, moving
+/// Reads the shared Codex, Claude Code, Cursor and OpenCode services (never its own copies) for the blocks it shows, moving
 /// on with the clock, or frozen in catalogs.
 struct AIUsageWidgetView: View {
     let settings: AIUsageSettings
@@ -83,6 +84,7 @@ struct AIUsageWidgetView: View {
     @Environment(CodexService.self) private var codex
     @Environment(ClaudeCodeService.self) private var claude
     @Environment(CursorService.self) private var cursor
+    @Environment(OpenCodeUsageService.self) private var openCode
     @Environment(AccountStore.self) private var accounts
 
     var body: some View {
@@ -112,6 +114,33 @@ struct AIUsageWidgetView: View {
             .cursor(
                 isConnected: settings.refreshesCursor, usage: cursor.usage, problem: cursor.problem,
                 isStale: cursor.isStale(at: now), now: now)
+        case .openCode:
+            openCodeSummary(account: options.account, at: now)
+        }
+    }
+
+    /// An OpenCode block's account; one that's missing, or needs choosing, says so rather than showing another.
+    private func openCodeSummary(account: AccountID?, at now: Date) -> AIUsageSummary {
+        switch accounts.resolve(account, at: .openCode) {
+        case .account(let id):
+            let fetched = openCode.usage(of: id)
+            return .openCode(
+                isConnected: settings.refreshesOpenCode, usage: fetched?.usage, problem: fetched?.problem,
+                isStale: openCode.isStale(id, at: now), now: now)
+        case .notFound:
+            return AIUsageSummary(
+                provider: .openCode,
+                status: .setup(title: "OpenCode account not found", detail: "Choose one in this widget's builder."))
+        case .chooseAccount:
+            return AIUsageSummary(
+                provider: .openCode,
+                status: .setup(title: "Choose an OpenCode account", detail: "Choose one in this widget's builder."))
+        case .noAccount:
+            return AIUsageSummary(
+                provider: .openCode,
+                status: .setup(
+                    title: "Not signed in to OpenCode",
+                    detail: "Run opencode auth login, or add an API key in Settings, under Accounts."))
         }
     }
 
@@ -902,6 +931,9 @@ struct AIUsageView: View {
         }
         if summary.provider == .cursor, summary.status == .limits {
             lines.append("For the whole account: the editor, the CLI and cloud agents share these pools.")
+        }
+        if summary.provider == .openCode, summary.status == .limits {
+            lines.append("For the whole workspace: OpenCode on every device, and its API keys, share these limits.")
         }
         return lines.joined(separator: "\n")
     }

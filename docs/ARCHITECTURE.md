@@ -19,7 +19,7 @@ Sources/
     ClaudeSessions/       Claude Code's live session registry, transcript titles, links back into a session
     AgentSessions/        One session shape for every agent, so one widget lists them together
     Cursor/               Cursor's included-usage pools from its dashboard endpoint (opt-in), sign-in, chat list
-    OpenCode/             OpenCode 2's session list, read-only from its database
+    OpenCode/             OpenCode 2's session list and sign-in, read-only from its database; Go limits and budgets (opt-in)
     Usage/                Rate-limit windows: pace forecast, reset rollover; refresh backoff
     NowPlaying/           media-control stream state + diff merging
     System/               CPU/memory sampling

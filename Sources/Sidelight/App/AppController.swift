@@ -43,6 +43,7 @@ final class AppController {
             codex: CodexService(accounts: accountAccess),
             claudeCode: ClaudeCodeService(accounts: accountAccess),
             cursor: CursorService(accounts: accountAccess),
+            openCodeUsage: OpenCodeUsageService(accounts: accountAccess),
             nowPlaying: NowPlayingService(),
             claudeSessions: claudeSessions,
             codexSessions: codexSessions,
@@ -204,8 +205,8 @@ final class AppController {
     /// window (which previews every widget) is open, or while the builder previews it. Panels hidden with the
     /// shortcut show nothing, so they need nothing; nor do panels nobody has seen for a minute, on a sleeping or
     /// locked screen, nor a panel the details panel has stood in for a few seconds. Codex, Claude Code and Cursor are
-    /// each needed by their own widget and by an AI Usage widget showing them; they run once for all of them (Claude
-    /// Code once for each account), and fetch on a timer only as often as the most frequent of those that opted in
+    /// each needed by their own widget and by an AI Usage widget showing them, OpenCode by an AI Usage widget; they
+    /// run once for all of them (Claude Code and OpenCode once for each account), and fetch on a timer only as often as the most frequent of those that opted in
     /// asks. The details panel needs only
     /// what it shows, while it can be seen: it's watched on its own, as the panel it covers is ordered out on
     /// purpose. A composition limited to some kinds of widget runs only their services, whatever is shown or
@@ -285,6 +286,9 @@ final class AppController {
         }
         if usage.providers.contains(.cursor) {
             environment.cursor.refreshInterval = usage.cursorRefreshMinutes.map { .seconds($0 * 60) }
+        }
+        if usage.providers.contains(.openCode) {
+            environment.openCodeUsage.demand = demand.openCode
         }
         for provider in AIUsageProvider.allCases {
             environment.usageService(for: provider).setRunning(usage.providers.contains(provider))
