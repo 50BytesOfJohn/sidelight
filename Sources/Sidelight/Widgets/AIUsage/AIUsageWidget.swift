@@ -192,9 +192,19 @@ struct AIUsageView: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 if index > 0 {
-                    HairlineDivider().padding(.vertical, 9)
+                    // One-line blocks stack tightly; a divider would take more room than they do.
+                    if isOneLine(row), isOneLine(rows[index - 1]) {
+                        Color.clear.frame(height: oneLineGap)
+                    } else {
+                        HairlineDivider().padding(.vertical, 9)
+                    }
                 }
-                if showsEachLimit(row) { eachLimitRegularRow(row) } else { regularRow(row) }
+                switch row.variant {
+                case .line: lineRow(row, compact: false)
+                case .tide: tideRow(row, compact: false)
+                case .closestLimit, .eachLimit:
+                    if showsEachLimit(row) { eachLimitRegularRow(row) } else { regularRow(row) }
+                }
             }
         }
         .animation(Motion.layout, value: rows.map(\.id))
@@ -266,9 +276,17 @@ struct AIUsageView: View {
     }
 
     private var compact: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(rows) { row in
-                if showsEachLimit(row) { eachLimitCompactRow(row) } else { compactRow(row) }
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                if index > 0 {
+                    Color.clear.frame(height: isOneLine(row) && isOneLine(rows[index - 1]) ? oneLineGap : 10)
+                }
+                switch row.variant {
+                case .line: lineRow(row, compact: true)
+                case .tide: tideRow(row, compact: true)
+                case .closestLimit, .eachLimit:
+                    if showsEachLimit(row) { eachLimitCompactRow(row) } else { compactRow(row) }
+                }
             }
         }
         .animation(Motion.layout, value: rows.map(\.id))
@@ -623,6 +641,123 @@ struct AIUsageView: View {
         .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
     }
 
+    // MARK: One line
+
+    /// Whether `row` takes a single line in regular and compact cards, whatever it has to say.
+    private func isOneLine(_ row: AIUsageRow) -> Bool { row.variant == .line || row.variant == .tide }
+
+    /// The space between two one-line blocks.
+    private var oneLineGap: CGFloat { 4 }
+
+    /// `◉ Claude ▬▬▬▬░░ 5h 34% in 2h`: the lead on a single line. As the card narrows, the name shortens, then
+    /// goes, then the countdown. Minimal and bar layouts draw it as the closest limit.
+    private func lineRow(_ row: AIUsageRow, compact: Bool) -> some View {
+        let summary = row.summary
+        let lead = summary.status == .limits ? summary.lead(at: now) : nil
+        let size: CGFloat = compact ? 10 : 11
+        return HStack(spacing: 5) {
+            ProviderLogo(provider: row.provider.agent, size: compact ? 12 : 13)
+                .opacity(lead == nil ? 0.6 : 1)
+            ViewThatFits(in: .horizontal) {
+                lineContent(summary, lead: lead, title: row.title, countdown: true, size: size)
+                lineContent(summary, lead: lead, title: row.shortTitle, countdown: true, size: size)
+                lineContent(summary, lead: lead, title: nil, countdown: true, size: size)
+                lineContent(summary, lead: lead, title: nil, countdown: false, size: size)
+            }
+        }
+        .lineLimit(1)
+        .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
+    }
+
+    private func lineContent(
+        _ summary: AIUsageSummary, lead: AIUsageLimit?, title: String?, countdown: Bool, size: CGFloat
+    ) -> some View {
+        HStack(alignment: .center, spacing: 5) {
+            if let title {
+                Text(title).font(.system(size: size, weight: .semibold))
+            }
+            if let lead {
+                freshnessBadge(summary, showsAged: false, showsAge: false).font(.system(size: size - 1.5))
+                meter(lead, summary: summary, height: 3)
+                    .frame(minWidth: 18, maxWidth: .infinity)
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(lead.shortTitle)
+                        .font(.system(size: size - 1.5, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    glancePercent(lead, summary: summary, size: size + 0.5)
+                    if countdown {
+                        limitCountdown(lead, summary: summary, length: .tiny).font(.system(size: size - 1.5))
+                    }
+                }
+            } else {
+                statusLine(summary, size: size)
+            }
+        }
+    }
+
+    /// The tide: one line that is its own meter. It fills with the lead as it's used, a tick marks the window's
+    /// time (a fill past the tick runs out before the reset), and the other limits run as hairlines along its
+    /// bottom edge. Minimal and bar layouts draw it as the closest limit.
+    private func tideRow(_ row: AIUsageRow, compact: Bool) -> some View {
+        let summary = row.summary
+        let lead = summary.status == .limits ? summary.lead(at: now) : nil
+        let size: CGFloat = compact ? 10 : 11
+        return HStack(spacing: 5) {
+            ProviderLogo(provider: row.provider.agent, size: compact ? 12 : 13)
+                .opacity(lead == nil ? 0.6 : 1)
+            ViewThatFits(in: .horizontal) {
+                tideContent(summary, lead: lead, title: row.title, countdown: true, size: size)
+                tideContent(summary, lead: lead, title: row.shortTitle, countdown: true, size: size)
+                tideContent(summary, lead: lead, title: nil, countdown: true, size: size)
+                tideContent(summary, lead: lead, title: nil, countdown: false, size: size)
+            }
+        }
+        .lineLimit(1)
+        .padding(.horizontal, 6)
+        .frame(height: compact ? 18 : 20)
+        .background {
+            TideFill(
+                lead: lead, others: lead == nil ? [] : summary.others(at: now), reading: reading, now: now,
+                isStale: summary.freshness == .stale)
+        }
+        .row(row, spokenValue: spokenValue(summary, variant: row.variant), help: help(row))
+    }
+
+    private func tideContent(
+        _ summary: AIUsageSummary, lead: AIUsageLimit?, title: String?, countdown: Bool, size: CGFloat
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            if let title {
+                Text(title).font(.system(size: size, weight: .semibold))
+            }
+            if let lead {
+                freshnessBadge(summary, showsAged: false, showsAge: false).font(.system(size: size - 1.5))
+                Spacer(minLength: 4)
+                if countdown {
+                    limitCountdown(lead, summary: summary, length: .tiny).font(.system(size: size - 1.5))
+                }
+                Text(lead.shortTitle)
+                    .font(.system(size: size - 1.5, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                glancePercent(lead, summary: summary, size: size + 0.5)
+            } else {
+                statusLine(summary, size: size)
+            }
+        }
+    }
+
+    /// `Not connected ⚙`: why a one-line block has no limits, cut short; the tooltip has the rest.
+    private func statusLine(_ summary: AIUsageSummary, size: CGFloat) -> some View {
+        HStack(spacing: 4) {
+            Spacer(minLength: 4)
+            Text(statusTitle(summary))
+                .font(.system(size: size - 1.5))
+                .foregroundStyle(.secondary)
+                .truncationMode(.tail)
+            statusSymbol(summary).font(.system(size: size - 1))
+        }
+    }
+
     // MARK: Numbers and meters
 
     /// `34% used`, or `Reset` once the window has reset since the numbers were read.
@@ -882,8 +1017,8 @@ struct AIUsageView: View {
         }
         let ordered =
             switch variant {
-            case .closestLimit: summary.shownLimits(.closestLimit, at: now) + summary.others(at: now)
-            case .eachLimit: summary.shownLimits(.eachLimit, at: now)
+            case .closestLimit, .line: summary.shownLimits(variant, at: now) + summary.others(at: now)
+            case .eachLimit, .tide: summary.shownLimits(variant, at: now)
             }
         var parts = ordered.map { limit in
             var part = "\(limit.title) limit, "
@@ -954,5 +1089,57 @@ extension View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(row.fullTitle)
             .accessibilityValue(spokenValue)
+    }
+}
+
+/// A tide block's background: a wash filled to its lead limit in the usage color, a tick where the window's time
+/// stands, and the other limits as hairlines along the bottom edge, at most three. Read as left, the wash drains
+/// and the tick runs backwards, like the meters. Once a window has reset its new usage isn't known, so it's empty.
+private struct TideFill: View {
+    let lead: AIUsageLimit?
+    let others: [AIUsageLimit]
+    let reading: UsageReading
+    let now: Date
+    let isStale: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        GeometryReader { proxy in
+            ZStack(alignment: .bottomLeading) {
+                Color.primary.opacity(0.05)
+                if let lead, !lead.hasReset(at: now) {
+                    Color.usage(percent: lead.window.usedPercent)
+                        .opacity(0.3)
+                        .frame(width: proxy.size.width * fraction(lead))
+                    if let elapsed = lead.window.elapsedFraction(at: now) {
+                        Color.primary.opacity(0.55)
+                            .frame(width: 1)
+                            .offset(x: proxy.size.width * (reading == .remaining ? 1 - elapsed : elapsed))
+                    }
+                }
+                VStack(spacing: 1) {
+                    ForEach(others.prefix(3)) { limit in
+                        Color.primary.opacity(0.08)
+                            .overlay(alignment: .leading) {
+                                if !limit.hasReset(at: now) {
+                                    Color.usage(percent: limit.window.usedPercent)
+                                        .frame(width: proxy.size.width * fraction(limit))
+                                }
+                            }
+                            .frame(height: 1.5)
+                    }
+                }
+            }
+        }
+        .clipShape(shape)
+        .opacity(isStale ? 0.6 : 1)
+        .animation(Motion.gentle, value: lead?.window.usedPercent)
+        .accessibilityHidden(true)
+    }
+
+    /// How much of the width `limit` fills, as used or as left.
+    private func fraction(_ limit: AIUsageLimit) -> CGFloat {
+        let used = min(max(limit.window.usedPercent / 100, 0), 1)
+        return reading == .remaining ? 1 - used : used
     }
 }

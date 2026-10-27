@@ -88,6 +88,8 @@ extension AIUsageBlockVariant {
         switch self {
         case .closestLimit: "Closest limit"
         case .eachLimit: "Each limit"
+        case .line: "One line"
+        case .tide: "Tide (experimental)"
         }
     }
 
@@ -105,6 +107,12 @@ extension AIUsageBlockVariant {
             "A meter for each of your plan's usage pools, always in the same order."
         case (.eachLimit, .openCode):
             "A meter for Go's 5 hours, week and month, then one for each budget, always in that order."
+        case (.line, _):
+            "The closest limit on a single line, with a hairline meter and when it resets. The smallest look, for "
+                + "keeping many agents or accounts in view."
+        case (.tide, _):
+            "A single line that is its own meter: it fills as the closest limit is used, with a tick for the "
+                + "window's time. The other limits run as hairlines along its bottom edge."
         }
     }
 }

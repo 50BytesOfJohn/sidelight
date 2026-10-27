@@ -660,6 +660,26 @@ struct AIUsageSummaryTests {
         #expect(summary.shownLimits(.closestLimit, at: now).map(\.shortTitle) == ["wk"])
     }
 
+    @Test func `a line shows the lead alone, and a tide leads with it, the others after`() {
+        let usage = claudeUsage(
+            session: window(20, resetsIn: 1, minutes: 300), weekly: window(64, resetsIn: 72, minutes: 10_080))
+        let summary = AIUsageSummary.claudeCode(
+            usage: usage, plan: nil, hasLoaded: true, anthropicProblem: nil, now: now)
+        #expect(summary.shownLimits(.line, at: now).map(\.shortTitle) == ["wk"])
+        #expect(summary.shownLimits(.tide, at: now).map(\.shortTitle) == ["wk", "5h"])
+
+        let empty = AIUsageSummary.codex(CodexState(), plan: nil, now: now)
+        #expect(empty.shownLimits(.line, at: now).isEmpty)
+        #expect(empty.shownLimits(.tide, at: now).isEmpty)
+    }
+
+    @Test(arguments: AIUsageBlockVariant.allCases)
+    func `every variant round-trips`(variant: AIUsageBlockVariant) throws {
+        let options = AIUsageBlockOptions(label: "Work", variant: variant)
+        let json = try JSONEncoder().encode(options)
+        #expect(try JSONDecoder().decode(AIUsageBlockOptions.self, from: json) == options)
+    }
+
     @Test func `a reset session keeps its place among each limit`() {
         let usage = claudeUsage(
             session: window(90, resetsIn: -1, minutes: 300), weekly: window(30, resetsIn: 40, minutes: 10_080))

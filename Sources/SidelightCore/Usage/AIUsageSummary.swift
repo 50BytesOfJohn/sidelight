@@ -136,13 +136,15 @@ public struct AIUsageSummary: Equatable, Sendable {
         return limits.filter { $0.id != lead?.id }
     }
 
-    /// The limits a block in `variant` draws: the lead alone, or every limit in order (shortest window first), so
-    /// each keeps its place as usage moves. None without limits to draw.
+    /// The limits a block in `variant` draws: the lead alone, every limit in order (shortest window first), so
+    /// each keeps its place as usage moves, or for a tide the lead first, then the others along its edge. None
+    /// without limits to draw.
     public func shownLimits(_ variant: AIUsageBlockVariant, at now: Date) -> [AIUsageLimit] {
         guard status == .limits else { return [] }
         return switch variant {
-        case .closestLimit: lead(at: now).map { [$0] } ?? []
+        case .closestLimit, .line: lead(at: now).map { [$0] } ?? []
         case .eachLimit: limits
+        case .tide: (lead(at: now).map { [$0] } ?? []) + others(at: now)
         }
     }
 

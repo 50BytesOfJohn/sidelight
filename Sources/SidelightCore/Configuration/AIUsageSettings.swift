@@ -68,6 +68,11 @@ public enum AIUsageBlockVariant: String, Codable, CaseIterable, Sendable {
     case closestLimit
     /// A meter for every limit, always in the same order, so each one stays in its place.
     case eachLimit
+    /// The closest limit on a single line: the mark, a hairline meter, the number and when it resets.
+    case line
+    /// A single line that is itself the meter: it fills with the closest limit, and the others run along its
+    /// bottom edge.
+    case tide
 }
 
 /// What one block shows besides its agent.

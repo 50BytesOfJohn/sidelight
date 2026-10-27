@@ -75,6 +75,8 @@ struct ReleasedConfigurationFixture {
         ])
         aiUsage.setOptions(AIUsageBlockOptions(label: "Work", account: claude.id), for: workClaude)
         aiUsage.setOptions(AIUsageBlockOptions(label: "Personal", variant: .eachLimit), for: personalClaude)
+        aiUsage.setOptions(AIUsageBlockOptions(variant: .line), for: .codex)
+        aiUsage.setOptions(AIUsageBlockOptions(variant: .tide), for: .cursor)
         var cliRailway = RailwaySettings(account: .railwayCLI)
         cliRailway.blocks.setShown(.incidents, false)
 
