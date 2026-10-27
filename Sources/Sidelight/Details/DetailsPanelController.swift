@@ -134,10 +134,11 @@ final class DetailsPanelController {
     var placement: DetailsPlacement { layout.placement }
 
     /// - Parameters:
+    ///   - overFullScreen: Opened from a quick look over a full-screen app, so it shows there, and only there.
     ///   - close: Closes the session, from the close button, Escape or ⌘W.
     ///   - onVisibilityChange: Told when it can no longer be seen at all, or can again.
     init(
-        session: DetailsSession, placement: DetailsPlacement, environment: AppEnvironment,
+        session: DetailsSession, placement: DetailsPlacement, environment: AppEnvironment, overFullScreen: Bool,
         close: @escaping () -> Void, onVisibilityChange: @escaping (_ isOnScreen: Bool) -> Void
     ) {
         layout = DetailsLayout(placement: placement)
@@ -147,10 +148,10 @@ final class DetailsPanelController {
             backing: .buffered,
             defer: false
         )
-        // As the panel: above other apps' windows, on every Space and over full-screen apps, out of ⌘-Tab.
+        // As the panel: above other apps' windows, on every Space but full-screen ones, out of ⌘-Tab.
         window.isFloatingPanel = true
         window.level = .floating
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        window.collectionBehavior = overFullScreen ? .overFullScreen : .panel
         window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = false
@@ -209,6 +210,9 @@ final class DetailsPanelController {
         window.orderFrontRegardless()
         window.makeKey()
     }
+
+    /// Shown, but not on its display's current Space: that's a full-screen one, which it stays off.
+    var isOffActiveSpace: Bool { layout.isShown && !window.isOnActiveSpace }
 
     /// Hides it with the panels, keeping its content: search, choices and scroll position come back with it.
     func hide() {

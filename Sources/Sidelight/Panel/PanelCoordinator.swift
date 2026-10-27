@@ -32,6 +32,10 @@ final class PanelCoordinator: DetailsPresenting {
     @ObservationIgnored private var detailsPanel: DetailsPanelController?
     @ObservationIgnored private let pendingCover = DelayedTask()
     @ObservationIgnored private let pendingDetailsUnseen = DelayedTask()
+    /// Displays whose panel, or the details panel standing in for it, the shortcut brought in over a full-screen app
+    /// for a quick look: until the shortcut again, or the Space changes.
+    @ObservationIgnored private var peekedDisplays: Set<Display.ID> = []
+    @ObservationIgnored private var spaceObservation: NotificationCenter.ObservationToken?
     /// Told with window avoidance whenever the strips change, so Sidelight's own windows move out of the way too.
     @ObservationIgnored var onReservationsChanged: (_ settlingFor: Duration?) -> Void = { _ in }
 
@@ -67,7 +71,11 @@ final class PanelCoordinator: DetailsPresenting {
     }
 
     /// Hides everything, or shows it again: the details panel comes back with its search and scroll where they were.
+    /// Over a full-screen app, which the panels stay off, it brings them in for a quick look instead, and takes them
+    /// away again.
     func toggle() {
+        guard peekedDisplays.isEmpty else { return endPeek() }
+        if !isHidden, peek() { return }
         let before = occupiedRegions
         isHidden.toggle()
         for (id, panel) in panels {
@@ -85,6 +93,44 @@ final class PanelCoordinator: DetailsPresenting {
         // Coming back from hidden, the covered panel's services weren't running: no reason to start them.
         updateCover(immediately: true)
         reservationsChanged(from: before)
+        if !isHidden { peek() }
+    }
+
+    /// Brings in each shown panel whose display shows a full-screen app. Whether there was one. A details panel open
+    /// there, from before, closes first: it can't show over the full-screen app (see `CollectionBehavior.panel`).
+    @discardableResult
+    private func peek() -> Bool {
+        if detailsPanel?.isOffActiveSpace == true { closeDetails() }
+        for (id, panel) in panels where id != details?.displayID && panel.isOffActiveSpace {
+            panel.peek()
+            peekedDisplays.insert(id)
+        }
+        guard !peekedDisplays.isEmpty, spaceObservation == nil else { return !peekedDisplays.isEmpty }
+        // Only watched while peeking: moving to another Space ends the quick look.
+        let workspace = NSWorkspace.shared
+        spaceObservation = workspace.notificationCenter.addObserver(of: workspace, for: .activeSpaceDidChange) {
+            [weak self] _ in await self?.endPeek()
+        }
+        Log.app.info("Peeking over full screen")
+        return true
+    }
+
+    /// Ends the quick look: the panels leave the full-screen Spaces they came in over, and a details panel opened
+    /// from one closes with it.
+    private func endPeek() {
+        if let spaceObservation { NSWorkspace.shared.notificationCenter.removeObserver(spaceObservation) }
+        spaceObservation = nil
+        let peeked = peekedDisplays
+        peekedDisplays = []
+        if let details, peeked.contains(details.displayID) { closeDetails() }
+        for panel in panels.values { panel.endPeek() }
+    }
+
+    /// Gives a display its panel back: over the full-screen app it peeked into, if it did.
+    private func showPanel(of id: Display.ID, animated: Bool) {
+        guard let panel = panels[id] else { return }
+        panel.show(animated: animated)
+        if peekedDisplays.contains(id) { panel.peek() }
     }
 
     func apply(_ configuration: AppConfiguration, displays newDisplays: [Display]) {
@@ -124,6 +170,7 @@ final class PanelCoordinator: DetailsPresenting {
 
     /// Stops everything that runs on its own, before the app quits. Window avoidance puts windows back itself.
     func stop() {
+        endPeek()
         pendingCover.cancel()
         pendingDetailsUnseen.cancel()
         for pending in pendingUnseen.values { pending.cancel() }
@@ -171,13 +218,13 @@ final class PanelCoordinator: DetailsPresenting {
         if let previous = details {
             // Another display's details panel gives way: its panel comes back, in the same step as this one opens.
             endDetails(animated: true)
-            panels[previous.displayID]?.show(animated: true)
+            showPanel(of: previous.displayID, animated: true)
         }
         let session = DetailsSession(
             displayID: display.id, widgetID: placement.widgetID, request: request, stash: environment.stash)
         let controller = DetailsPanelController(
             session: session, placement: DetailsPlacement(display: display, replacing: panel.position),
-            environment: environment,
+            environment: environment, overFullScreen: peekedDisplays.contains(display.id),
             close: { [weak self] in self?.closeDetails() },
             onVisibilityChange: { [weak self] in self?.detailsVisibilityChanged(isOnScreen: $0) })
         details = session
@@ -199,7 +246,7 @@ final class PanelCoordinator: DetailsPresenting {
         guard let session = details else { return }
         let before = occupiedRegions
         endDetails(animated: !isHidden)
-        if !isHidden { panels[session.displayID]?.show(animated: true) }
+        if !isHidden { showPanel(of: session.displayID, animated: true) }
         Log.details.info("Closed details")
         reservationsChanged(from: before, settlingFor: EdgeSlide.settleDelay)
     }

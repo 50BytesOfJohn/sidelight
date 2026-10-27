@@ -74,6 +74,9 @@ final class PanelController {
     /// Bumped on every transition so a stale completion handler can tell it was superseded.
     private var transitionGeneration = 0
     private var visibility: WindowVisibility?
+    /// Holds the content while it shows over a full-screen app for a quick look. The panel's own window stays on the
+    /// other Spaces meanwhile, with nothing in it.
+    private var peekWindow: PanelWindow?
 
     var position: PanelPosition { placement.position }
 
@@ -83,22 +86,7 @@ final class PanelController {
     ) {
         self.placement = placement
         layout = PanelLayout(placement)
-        window = PanelWindow(
-            contentRect: placement.strip,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        window.isFloatingPanel = true
-        window.level = .floating
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-        window.backgroundColor = .clear
-        window.isOpaque = false
-        window.hasShadow = false
-        window.hidesOnDeactivate = false
-        window.becomesKeyOnlyIfNeeded = true
-        window.isMovable = false
-        window.isReleasedWhenClosed = false
+        window = Self.makeWindow(frame: placement.strip, behavior: .panel)
 
         let rootView = PanelRootView(layout: layout) { [weak self] length in
             self?.contentLengthChanged(length)
@@ -115,6 +103,26 @@ final class PanelController {
             layout.isOccluded = isOccluded
             onOcclusionChange(isOccluded)
         }
+    }
+
+    private static func makeWindow(frame: CGRect, behavior: NSWindow.CollectionBehavior) -> PanelWindow {
+        let window = PanelWindow(
+            contentRect: frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        window.isFloatingPanel = true
+        window.level = .floating
+        window.collectionBehavior = behavior
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.hasShadow = false
+        window.hidesOnDeactivate = false
+        window.becomesKeyOnlyIfNeeded = true
+        window.isMovable = false
+        window.isReleasedWhenClosed = false
+        return window
     }
 
     /// The area other windows should stay out of, or `nil` while the panel is hidden. Always the whole strip, so
@@ -154,6 +162,7 @@ final class PanelController {
     /// place. Its widgets stop drawing at once either way.
     func hide(animated: Bool = false) {
         layout.isShown = false
+        endPeek(animated: false)
         guard animated, EdgeSlide.isEnabled, window.isVisible, let content = window.contentView else {
             if let content = window.contentView { EdgeSlide.stop(content) }
             window.orderOut(nil)
@@ -167,8 +176,47 @@ final class PanelController {
         }
     }
 
+    /// Shown, but not on its display's current Space: that's a full-screen one, which the panel stays off.
+    var isOffActiveSpace: Bool { layout.isShown && !window.isOnActiveSpace }
+
+    /// Slides in over the full-screen app on its display, for a quick look: the content moves to a window of its own
+    /// on that Space.
+    func peek() {
+        if let peekWindow, let content = peekWindow.contentView {
+            // Still sliding out: comes back in instead.
+            if EdgeSlide.isEnabled { EdgeSlide.slideIn(content, from: layout.position) }
+            return
+        }
+        guard layout.isShown, let content = window.contentView else { return }
+        let peekWindow = Self.makeWindow(frame: window.frame, behavior: .overFullScreen)
+        self.peekWindow = peekWindow
+        peekWindow.contentView = content
+        visibility?.watch(peekWindow)
+        if EdgeSlide.isEnabled { EdgeSlide.slideIn(content, from: layout.position) }
+        peekWindow.orderFrontRegardless()
+    }
+
+    /// Slides back out of the full-screen Space, giving the content back to the panel's own window.
+    func endPeek(animated: Bool = true) {
+        guard let peekWindow, let content = peekWindow.contentView else { return }
+        let giveBack = { [weak self] in
+            guard let self, self.peekWindow === peekWindow else { return }
+            self.peekWindow = nil
+            peekWindow.orderOut(nil)
+            EdgeSlide.stop(content)
+            window.contentView = content
+            visibility?.watch(window)
+        }
+        guard animated, EdgeSlide.isEnabled else { return giveBack() }
+        EdgeSlide.slideOut(content, past: layout.position) { finished in
+            // Not when it slid back in, peeking again, or was put back at once, giving the content back already.
+            if finished { giveBack() }
+        }
+    }
+
     /// Hides the window for good and releases its SwiftUI content.
     func close() {
+        endPeek(animated: false)
         transitionGeneration += 1
         layout.isShown = false
         window.orderOut(nil)
@@ -204,6 +252,7 @@ final class PanelController {
     }
 
     private func setWindowFrame(_ frame: CGRect, animated: Bool) {
+        peekWindow?.setFrame(frame, display: true)
         guard frame != window.frame else { return }
         guard animated, window.isVisible else {
             window.setFrame(frame, display: true)

@@ -18,13 +18,8 @@ final class WindowVisibility {
     private var isSessionInactive = false
 
     init(of window: NSWindow, onChange: @escaping (_ isOccluded: Bool) -> Void) {
-        self.window = window
         self.onChange = onChange
-        occlusionObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.update() }
-        }
+        observeOcclusion(of: window)
         workspaceObservers = [
             NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
             NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification,
@@ -34,6 +29,23 @@ final class WindowVisibility {
                 [weak self] _ in
                 MainActor.assumeIsolated { self?.workspaceChanged(name) }
             }
+        }
+    }
+
+    /// Watches `window` instead, as when a panel's content moves to a window of its own for a quick look over a
+    /// full-screen app, and tells at once whether anything of it can be seen.
+    func watch(_ window: NSWindow) {
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        observeOcclusion(of: window)
+        update()
+    }
+
+    private func observeOcclusion(of window: NSWindow) {
+        self.window = window
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.update() }
         }
     }
 
