@@ -37,9 +37,12 @@ struct ReleasedConfigurationFixture {
             kind: .appProfile, folder: "/Users/example/.claude-work")
         let studio = Account(
             id: AccountID(rawValue: Self.id(705).uuidString), provider: .runware, name: "Studio", kind: .key)
-        c.accounts = [work, personal, token, claude, studio]
+        let openCode = Account(
+            id: AccountID(rawValue: Self.id(706).uuidString), provider: .openCode, name: "Work OpenCode", kind: .key)
+        c.accounts = [work, personal, token, claude, studio, openCode]
         c.defaultAccounts = [
             .openRouter: work.id, .railway: .railwayCLI, .claudeCode: claude.id, .runware: .runwareCLI,
+            .openCode: .openCodeCLI,
         ]
         var railway = RailwaySettings(
             account: token.id, refreshMinutes: 15,
@@ -68,15 +71,18 @@ struct ReleasedConfigurationFixture {
         let workClaude = AIUsageBlock(.claudeCode, uuid: Self.id(602))
         var aiUsage = AIUsageSettings(
             reading: .remaining, showsOtherLimits: false, refreshesClaudeFromAnthropic: true,
-            claudeRefreshMinutes: 15, refreshesCursor: true, cursorRefreshMinutes: 60)
+            claudeRefreshMinutes: 15, refreshesCursor: true, cursorRefreshMinutes: 60,
+            refreshesOpenCode: true, openCodeRefreshMinutes: 30)
         aiUsage.blocks = BlockLayout(entries: [
             .init(block: workClaude, isShown: true), .init(block: .codex, isShown: true),
             .init(block: personalClaude, isShown: true), .init(block: .cursor, isShown: false),
+            .init(block: .openCode, isShown: true),
         ])
         aiUsage.setOptions(AIUsageBlockOptions(label: "Work", account: claude.id), for: workClaude)
         aiUsage.setOptions(AIUsageBlockOptions(label: "Personal", variant: .eachLimit), for: personalClaude)
         aiUsage.setOptions(AIUsageBlockOptions(variant: .line), for: .codex)
         aiUsage.setOptions(AIUsageBlockOptions(variant: .tide), for: .cursor)
+        aiUsage.setOptions(AIUsageBlockOptions(label: "Work", account: openCode.id), for: .openCode)
         var cliRailway = RailwaySettings(account: .railwayCLI)
         cliRailway.blocks.setShown(.incidents, false)
 
