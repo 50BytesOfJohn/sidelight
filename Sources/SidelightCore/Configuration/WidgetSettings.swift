@@ -36,6 +36,9 @@ public enum WidgetKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case runware
     /// The Mac's battery: charge, whether it's charging, and time left.
     case battery
+    /// GitHub: reviews waiting, your pull requests and their checks, issues, the inbox, repositories. Built from
+    /// blocks.
+    case gitHub
 
     public var id: Self { self }
 
@@ -421,6 +424,7 @@ public enum WidgetSettings: Hashable, Sendable {
     case appLauncher(AppLauncherSettings)
     case runware(RunwareSettings)
     case battery(BatterySettings)
+    case gitHub(GitHubSettings)
 
     public var kind: WidgetKind {
         switch self {
@@ -444,6 +448,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .appLauncher: .appLauncher
         case .runware: .runware
         case .battery: .battery
+        case .gitHub: .gitHub
         }
     }
 
@@ -469,6 +474,7 @@ public enum WidgetSettings: Hashable, Sendable {
         case .appLauncher: .appLauncher(AppLauncherSettings())
         case .runware: .runware(RunwareSettings())
         case .battery: .battery(BatterySettings())
+        case .gitHub: .gitHub(GitHubSettings())
         }
     }
 }

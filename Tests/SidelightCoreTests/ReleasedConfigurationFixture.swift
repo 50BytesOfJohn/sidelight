@@ -39,10 +39,12 @@ struct ReleasedConfigurationFixture {
             id: AccountID(rawValue: Self.id(705).uuidString), provider: .runware, name: "Studio", kind: .key)
         let openCode = Account(
             id: AccountID(rawValue: Self.id(706).uuidString), provider: .openCode, name: "Work OpenCode", kind: .key)
-        c.accounts = [work, personal, token, claude, studio, openCode]
+        let gitHubToken = Account(
+            id: AccountID(rawValue: Self.id(707).uuidString), provider: .gitHub, name: "Work GitHub", kind: .key)
+        c.accounts = [work, personal, token, claude, studio, openCode, gitHubToken]
         c.defaultAccounts = [
             .openRouter: work.id, .railway: .railwayCLI, .claudeCode: claude.id, .runware: .runwareCLI,
-            .openCode: .openCodeCLI,
+            .openCode: .openCodeCLI, .gitHub: .gitHubCLI,
         ]
         var railway = RailwaySettings(
             account: token.id, refreshMinutes: 15,
@@ -121,6 +123,25 @@ struct ReleasedConfigurationFixture {
         runware.balance = RunwareBalanceOptions(title: "Studio", showsFreeCredits: false)
         runware.chart = RunwareChartOptions(days: 30, metric: .requests)
         runware.models = RunwareModelsOptions(rowCount: 5)
+        var gitHub = GitHubSettings(
+            account: gitHubToken.id, repositories: ["acme/storefront", "acme-labs"], refresh: .minutes(15),
+            preset: .everything, glance: .notifications)
+        gitHub.blockOptions.reviewRequests = GitHubReviewOptions(
+            list: GitHubListOptions(maximumRows: 6, hidesWhenEmpty: false, rowStyle: .detailed),
+            includesTeamRequests: false)
+        gitHub.blockOptions.pullRequests = GitHubPullRequestOptions(
+            list: GitHubListOptions(maximumRows: 2), includesDrafts: false)
+        gitHub.blockOptions.issues = GitHubIssueOptions(list: GitHubListOptions(maximumRows: 8), scope: .mentioned)
+        gitHub.blockOptions.notifications = GitHubNotificationOptions(
+            list: GitHubListOptions(rowStyle: .detailed), includesCIActivity: true, participatingOnly: true)
+        gitHub.blockOptions.contributions = GitHubContributionOptions(weeks: 40, showsStreak: false)
+        gitHub.blockOptions.status = GitHubStatusOptions(showsMaintenance: false)
+        gitHub.blocks.add(.repository(Self.id(504)))
+        var gitHubRepository = GitHubRepositoryBlockOptions(repository: "acme/api")
+        gitHubRepository.showsBranch = false
+        gitHubRepository.showsRelease = false
+        gitHubRepository.showsCounts = false
+        gitHub.setRepositoryOptions(gitHubRepository, for: Self.id(504))
         var battery = BatterySettings(style: .pixel, showsTimeRemaining: false, showsPower: true)
         battery.glyph = GlyphBatteryOptions(showsPercent: false)
         battery.ring = RingBatteryOptions(gauge: .ticks)
@@ -213,6 +234,8 @@ struct ReleasedConfigurationFixture {
                     Self.widget(28, .runware(RunwareSettings()), side: false),
                     Self.widget(29, .battery(battery), bar: false),
                     Self.widget(30, .battery(BatterySettings(style: .glyph)), side: false),
+                    Self.widget(31, .gitHub(gitHub), bar: false),
+                    Self.widget(32, .gitHub(GitHubSettings(account: .gitHubCLI)), side: false),
                 ], share: 0.5, alignment: .start),
         ]
         let data = try c.json()

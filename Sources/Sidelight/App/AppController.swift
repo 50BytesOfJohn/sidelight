@@ -57,6 +57,7 @@ final class AppController {
             openRouter: OpenRouterService(transport: composition.openRouterTransport, accounts: accountAccess),
             runware: RunwareService(transport: composition.runwareTransport, accounts: accountAccess),
             docker: DockerService(transport: composition.dockerTransport),
+            gitHub: GitHubService(accounts: accountAccess),
             appLauncher: AppLauncherService(source: composition.appLauncherSource ?? .workspace),
             stash: stash,
             stashCapture: StashCapture(store: stash, configuration: configurationStore),
@@ -199,6 +200,7 @@ final class AppController {
         var services: ServiceDemand
         var openRouter: OpenRouterDemand
         var runware: RunwareDemand
+        var gitHub: GitHubDemand
     }
 
     /// Runs each data service only while a widget that needs it is visible on some display, while the manager
@@ -239,6 +241,7 @@ final class AppController {
                     var openRouter = configuration.openRouterDemand(
                         panels: shown, previewsEveryWidget: previews, previewing: previewed)
                     var runware = configuration.runwareDemand(panels: shown, signedIn: accounts.signedInAppSignIns)
+                    let gitHub = configuration.gitHubDemand(panels: shown, signedIn: accounts.signedInAppSignIns)
                     var services = configuration.serviceDemand(
                         at: panels.map(\.panel.position), previewsEveryWidget: previews, previewing: previewed,
                         signedIn: accounts.signedInAppSignIns)
@@ -248,15 +251,18 @@ final class AppController {
                         services.docker.merge(details.dockerDemand())
                         services.appLauncher.merge(details.appLauncherDemand(in: configuration))
                     }
-                    guard let kinds else { return Demand(services: services, openRouter: openRouter, runware: runware) }
+                    guard let kinds else {
+                        return Demand(services: services, openRouter: openRouter, runware: runware, gitHub: gitHub)
+                    }
                     return Demand(
                         services: services.limited(to: kinds), openRouter: openRouter.limited(to: kinds),
-                        runware: runware.limited(to: kinds))
+                        runware: runware.limited(to: kinds), gitHub: gitHub.limited(to: kinds))
                 }
                 for await demand in demand {
                     self?.runServices(for: demand.services)
                     self?.runOpenRouter(for: demand.openRouter)
                     self?.runRunware(for: demand.runware)
+                    self?.runGitHub(for: demand.gitHub)
                 }
             }
         )
@@ -274,6 +280,13 @@ final class AppController {
     private func runRunware(for demand: RunwareDemand) {
         environment.runware.demand = demand
         environment.runware.setRunning(demand.isShown)
+    }
+
+    /// One service for every GitHub widget. Only placed widgets count, so previews never run `gh` or read a token. A
+    /// shown widget without an account still runs it, to notice the GitHub CLI signing in.
+    private func runGitHub(for demand: GitHubDemand) {
+        environment.gitHub.demand = demand
+        environment.gitHub.setRunning(demand.isShown)
     }
 
     private func runServices(for demand: ServiceDemand) {
@@ -318,6 +331,8 @@ final class AppController {
             case .openRouter: break
             // Theirs goes by the Runware demand, which also counts the details panel.
             case .runware: break
+            // Theirs goes by the GitHub demand.
+            case .gitHub: break
             // The stash is read once and changes only when someone changes it: nothing to run.
             case .stash: break
             // Keeping the Mac awake goes on while its widget is hidden or unseen: that's when it matters.

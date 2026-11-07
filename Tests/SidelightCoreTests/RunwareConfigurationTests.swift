@@ -131,8 +131,9 @@ struct RunwareAccountTests {
     private let token = Account.key(.railway, name: "Token")
     private let studio = Account.key(.runware, name: "Studio")
 
-    @Test func `Railway, Runware and OpenCode prefer their signed-in CLI, the others don't`() {
-        #expect(AccountProvider.allCases.filter(\.prefersSignedInAppSignIn) == [.railway, .runware, .openCode])
+    @Test func `Railway, Runware, OpenCode and GitHub prefer their signed-in CLI, the others don't`() {
+        #expect(
+            AccountProvider.allCases.filter(\.prefersSignedInAppSignIn) == [.railway, .runware, .openCode, .gitHub])
         var configuration = AppConfiguration()
         configuration.accounts = [token, studio]
         #expect(configuration.resolveAccount(nil, at: .railway, signedIn: [.railwayCLI]) == .account(.railwayCLI))
