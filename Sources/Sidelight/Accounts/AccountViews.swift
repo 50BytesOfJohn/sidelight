@@ -11,6 +11,7 @@ extension AccountProvider {
         case .cursor: "cursorarrow.rays"
         case .runware: "photo.stack"
         case .openCode: "terminal"
+        case .gitHub: "arrow.triangle.pull"
         }
     }
 
@@ -23,6 +24,7 @@ extension AccountProvider {
         case .cursor: .gray
         case .runware: .pink
         case .openCode: .blue
+        case .gitHub: .green
         }
     }
 
@@ -33,6 +35,7 @@ extension AccountProvider {
         case .railway: "Account or workspace token"
         case .runware: "Runware API key"
         case .openCode: "OpenCode API key"
+        case .gitHub: "Personal access token"
         case .claudeCode, .codex, .cursor: "Key"
         }
     }
@@ -50,6 +53,10 @@ extension AccountProvider {
         case .openCode:
             "An API key from the OpenCode Console, or OpenCode Go's. Sidelight reads its workspace's Go limits and "
                 + "budgets with it, and never runs a model."
+        case .gitHub:
+            "A classic token with the repo, read:org and notifications scopes, or a fine-grained one that can read "
+                + "pull requests, issues and notifications. Sidelight only reads with it. With the GitHub CLI signed "
+                + "in, you don't need one."
         case .claudeCode, .codex, .cursor:
             ""
         }
@@ -63,6 +70,7 @@ extension AccountProvider {
         case .railway: ("Create a token", URL(string: "https://railway.com/account/tokens")!)
         case .runware: ("Create an API key", URL(string: "https://my.runware.ai/keys")!)
         case .openCode: ("Create an API key", URL(string: "https://opencode.ai/console")!)
+        case .gitHub: ("Create a token", GitHubAPI.tokenWebsite)
         case .claudeCode, .codex, .cursor: nil
         }
     }
@@ -77,6 +85,7 @@ extension AccountProvider {
         case .claudeCode: "Managed by Claude Code"
         case .codex: "Managed by Codex"
         case .cursor: "Managed by Cursor"
+        case .gitHub: "Managed by the GitHub CLI (gh)"
         }
     }
 
@@ -92,6 +101,7 @@ extension AccountProvider {
         case .codex: "Run codex and sign in."
         case .cursor: "Open Cursor and sign in."
         case .openCode: "Run opencode auth login, or add an API key in Settings, under Accounts."
+        case .gitHub: "Run gh auth login, or add a token in Settings, under Accounts."
         }
     }
 }
@@ -146,6 +156,7 @@ struct AccountKeySheet: View {
     @Environment(OpenRouterService.self) private var openRouter
     @Environment(RailwayService.self) private var railway
     @Environment(RunwareService.self) private var runware
+    @Environment(GitHubService.self) private var gitHub
     @Environment(OpenCodeUsageService.self) private var openCode
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
@@ -260,6 +271,8 @@ struct AccountKeySheet: View {
             return await railway.checkToken(key).map { "\($0.title). \($0.advice)" }
         case .runware:
             return await runware.checkKey(key).map { "\($0.title). \($0.advice)" }
+        case .gitHub:
+            return await gitHub.checkToken(key).map { "\($0.title). \($0.advice)" }
         case .openCode:
             return await openCode.checkKey(key).map {
                 $0 == .rejected(status: 401) ? "OpenCode didn't accept the key." : "\($0.title). \($0.advice)"

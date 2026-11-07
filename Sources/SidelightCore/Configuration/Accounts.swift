@@ -9,6 +9,7 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
     case cursor
     case runware
     case openCode
+    case gitHub
 
     public var id: Self { self }
 
@@ -22,13 +23,14 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
         case .cursor: "Cursor"
         case .runware: "Runware"
         case .openCode: "OpenCode"
+        case .gitHub: "GitHub"
         }
     }
 
     /// Whether someone can add accounts with a key or token typed into Sidelight.
     public var acceptsKeys: Bool {
         switch self {
-        case .openRouter, .railway, .runware, .openCode: true
+        case .openRouter, .railway, .runware, .openCode, .gitHub: true
         case .claudeCode, .codex, .cursor: false
         }
     }
@@ -38,7 +40,7 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
     public var acceptsAppProfiles: Bool {
         switch self {
         case .claudeCode: true
-        case .openRouter, .railway, .codex, .cursor, .runware, .openCode: false
+        case .openRouter, .railway, .codex, .cursor, .runware, .openCode, .gitHub: false
         }
     }
 
@@ -55,6 +57,7 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
         case .cursor: Account(id: .cursorApp, provider: self, name: "Cursor", kind: .appSignIn)
         case .runware: Account(id: .runwareCLI, provider: self, name: "Runware CLI", kind: .appSignIn)
         case .openCode: Account(id: .openCodeCLI, provider: self, name: "OpenCode", kind: .appSignIn)
+        case .gitHub: Account(id: .gitHubCLI, provider: self, name: "GitHub CLI", kind: .appSignIn)
         }
     }
 
@@ -62,7 +65,7 @@ public enum AccountProvider: String, Codable, CodingKeyRepresentable, CaseIterab
     /// key account: its CLI is how most people sign in to it. A default someone chose always comes first.
     public var prefersSignedInAppSignIn: Bool {
         switch self {
-        case .railway, .runware, .openCode: true
+        case .railway, .runware, .openCode, .gitHub: true
         case .openRouter, .claudeCode, .codex, .cursor: false
         }
     }
@@ -112,6 +115,7 @@ public struct AccountID: RawRepresentable, Codable, Hashable, Comparable, Sendab
     public static let cursorApp = AccountID(rawValue: "cursor.app")
     public static let runwareCLI = AccountID(rawValue: "runware.cli")
     public static let openCodeCLI = AccountID(rawValue: "openCode.cli")
+    public static let gitHubCLI = AccountID(rawValue: "gitHub.cli")
 }
 
 /// One identity at one provider.
@@ -297,6 +301,7 @@ extension WidgetSettings {
         case .openRouter(let settings): settings.allBalances.map { (.openRouter, $0.options.account) }
         case .railway(let settings): [(.railway, settings.account)]
         case .runware(let settings): [(.runware, settings.account)]
+        case .gitHub(let settings): [(.gitHub, settings.account)]
         case .claudeCode(let settings): [(.claudeCode, settings.account)]
         case .aiUsage(let settings): settings.accountReferences(shownOnly: false)
         case .clock, .codex, .cursor, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system,
@@ -325,6 +330,9 @@ extension WidgetSettings {
         case .runware(var settings) where settings.account == id:
             settings.account = nil
             self = .runware(settings)
+        case .gitHub(var settings) where settings.account == id:
+            settings.account = nil
+            self = .gitHub(settings)
         case .aiUsage(var settings):
             let didForget = settings.forgetAccount(id)
             self = .aiUsage(settings)

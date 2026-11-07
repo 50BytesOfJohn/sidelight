@@ -1,6 +1,6 @@
 # Provider logos
 
-The AI Usage, Agent sessions and Railway widgets use locally bundled artwork to identify the services they read. The
+The AI Usage, Agent sessions, Railway and GitHub widgets use locally bundled artwork to identify the services they read. The
 logos remain the property of their respective owners; they are not Sidelight branding or an indication of endorsement.
 
 Sources for `Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets`:
@@ -21,6 +21,9 @@ Sources for `Sources/Sidelight/Widgets/AIUsage/ProviderLogos.xcassets`:
   OpenCode's name or marks.
 - **Railway:** `logo-light.svg` from [Railway's brand page](https://railway.com/brand), unchanged. The image set
   renders it as a template, so it takes the color of the text around it, like a symbol.
+- **GitHub:** `GitHubLogo` holds the GitHub mark, the path of `mark-github-16.svg` from GitHub's MIT-licensed
+  [Primer Octicons](https://github.com/primer/octicons), unchanged, used as [GitHub's logo
+  guidelines](https://github.com/logos) allow to point to GitHub. It renders as a template, like Railway's.
 
 The asset catalog compiles the SVGs as vector artwork and selects light/dark variants automatically.
 `Package.swift` processes it into the SwiftPM resource bundle, which `scripts/build-app.sh` embeds in the

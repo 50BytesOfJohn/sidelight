@@ -31,6 +31,8 @@ struct AppEnvironment {
     let runware: RunwareService
     /// Containers in each Docker context shown, for every Docker widget and the details panel.
     let docker: DockerService
+    /// GitHub accounts' pull requests, issues, inbox and repositories, for every GitHub widget.
+    let gitHub: GitHubService
     /// Which apps are running, for every App Launcher widget and the details panel.
     let appLauncher: AppLauncherService
     /// Every stashed item, shared by every Stash widget and the details panel.
@@ -61,6 +63,7 @@ extension AppEnvironment {
         [
             calendar, codex, claudeCode, cursor, openCodeUsage, nowPlaying, claudeSessions, codexSessions, cursorChats,
             openCodeSessions, systemStats, noodleComputer, railway, openRouter, runware, docker, appLauncher, battery,
+            gitHub,
         ]
     }
 
@@ -107,6 +110,7 @@ extension View {
             .environment(app.openRouter)
             .environment(app.runware)
             .environment(app.docker)
+            .environment(app.gitHub)
             .environment(app.appLauncher)
             .environment(app.stash)
             .environment(app.stashCapture)

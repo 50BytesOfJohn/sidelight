@@ -86,6 +86,7 @@ extension WidgetKind {
         case .appLauncher: .appLauncher
         case .runware: .runware
         case .battery: .battery
+        case .gitHub: .gitHub
         }
     }
 }
@@ -94,7 +95,7 @@ extension WidgetKind {
     var category: WidgetCategory {
         switch self {
         case .codex, .claudeCode, .cursor, .aiUsage, .claudeSessions, .codexSessions, .agentSessions: .agents
-        case .railway, .openRouter, .runware, .noodleComputer, .docker: .cloud
+        case .railway, .openRouter, .runware, .noodleComputer, .docker, .gitHub: .cloud
         case .clock, .calendar, .nowPlaying, .system, .stash, .awake, .appLauncher, .battery: .essentials
         }
     }
@@ -118,6 +119,7 @@ extension WidgetSettings {
         case .agentSessions(let settings): settings.summary
         case .openRouter(let settings): settings.layoutSummary
         case .runware(let settings): settings.layoutSummary
+        case .gitHub(let settings): settings.summary
         case .stash(let settings): settings.summary
         case .docker(let settings): settings.summary
         case .appLauncher(let settings): settings.summary

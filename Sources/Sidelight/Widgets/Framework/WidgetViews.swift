@@ -28,6 +28,7 @@ struct WidgetContent: View {
         case .appLauncher(let settings): AppLauncherWidgetView(settings: settings, layout: layout)
         case .runware(let settings): RunwareWidgetView(settings: settings, layout: layout)
         case .battery(let settings): BatteryWidgetView(settings: settings, layout: layout)
+        case .gitHub(let settings): GitHubWidgetView(settings: settings, layout: layout)
         }
     }
 }
@@ -64,6 +65,7 @@ struct WidgetSettingsEditor: View {
             AppLauncherSettingsEditor(settings: binding(settings, WidgetSettings.appLauncher))
         case .runware(let settings): RunwareSettingsEditor(settings: binding(settings, WidgetSettings.runware))
         case .battery(let settings): BatterySettingsEditor(settings: binding(settings, WidgetSettings.battery))
+        case .gitHub(let settings): GitHubSettingsEditor(settings: binding(settings, WidgetSettings.gitHub))
         case .nowPlaying: Text("Nothing to set").foregroundStyle(.secondary)
         }
     }

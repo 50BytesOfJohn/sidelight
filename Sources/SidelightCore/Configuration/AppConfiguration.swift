@@ -322,7 +322,7 @@ public struct ServiceDemand: Equatable, Sendable {
             case .codexSessions: providers.insert(.codex)
             case .agentSessions(let settings): providers.formUnion(settings.providers)
             case .clock, .codex, .claudeCode, .cursor, .aiUsage, .calendar, .nowPlaying, .system, .noodleComputer,
-                .railway, .openRouter, .stash, .awake, .docker, .appLauncher, .runware, .battery:
+                .railway, .openRouter, .stash, .awake, .docker, .appLauncher, .runware, .battery, .gitHub:
                 break
             }
         }
@@ -365,7 +365,7 @@ public struct UsageServiceDemand: Equatable, Sendable {
                 providers.formUnion(settings.shownProviders)
                 cursorMinutes += [settings.cursorRefreshMinutesIfOptedIn].compactMap(\.self)
             case .clock, .calendar, .nowPlaying, .claudeSessions, .codexSessions, .system, .noodleComputer, .railway,
-                .agentSessions, .openRouter, .stash, .awake, .docker, .appLauncher, .runware, .battery:
+                .agentSessions, .openRouter, .stash, .awake, .docker, .appLauncher, .runware, .battery, .gitHub:
                 break
             }
         }
